@@ -1,4 +1,9 @@
-import type { HandlerRegistry } from "@muselaunch/platform";
-
-/** Job handlers owned by this module. Registered by apps/worker. */
-export const handlers: HandlerRegistry = {};
+/**
+ * @muselaunch/render — render worker (Node only): HyperFrames producer, FFmpeg, previews,
+ * thumbnails, aspect/audience variants and export packages.
+ */
+export { handlers } from "./handlers";
+export { loadDocMedia, lintForRender, variantId } from "./handlers";
+export { renderCacheKey, renderAssetId, PREVIEW_SCALE } from "./keys";
+export { renderProject, renderSlots, resolveFfmpegBinaries, chromePath } from "./producer";
+export { probe, extractFrame, toSrt } from "./media";
