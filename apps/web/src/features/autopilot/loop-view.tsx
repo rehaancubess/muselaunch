@@ -166,7 +166,10 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
       ) : null}
       {detail.compositions.length ? (
         <section className="space-y-1.5">
-          <p className="text-footnote font-medium text-ink-2">Videos</p>
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-footnote font-medium text-ink-2">Videos</p>
+            {ap.campaignId ? <SideLink href={app.campaign(ap.campaignId)}>Campaign</SideLink> : null}
+          </div>
           <ul className="space-y-1">
             {detail.compositions.map((c) => {
               const r = reviewOf(c.id);

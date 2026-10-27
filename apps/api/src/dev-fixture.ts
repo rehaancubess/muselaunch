@@ -113,6 +113,15 @@ for (const file of readdirSync(extensionDir).filter((f) => /\.ts$/.test(f) && !f
   console.log(`  fixture routes: ${file}`);
 }
 
+/** Fixture opening lines for the directed hook briefs (packages/render DEFAULT_HOOK_BRIEFS). */
+const HOOK_LINES: [RegExp, string][] = [
+  [/outcome/i, "25 calm minutes. Done."],
+  [/question/i, "Why is focus so hard?"],
+  [/pattern interrupt/i, "Stop scrolling. Start focusing."],
+  [/frustration/i, "Your phone keeps winning?"],
+  [/promise/i, "One tap to deep work."],
+];
+
 const textRoutes = [
   ...extraMeta,
   jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req)),
@@ -132,12 +141,40 @@ const textRoutes = [
   jsonRoute("CopyPacks", (req) => resolvePlaceholders(fixtureJson<{ repaired: unknown }>("spark-copy.json").repaired, req)),
   jsonRoute("ClaimValidation", (req) => ({ results: requestText(req).split("\n").filter((l) => l.startsWith('{"id":')).map((l) => ({ id: JSON.parse(l).id, issues: [] })) })),
   // Scene-scoped edit: retitle the first text layer of the first requested scene.
+  // "…create three hooks" routed to composition.variants: N labelled briefs (hooks or audiences).
+  jsonRoute("VariantBriefs", (req) => {
+    const instructions = String((req as { instructions?: unknown }).instructions ?? "");
+    const n = Math.min(5, Math.max(2, Number(instructions.match(/exactly (\d+)/)?.[1] ?? 3)));
+    const hooks = /HOOKS/.test(instructions);
+    const pool = hooks
+      ? [
+          ["Outcome first", "Lead with the outcome: the finished 25-minute session, then how it happened."],
+          ["Sharp question", "Open with a sharp question students already ask themselves about focus."],
+          ["Pattern interrupt", "Pattern interrupt: the phone goes quiet mid-scroll, then the timer starts."],
+          ["Name the frustration", "Name the frustration of losing focus to the phone, then show the app fixing it."],
+          ["Direct promise", "Make a direct promise: one tap to a calm, distraction-free focus session."],
+        ]
+      : [
+          ["Students", "Students during exam season: study-session framing."],
+          ["Remote workers", "Remote workers: deep-work blocks between calls."],
+          ["Creators", "Indie creators: protecting maker time."],
+          ["Parents", "Parents: short focused bursts during nap time."],
+          ["Freelancers", "Freelancers: billable focus without distractions."],
+        ];
+    return { variants: pool.slice(0, n).map(([label, brief]) => ({ label: `Fixture: ${label}`.slice(0, 60), brief })) };
+  }),
   jsonRoute("CompositionEdit", (req) => {
     const text = requestText(req);
     const sceneId = text.match(/Edit ONLY these scenes: (\S+)/)?.[1] ?? text.match(/scene id=(\S+)/)?.[1];
     const block = sceneId ? (text.split(`scene id=${sceneId} `)[1] ?? "").split(/\n\s+\d+\. scene id=/)[0]! : "";
     const layerId = block.match(/layer id=(\S+) text/)?.[1];
     if (!sceneId || !layerId) return { summary: "No text layer to change in that scene", targetSceneIds: sceneId ? [sceneId] : [], ops: [] };
+    // Hook copies (composition.variants "hooks") carry a brief: give each one its own opening line.
+    const brief = text.match(/Hook brief: (.+)/)?.[1] ?? "";
+    const hook = HOOK_LINES.find(([re]) => re.test(brief));
+    if (brief) return { summary: `New opening for this hook: ${brief.slice(0, 120)}`, targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: hook?.[1] ?? brief.replace(/[.:].*$/, "").slice(0, 48) } }] };
+    const instruction = text.match(/Instruction from the founder: (.+)/)?.[1] ?? "";
+    if (/apple|commercial|premium|professional/i.test(instruction)) return { summary: "Premium, product-commercial opening line", targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: "Focus. Beautifully simple." } }] };
     return { summary: "Sharper, question-led opening line", targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: "Where did your focus go today?" } }] };
   }),
   loopRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-strategy-turns.json").turns, (r) => toolNames(r).includes("set_strategy")),

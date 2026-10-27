@@ -1,172 +1,218 @@
-import { mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { CSV, PRESENTER_CLIP, RESULTS, expectFixtureMode, mobileShots, nav, shooter, signUpAndImport } from "./helpers";
 
 /**
- * The MuseLaunch journey, end to end through the real UI and API in FIXTURE MODE:
- * onboarding → import → App DNA confirm → research/Discover → new campaign → concepts → produce →
- * Studio (AI edit, undo) → final render → export → post + tracked link → Insights CSV import →
- * experiment → recommendation.
+ * The phase-2 demo, end to end through the real UI and API in FIXTURE MODE (labelled fixtures for
+ * model calls; real jobs, storage, Brand Guardian rules, tracks/cutouts and HyperFrames renders):
  *
- * AI responses are labelled fixtures (see apps/api/src/dev-fixture.ts); everything else is real.
+ *  1. Import the sample app, start Growth Autopilot from the Creator page with a goal. The loop
+ *     researches, picks a cited audience, sets a hypothesis and stops at its budget checkpoint; an
+ *     owner approves; it produces 2 videos, runs the Brand Guardian, stops at its render checkpoint,
+ *     is approved, renders, and drafts posts that wait for approval (never published).
+ *  2. Upload a founder clip (synthetic presenter fixture), analyse it with SAM, then in the Studio
+ *     Clip tab: "Put the app behind me", "Spotlight my phone", tracking overlay on.
+ *  3. Ask Muse for a professional Apple-style commercial with the app behind me, emphasising search,
+ *     and three hooks → the edit applies → "Create 3" opens the hooks dialog → 3 hook copies →
+ *     each rendered → campaign package exported and downloaded.
+ *  4. Calendar (posts awaiting approval) and Insights (CSV import, the loop's experiment, next steps).
+ *
+ * Screenshots: docs/screenshots/e2e-NN-*.png and e2e-mobile-*.png.
  */
 
-const SAMPLE_LISTING = "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890";
-const API = "http://localhost:8080";
-const SHOTS = fileURLToPath(new URL("../docs/screenshots/", import.meta.url));
-const CSV = fileURLToPath(new URL("../fixtures/analytics/generic-wide.csv", import.meta.url));
-mkdirSync(SHOTS, { recursive: true });
-
-let n = 0;
-async function shot(page: Page, name: string, fullPage = false) {
-  n += 1;
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${SHOTS}e2e-${String(n).padStart(2, "0")}-${name}.png`, fullPage });
-}
+const shot = shooter("e2e");
+const GOAL = "More App Store installs from students before exams";
+const ASK = "Make this look like a professional Apple product commercial. Put the app demonstration behind me, emphasise the search feature, and create three different hooks.";
+const RENDER_WAIT = 20 * 60_000;
 
 test.describe.configure({ mode: "serial" });
 
-test("indie founder journey (fixture mode)", async ({ page, request }) => {
-  const health = await (await request.get(`${API}/health`)).json();
-  expect(health.fixtureMode, "API must run in fixture mode (pnpm dev:fixture)").toBe(true);
+/** Studio: Render → Render final → wait for the real HyperFrames render → close the dialog. */
+async function renderFinal(page: Page, label: string) {
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await page.getByRole("button", { name: "Render final" }).click();
+  await expect(page.getByText(/Latest final render/), `final render of ${label}`).toBeVisible({ timeout: RENDER_WAIT });
+  await page.getByRole("button", { name: "Close" }).last().click();
+}
 
-  const email = `founder${Date.now() % 1_000_000}@tidylabs.dev`;
+/** The autopilot's "Videos" list (links into the Studio). */
+const videoLinks = (page: Page) => page.locator("section").filter({ has: page.getByText("Videos", { exact: true }) }).locator('a[href*="/studio/"]');
 
-  await test.step("landing → sign in with the sample listing", async () => {
-    await page.goto("/");
-    await expect(page.getByText("Fixture mode.")).toBeVisible();
-    await shot(page, "landing");
-    await page.locator("#hero-link").fill(SAMPLE_LISTING);
-    await page.getByRole("button", { name: /Start with my app/ }).click();
-    await page.waitForURL(/\/login/);
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Name").fill("Maya Rao");
-    await page.getByRole("button", { name: "Continue" }).click();
+/** The preview must not flash the "Loading assets" overlay after an in-place edit. */
+async function expectNoLoadingFlash(page: Page) {
+  for (let i = 0; i < 6; i++) {
+    await expect.soft(page.getByText("Loading assets"), "edits update the preview in place").toHaveCount(0);
+    await page.waitForTimeout(250);
+  }
+}
+
+test("phase-2 demo: Growth Autopilot, object-aware Studio, hooks (fixture mode)", async ({ page, request, browser }) => {
+  test.setTimeout(150 * 60_000); // 5 real final renders on a shared machine
+  await expectFixtureMode(request);
+  await signUpAndImport(page, shot, { email: `founder${Date.now() % 1_000_000}@tidylabs.dev` });
+
+  const base = () => page.url().replace(/(\/w\/[^/]+\/a\/[^/]+)\/.*$/, "$1");
+  let loopUrl = "";
+  let studioUrl = "";
+  let campaignUrl = "";
+
+  await test.step("Creator: start Growth Autopilot with a goal", async () => {
+    await nav(page, "Creator");
+    await page.waitForURL(/\/creator$/);
+    await expect(page.getByText("Or let Growth Autopilot run the loop")).toBeVisible();
+    await shot(page, "creator");
+    await page.getByRole("link", { name: /Start Growth Autopilot/ }).click();
+    await page.waitForURL(/\/autopilot/);
+    await page.getByLabel("Goal").fill(GOAL);
+    await page.getByLabel("Budget (credits)").fill("50");
+    await page.getByLabel("Auto-approve renders up to").fill("0");
+    await shot(page, "autopilot-start");
+    await page.getByRole("button", { name: "Start Autopilot" }).click();
+    await page.waitForURL(/\?loop=/);
+    loopUrl = page.url();
   });
 
-  await test.step("onboarding: workspace, country, import", async () => {
-    await page.waitForURL(/\/onboarding/);
-    await expect(page.getByRole("heading", { name: "Set up your studio" })).toBeVisible();
-    await page.getByLabel("Country").selectOption("US");
-    await shot(page, "onboarding-workspace");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("heading", { name: "Add your app" })).toBeVisible();
-    await expect(page.getByText("App Store listing detected.")).toBeVisible();
-    await page.getByRole("button", { name: "Import app" }).click();
-    await expect(page.getByText("Listing imported")).toBeVisible();
-    await shot(page, "onboarding-imported");
-    await page.getByRole("button", { name: "Review App DNA" }).click();
+  await test.step("Autopilot: research → cited audience → hypothesis → budget checkpoint", async () => {
+    await expect(page.getByRole("heading", { name: "Approve spending?" })).toBeVisible({ timeout: 300_000 });
+    // The loop researched (every finding cited), chose an audience and set a hypothesis before asking.
+    await expect(page.getByText("Audience", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Experiment", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/example\.com/).first()).toBeVisible();
+    await expect(page.getByText(/Budget reached|needs ≈\d+ more credits/).first()).toBeVisible();
+    await shot(page, "autopilot-budget-checkpoint", true);
   });
 
-  await test.step("App DNA: verify a claim, confirm", async () => {
-    await page.waitForURL(/\/brand$/);
-    await expect(page.getByRole("button", { name: "Confirm App DNA" })).toBeVisible({ timeout: 120_000 });
-    await shot(page, "app-dna", true);
-    const verify = page.getByRole("button", { name: "Verify" }).first();
-    if (await verify.isVisible()) await verify.click();
-    await page.getByRole("button", { name: "Confirm App DNA" }).click();
-    await expect(page.getByText("App DNA confirmed")).toBeVisible();
+  await test.step("Autopilot: owner approves each checkpoint; render checkpoint after 2 videos + Brand Guardian", async () => {
+    const checkpoint = page.getByRole("heading", { name: "Approve spending?" });
+    const posts = page.getByText("Awaiting approval", { exact: true }).first();
+    let budget = 0;
+    let rendered = false;
+    for (let i = 0; i < 15 && !(await posts.isVisible()); i++) {
+      // Each spend is gated: the budget is raised just enough per approval, and final renders always ask (auto-approve 0).
+      await expect(checkpoint.or(posts)).toBeVisible({ timeout: rendered ? 2 * RENDER_WAIT : 600_000 });
+      if (await posts.isVisible()) break;
+      if (await page.getByText(/^Render \d+ final video\(s\)/).isVisible()) {
+        // Two videos were produced and checked by the Brand Guardian before this checkpoint.
+        await expect(page.getByText(/^Render 2 final video\(s\)/)).toBeVisible();
+        await expect(videoLinks(page)).toHaveCount(2);
+        await shot(page, "autopilot-render-checkpoint", true);
+        rendered = true;
+      } else if (budget > 0) {
+        await shot(page, `autopilot-budget-checkpoint-${budget + 1}`);
+      }
+      budget += 1;
+      await page.getByRole("button", { name: "Approve", exact: true }).click();
+      await expect(page.getByText("Approved", { exact: true }).first()).toBeVisible();
+      await expect(checkpoint).toBeHidden({ timeout: 60_000 }).catch(() => {});
+    }
+    expect(rendered, "the loop asked before rendering").toBe(true);
   });
 
-  await test.step("Discover: research the market", async () => {
-    await page.getByRole("navigation", { name: "Primary" }).first().getByRole("link", { name: "Discover" }).click();
+  await test.step("Autopilot: posts drafted and waiting for approval (never published)", async () => {
+    await expect(page.getByText("Awaiting approval", { exact: true })).toHaveCount(2, { timeout: 120_000 });
+    await expect(page.getByText("The loop never publishes on its own.", { exact: false })).toBeVisible();
+    await expect(page.getByText(/^Published$/)).toHaveCount(0);
+    await shot(page, "autopilot-loop", true);
+    studioUrl = new URL((await videoLinks(page).first().getAttribute("href"))!, page.url()).toString();
+  });
+
+  await test.step("Discover: the loop's research, every finding sourced", async () => {
+    await nav(page, "Discover");
     await page.waitForURL(/\/discover$/);
-    await page.getByRole("button", { name: "Research market" }).click();
-    await page.getByRole("button", { name: "Start research" }).click();
-    await expect(page.getByText("Research finished")).toBeVisible({ timeout: 120_000 });
-    await page.reload();
-    await expect(page.getByRole("button", { name: "Create campaign" }).first()).toBeVisible();
+    await expect(page.getByText(/example\.com/).first()).toBeVisible();
     await shot(page, "discover");
   });
 
-  await test.step("Creator: new campaign → concepts", async () => {
-    await page.getByRole("navigation", { name: "Primary" }).first().getByRole("link", { name: "Creator" }).click();
-    await page.waitForURL(/\/creator$/);
-    await page.locator("#creator-request").fill("Create five promotional Reels introducing Tidy Timer, using a premium Apple-style aesthetic.");
-    await shot(page, "creator");
-    await page.getByRole("button", { name: "Plan campaign" }).click();
-    await page.waitForURL(/\/creator\/new/);
-    await shot(page, "new-campaign");
-    await page.getByRole("button", { name: "Generate concepts" }).click();
-    await page.waitForURL(/\/creator\/campaigns\//);
-    await expect(page.getByRole("button", { name: "Select" }).nth(2)).toBeVisible({ timeout: 120_000 });
-    await shot(page, "concepts", true);
+  await test.step("Library: upload a founder clip (labelled synthetic fixture)", async () => {
+    await page.goto(`${base()}/library`);
+    await page.locator('input[type="file"]').first().setInputFiles({ name: "founder-presenter.mp4", mimeType: "video/mp4", buffer: readFileSync(PRESENTER_CLIP) });
+    await expect(page.getByLabel("Type of founder-presenter.mp4")).toHaveValue("founder_clip");
+    await page.getByRole("checkbox", { name: /I’m the person in this recording/ }).click();
+    await page.getByRole("button", { name: /^Upload 1 file/ }).click();
+    await expect(page.getByLabel("Uploaded")).toBeVisible({ timeout: 120_000 });
   });
 
-  await test.step("produce a concept → composition rendered", async () => {
-    await page.getByRole("button", { name: "Select" }).nth(1).click();
-    await page.getByRole("button", { name: "Produce", exact: true }).click();
-    await page.getByRole("button", { name: "Start production" }).click();
-    await expect(page.getByRole("link", { name: "Open in Studio" })).toBeVisible({ timeout: 240_000 });
-    await expect(page.getByText("Rendered", { exact: true }).first()).toBeVisible({ timeout: 240_000 });
-    await shot(page, "campaign-produced", true);
-  });
-
-  await test.step("Studio: AI edit, apply, undo", async () => {
-    await page.getByRole("link", { name: "Open in Studio" }).click();
-    await page.waitForURL(/\/studio\//);
-    await expect(page.getByRole("tab", { name: "Ask Muse" })).toBeVisible();
+  await test.step("Studio: analyse the clip with SAM, app behind me, spotlight my phone", async () => {
+    await page.goto(studioUrl);
+    await expect(page.getByRole("tab", { name: "Clip" })).toBeVisible({ timeout: 60_000 });
     await shot(page, "studio");
+    await page.getByRole("tab", { name: "Clip" }).click();
+    await page.getByRole("button", { name: "Analyse", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Analyse clip" });
+    await dialog.getByRole("button", { name: "Analyse clip" }).click();
+    await expect(dialog.getByRole("button", { name: "Use in Studio" })).toBeVisible({ timeout: 300_000 });
+    await shot(page, "clip-analysed");
+    await dialog.getByRole("button", { name: "Use in Studio" }).click();
+    await expect(page.getByRole("region", { name: "Tracked objects" })).toBeVisible();
+    await page.getByRole("button", { name: /Put the app behind me/ }).click();
+    await expectNoLoadingFlash(page);
+    await page.getByRole("button", { name: /Spotlight my phone/ }).click();
+    await expectNoLoadingFlash(page);
+    await page.getByRole("switch", { name: "Show tracking on preview" }).click();
+    await page.waitForTimeout(1500);
+    await shot(page, "studio-object-aware");
+  });
+
+  await test.step("Ask Muse: Apple-style commercial + three hooks", async () => {
     await page.getByRole("tab", { name: "Ask Muse" }).click();
-    await page.getByLabel("Edit instruction").fill("Make the opening more engaging");
+    await page.getByLabel("Edit instruction").fill(ASK);
     await page.getByLabel("Edit instruction").press("Enter");
-    await expect(page.getByRole("button", { name: "Apply" })).toBeVisible({ timeout: 120_000 });
-    await shot(page, "studio-ai-edit");
+    await expect(page.getByRole("button", { name: "Apply" })).toBeVisible({ timeout: 180_000 });
+    await shot(page, "ask-muse-edit");
     await page.getByRole("button", { name: "Apply" }).click();
     await expect(page.getByText(/Applied as version/)).toBeVisible();
-    await shot(page, "studio-applied");
-    await page.getByRole("button", { name: "Undo" }).last().click();
-    await page.waitForTimeout(1500);
-  });
-
-  await test.step("final render", async () => {
-    await page.getByRole("button", { name: "Render", exact: true }).click();
-    await page.getByRole("button", { name: "Render final" }).click();
-    // Real HyperFrames render: allow for slow, shared CI machines.
-    await expect(page.getByText(/Latest final render/)).toBeVisible({ timeout: 15 * 60_000 });
-    await shot(page, "studio-final-render");
-    await page.getByRole("button", { name: "Close" }).last().click();
-  });
-
-  await test.step("export package + post with tracked link", async () => {
-    await page.getByRole("link", { name: /Campaign/ }).first().click();
-    await page.waitForURL(/\/creator\/campaigns\//);
-    await page.getByRole("button", { name: "Export package" }).click();
-    await expect(page.getByRole("link", { name: "Download package" })).toBeVisible({ timeout: 240_000 });
-    await page.getByRole("button", { name: "Post" }).first().click();
-    const dialog = page.getByRole("dialog", { name: "New post" });
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel("Channel").selectOption("instagram");
-    await expect(dialog.getByLabel("Media", { exact: true })).not.toHaveValue("");
-    await dialog.getByLabel("Caption").fill("Forward. Focus. Done. Tidy Timer blocks distractions for 25 calm minutes.");
-    await shot(page, "new-post");
-    await dialog.getByRole("button", { name: "Create draft" }).click();
-    await expect(page.getByText("Draft post created")).toBeVisible();
-    await page.reload();
-    await expect(page.getByText(/1 click|0 clicks/).first()).toBeVisible();
-    await shot(page, "campaign-export-links", true);
-  });
-
-  await test.step("Calendar: approve and post manually", async () => {
-    await page.goto(page.url().replace(/\/creator\/campaigns\/.*$/, "/calendar"));
-    // The draft has no time yet, so it's listed under "Not scheduled yet"; open it from there.
-    await page.getByText("Forward. Focus. Done.", { exact: false }).first().click();
-    await page.getByRole("button", { name: "Request approval" }).click();
-    await expect(page.getByRole("button", { name: "Approve this version" })).toBeVisible();
-    await page.getByRole("button", { name: "Approve this version" }).click();
-    await shot(page, "post-approved");
-    const manual = page.getByRole("button", { name: "Post manually instead" });
-    if (await manual.isVisible()) await manual.click();
-    // The founder posts it themselves, then pastes the live URL (test value).
-    await page.getByLabel("Link to the published post").fill("https://www.instagram.com/p/E2E-TEST-POST/");
-    await page.getByRole("button", { name: "Mark as posted" }).click();
-    await page.waitForTimeout(1000);
-    await shot(page, "post-marked-posted");
+    await expectNoLoadingFlash(page);
+    await page.getByRole("button", { name: "Create 3" }).click();
+    const hooks = page.getByRole("dialog", { name: "Try different hooks" });
+    await expect(hooks).toBeVisible();
+    await shot(page, "hooks-dialog");
+    await hooks.getByRole("button", { name: "Create 3 hooks" }).click();
+    await expect(hooks.getByText("New opening", { exact: true })).toHaveCount(3, { timeout: 300_000 });
+    await shot(page, "hooks-created");
     await page.keyboard.press("Escape");
   });
 
-  await test.step("Insights: CSV import → experiment → recommendation", async () => {
-    await page.getByRole("navigation", { name: "Primary" }).first().getByRole("link", { name: "Insights" }).click();
+  await test.step("render the three hooks", async () => {
+    await page.getByRole("link", { name: /Campaign/ }).first().click();
+    await page.waitForURL(/\/creator\/campaigns\//);
+    campaignUrl = page.url();
+    const hookCards = page.locator("article").filter({ hasText: /— Hook \d/ }).getByRole("link", { name: "Edit in Studio" });
+    await expect(hookCards.first()).toBeVisible({ timeout: 60_000 });
+    const hrefs = [...new Set(await hookCards.evaluateAll((els) => els.map((e) => (e as HTMLAnchorElement).href)))];
+    expect(hrefs).toHaveLength(3);
+    for (const [i, href] of hrefs.entries()) {
+      await page.goto(href);
+      await expect(page.getByRole("button", { name: "Render", exact: true })).toBeVisible({ timeout: 60_000 });
+      await renderFinal(page, `hook ${i + 1}`);
+      if (i === 0) await shot(page, "hook-rendered");
+    }
+  });
+
+  await test.step("export and download the campaign package", async () => {
+    await page.goto(campaignUrl);
+    const exportBtn = page.getByRole("button", { name: /^Export (package|again)$/ });
+    await exportBtn.first().click();
+    const link = page.getByRole("link", { name: "Download package" });
+    await expect(link).toBeVisible({ timeout: 300_000 });
+    const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+    const file = `${RESULTS}campaign-package.zip`;
+    await download.saveAs(file);
+    const zip = readFileSync(file);
+    const videos = new Set(zip.toString("latin1").match(/videos\/[\w.-]+\.mp4/g) ?? []);
+    // The 3 hooks + the autopilot video left unedited (the edited one has no final render of its new version).
+    expect(videos.size, "the package holds the rendered videos").toBeGreaterThanOrEqual(4);
+    await shot(page, "campaign", true);
+  });
+
+  await test.step("Calendar: the loop's posts wait for approval", async () => {
+    await page.goto(`${base()}/calendar`);
+    await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+    await expect(page.getByText(/^Published$/)).toHaveCount(0);
+    await shot(page, "calendar", true);
+  });
+
+  await test.step("Insights: CSV import, the loop's experiment, what to try next", async () => {
+    await nav(page, "Insights");
     await page.waitForURL(/\/insights$/);
     await page.getByRole("tab", { name: "Data sources" }).click();
     await page.getByLabel("Choose a CSV file").setInputFiles(CSV);
@@ -175,21 +221,20 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     await page.getByRole("tab", { name: "Overview" }).click();
     await shot(page, "insights-overview", true);
     await page.getByRole("tab", { name: "Experiments" }).click();
-    await page.getByRole("button", { name: "New experiment" }).click();
-    const exp = page.getByRole("dialog");
-    await exp.getByLabel("Title").fill("Question hook vs statement hook");
-    await exp.getByLabel("Hypothesis").fill("A question-led first line earns more link clicks.");
-    await exp.getByLabel("Variant A (control)").fill("Statement hook");
-    await exp.getByLabel("Variant B").fill("Question hook");
-    await exp.getByRole("button", { name: "Create" }).click();
-    await page.getByRole("button", { name: "Analyze with Muse Spark" }).click();
-    // With no per-variant data yet the honest result is "Insufficient data" (the model is skipped).
-    await expect(page.getByText(/Insufficient data|Low confidence|Medium confidence|High confidence/).first()).toBeVisible({ timeout: 120_000 });
-    await shot(page, "insights-experiment");
-    await page.keyboard.press("Escape");
+    await expect(page.getByText("2 variants", { exact: false }).first()).toBeVisible();
+    await shot(page, "insights-experiments");
     await page.getByRole("tab", { name: "What to try next" }).click();
     await page.getByRole("button", { name: "Generate" }).click();
     await expect(page.getByRole("button", { name: "Dismiss" }).first()).toBeVisible({ timeout: 120_000 });
     await shot(page, "insights-recommendations", true);
+  });
+
+  await test.step("phone-width screenshots", async () => {
+    const origin = new URL(page.url()).origin;
+    await mobileShots(browser, page, "e2e-mobile", [
+      { name: "autopilot", path: loopUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Awaiting approval", { exact: true }).first().waitFor() },
+      { name: "campaign", path: campaignUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Compositions").first().waitFor() },
+      { name: "studio", path: studioUrl.replace(origin, ""), wait: (m) => m.getByRole("button", { name: "Render", exact: true }).waitFor() },
+    ]);
   });
 });

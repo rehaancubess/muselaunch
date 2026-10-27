@@ -8,7 +8,7 @@ import type { Composition, Job } from "@muselaunch/contracts";
 import { Badge, Button, CostEstimateView, Dialog, JobProgress, Notice, SegmentedControl, Textarea, type EstimateResult } from "@muselaunch/ui";
 import { ArrowUpRight, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { fetchEstimate } from "@/lib/estimate";
@@ -47,8 +47,16 @@ export function hooksAskedFor(instruction: string): number | null {
 function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; appId: string; hook: HookRef; index: number }) {
   const router = useRouter();
   const base = wsPath(workspaceId, `/compositions/${hook.compositionId}`);
-  const comp = useApiQuery<CompositionResponse>(base, { staleTime: 10_000 });
-  const live = useJob(workspaceId, hook.jobId ?? null, { onSettled: () => void comp.refetch() });
+  const settled = useRef(false);
+  // Poll until the opening is rewritten: a hook listed from an earlier run (or whose job finished
+  // before this card subscribed) has no live job to tell us when its edit landed.
+  const comp = useApiQuery<CompositionResponse>(base, { staleTime: 10_000, refetchInterval: (q) => ((q.state.data?.composition.currentVersion ?? 1) > 1 || settled.current ? false : 3000) });
+  const live = useJob(workspaceId, hook.jobId ?? null, {
+    onSettled: (j) => {
+      if (j.status !== "succeeded") settled.current = true;
+      void comp.refetch();
+    },
+  });
   const version = comp.data?.composition.currentVersion;
   const preview = usePreview(base, version);
   const job = live.job;

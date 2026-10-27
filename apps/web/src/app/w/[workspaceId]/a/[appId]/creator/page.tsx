@@ -8,6 +8,8 @@ import { useState } from "react";
 import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
 import { AgentRunsList } from "@/features/agents";
+import { STATUS_COPY, statusKind } from "@/features/autopilot/types";
+import { useActiveAutopilot } from "@/components/shell/autopilot-chip";
 import { wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { CHANNEL_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
@@ -99,6 +101,43 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
   );
 }
 
+/** Growth Autopilot entry: start one, or jump back into the running loop (one per app). */
+function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: string }) {
+  const r = routes.app(workspaceId, appId);
+  const active = useActiveAutopilot(workspaceId, appId);
+  const needsYou = active?.status === "awaiting_user";
+  return (
+    <Link
+      href={active ? `${r.autopilot}?loop=${encodeURIComponent(active.id)}` : r.autopilot}
+      className="group mb-10 flex flex-col gap-4 rounded-2xl bg-mist/70 p-5 transition-colors hover:bg-mist sm:flex-row sm:items-center sm:p-6"
+    >
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-white">
+        <Rocket className="size-5" aria-hidden />
+      </span>
+      {active ? (
+        <span className="min-w-0 flex-1 space-y-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-headline font-semibold text-ink">Growth Autopilot is running</span>
+            <StatusPill status={statusKind(active.status)}>{STATUS_COPY[active.status]}</StatusPill>
+          </span>
+          <span className="block truncate text-body-sm text-ink-2">{active.goal}</span>
+          <span className="block text-footnote text-ink-3 text-pretty">{needsYou ? "It’s waiting for your decision at a checkpoint." : (active.lastLog?.summary ?? "Working through the loop within your budget.")}</span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 space-y-1">
+          <span className="block text-headline font-semibold text-ink">Or let Growth Autopilot run the loop</span>
+          <span className="block text-body-sm text-ink-2 text-pretty">
+            Give Muse Wonder a goal. It researches, picks an audience with sources, tests a hypothesis, produces and checks the creative, and drafts posts for your approval, within a credit budget you set.
+          </span>
+        </span>
+      )}
+      <span className="inline-flex h-9 shrink-0 items-center gap-2 self-start rounded-full bg-ink px-4 text-body-sm font-medium text-white transition-colors group-hover:bg-ink/85 sm:self-center">
+        {active ? (needsYou ? "Review checkpoint" : "Open loop") : "Start Growth Autopilot"}
+      </span>
+    </Link>
+  );
+}
+
 export default function CreatorPage() {
   const { app, appId, workspaceId } = useCurrentApp();
   const { can } = useWorkspace();
@@ -120,23 +159,7 @@ export default function CreatorPage() {
         )}
       </div>
 
-      <Link
-        href={r.autopilot}
-        className="group mb-10 flex flex-col gap-4 rounded-2xl bg-mist/70 p-5 transition-colors hover:bg-mist sm:flex-row sm:items-center sm:p-6"
-      >
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-white">
-          <Rocket className="size-5" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1 space-y-1">
-          <span className="block text-headline font-semibold text-ink">Or let Growth Autopilot run the loop</span>
-          <span className="block text-body-sm text-ink-2 text-pretty">
-            Give Muse Wonder a goal. It researches, picks an audience with sources, tests a hypothesis, produces and checks the creative, and drafts posts for your approval, within a credit budget you set.
-          </span>
-        </span>
-        <span className="inline-flex h-9 shrink-0 items-center gap-2 self-start rounded-full bg-ink px-4 text-body-sm font-medium text-white transition-colors group-hover:bg-ink/85 sm:self-center">
-          Start Growth Autopilot
-        </span>
-      </Link>
+      <AutopilotCard workspaceId={workspaceId} appId={appId} />
 
       {!dnaReady ? (
         <Notice
@@ -165,14 +188,22 @@ export default function CreatorPage() {
       <Section
         title="Campaigns"
         actions={
-          can("content.write") ? (
-            <Button variant="secondary" size="sm" asChild>
-              <Link href={r.newCampaign}>
-                <Plus className="size-3.5" aria-hidden />
-                New campaign
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={r.autopilot}>
+                <Rocket className="size-3.5" aria-hidden />
+                Growth Autopilot
               </Link>
             </Button>
-          ) : null
+            {can("content.write") ? (
+              <Button variant="secondary" size="sm" asChild>
+                <Link href={r.newCampaign}>
+                  <Plus className="size-3.5" aria-hidden />
+                  New campaign
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         }
       >
         <QueryState

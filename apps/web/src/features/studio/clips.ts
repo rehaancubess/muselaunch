@@ -120,7 +120,7 @@ export function sceneClipLayer(scene: Scene, clipAssetId: string): VideoL | unde
  * callouts stay in front, keeping every other relative order. Emits add_layer + minimal z updates.
  */
 class Stack {
-  private items: { id: string; type: Layer["type"]; z: number; orig: number; order: number; cutout: boolean; layer?: Layer; index?: number }[];
+  private items: { id: string; type: Layer["type"]; z: number; orig: number; order: number; cutout: boolean; layer?: Layer; index?: number; place?: { x?: number; y?: number } }[];
   private n: number;
   constructor(private scene: Scene) {
     this.items = scene.layers.map((l, i) => ({ id: l.id, type: l.type, z: l.box.z, orig: l.box.z, order: i, cutout: l.type === "video" && l.mask?.mode === "cutout" && !l.hidden }));
@@ -141,13 +141,18 @@ class Stack {
     lift.sort((p, q) => p.z - q.z || p.order - q.order).forEach((x, i) => (x.z = Math.min(100, Math.max(x.z, slot + count + i))));
     return slot;
   }
+  /** Move an existing layer (position only; z is managed by `room`). */
+  place(id: string, at: { x?: number; y?: number }) {
+    const it = this.items.find((x) => x.id === id && !x.layer);
+    if (it) it.place = { ...it.place, ...at };
+  }
   add(layer: Layer, z: number, index?: number) {
     this.items.push({ id: layer.id, type: layer.type, z, orig: -1, order: index !== undefined ? -1 : this.n++, cutout: false, layer, index });
     return layer;
   }
   ops(): PatchOp[] {
     const adds: PatchOp[] = this.items.filter((x) => x.layer).map((x) => ({ op: "add_layer", sceneId: this.scene.id, layer: { ...x.layer!, box: { ...x.layer!.box, z: x.z } } as Layer, ...(x.index !== undefined ? { index: x.index } : {}) }));
-    const moves: PatchOp[] = this.items.filter((x) => !x.layer && x.z !== x.orig).map((x) => ({ op: "update_layer", sceneId: this.scene.id, layerId: x.id, set: { box: { z: x.z } } }));
+    const moves: PatchOp[] = this.items.filter((x) => !x.layer && (x.z !== x.orig || x.place)).map((x) => ({ op: "update_layer", sceneId: this.scene.id, layerId: x.id, set: { box: { ...x.place, z: x.z } } }));
     return [...moves, ...adds];
   }
 }
@@ -244,6 +249,25 @@ export interface OneClickTargets {
  * PatchOps for a one-click object-aware effect on `scene`. Returns null when a required object or
  * demo asset is missing. The clip is added full-frame if the scene doesn't show it yet.
  */
+/**
+ * Text that would sit over the presenter or the phone in hand moves up into a headline band (as in
+ * the presenter-depth template), so the cutout never covers the opening line.
+ */
+function liftTextAbove(st: Stack, doc: CompositionDoc, scene: Scene, objs: (ClipObject | undefined)[]) {
+  const boxes = objs.map((o) => o?.meanBbox).filter((b): b is NonNullable<typeof b> => Boolean(b));
+  if (!boxes.length) return;
+  const covers = (b: { x: number; y: number; w: number; h: number }) => boxes.some((o) => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y);
+  const top = Math.min(...boxes.map((b) => b.y));
+  const texts = scene.layers.filter((l) => l.type === "text" && !l.hidden && covers(l.box)).sort((a, b) => a.box.y - b.box.y);
+  // Start inside the platform safe zone (UI overlays never cover it).
+  let y = (doc.safeZone?.top ?? 0.07) + 0.005;
+  for (const t of texts) {
+    if (t.box.y + t.box.h <= top) continue;
+    st.place(t.id, { y: r3(y) });
+    y += t.box.h + 0.012;
+  }
+}
+
 export function oneClickOps(kind: OneClick, doc: CompositionDoc, scene: Scene, objs: OneClickTargets, demo: MediaAsset | undefined): PatchOp[] | null {
   const clipAssetId = (objs.person ?? objs.phone)?.clipAssetId;
   if (!clipAssetId) return null;
@@ -284,6 +308,7 @@ export function oneClickOps(kind: OneClick, doc: CompositionDoc, scene: Scene, o
         slot + 1,
       );
       fronts.forEach((o, i) => st.add(cutoutLayer(at(slot + 2 + i), o, o === objs.person ? "You (in front)" : "Phone in hand (in front)", slot + 2 + i), slot + 2 + i));
+      liftTextAbove(st, doc, scene, [objs.person, objs.phone]);
       return st.ops();
     }
     case "spotlight-phone": {

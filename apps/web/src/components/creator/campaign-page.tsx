@@ -16,11 +16,12 @@ import {
   type StepState,
 } from "@muselaunch/ui";
 import type { Channel } from "@muselaunch/contracts";
-import { ArrowLeft, Copy, Download, FileArchive, Lightbulb, MessageSquareText, Package, Send } from "lucide-react";
+import { ArrowLeft, Copy, Download, FileArchive, Lightbulb, MessageSquareText, Package, Rocket, Send } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAssetUrl } from "@/components/app-icon";
 import { AgentRunsList } from "@/features/agents";
+import { STATUS_COPY as AUTOPILOT_STATUS, type AutopilotListItem } from "@/features/autopilot/types";
 import { EngineBadge, ReviewStatus, useBrandReviews } from "@/features/guardian";
 import { NewPostDialog } from "@/features/publishing/new-post";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -265,6 +266,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
+                    <AutopilotLink workspaceId={workspaceId} appId={appId} campaignId={campaignId} />
                     {campaign.strategyRunId ? (
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={r.run(campaign.strategyRunId)}>
@@ -409,5 +411,20 @@ function CompositionBrandStatus({ workspaceId, compositionId, version }: { works
       <ReviewStatus status={latest.status} />
       <EngineBadge reviewer={latest.reviewer} />
     </div>
+  );
+}
+
+/** "Run by Growth Autopilot": back to the loop that created this campaign (module B). */
+function AutopilotLink({ workspaceId, appId, campaignId }: { workspaceId: string; appId: string; campaignId: string }) {
+  const loops = useApiQuery<{ items: AutopilotListItem[] }>(wsPath(workspaceId, `/apps/${appId}/autopilots`), { staleTime: 30_000, retry: false });
+  const loop = loops.data?.items.find((a) => a.campaignId === campaignId);
+  if (!loop) return null;
+  return (
+    <Button variant="ghost" size="sm" asChild>
+      <Link href={`${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(loop.id)}`}>
+        <Rocket className="size-3.5" aria-hidden />
+        Growth Autopilot · {AUTOPILOT_STATUS[loop.status]}
+      </Link>
+    </Button>
   );
 }
