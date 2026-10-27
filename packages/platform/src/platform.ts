@@ -52,7 +52,7 @@ export function createPlatform(opts: CreatePlatformOptions = {}): Platform {
 
 /** Build a runner for this process and (inline mode) attach it to the dispatcher. */
 export function createRunner(p: Platform, handlers: HandlerRegistry, workerId = `${hostname()}:${process.pid}`): JobRunner {
-  const runner = new JobRunner({ db: p.db, jobs: p.jobs, log: p.log }, handlers, workerId);
+  const runner = new JobRunner({ db: p.db, jobs: p.jobs, log: p.log, platform: p }, handlers, workerId);
   p.inline?.setRunner(runner);
   return runner;
 }

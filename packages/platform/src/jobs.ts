@@ -6,6 +6,7 @@ import type { Config } from "./config";
 import type { CreditService } from "./credits";
 import { AppError, toAppError } from "./errors";
 import type { Logger } from "./logger";
+import type { Platform } from "./platform";
 
 // ---------------------------------------------------------------------------
 // Handler contract (implemented by module packages, registered by the worker)
@@ -26,6 +27,8 @@ export interface JobContext<T extends JobType = JobType> {
   readonly payload: JobPayload<T>;
   readonly workspaceId: string;
   readonly appId?: string;
+  /** Full service container: storage, credits, usage, secrets, cfg. Use with metaClient(platform) etc. */
+  readonly platform: Platform;
   readonly db: Db;
   readonly ws: WorkspaceDb;
   readonly log: Logger;
@@ -294,7 +297,7 @@ export type RunOutcome = "succeeded" | "needs_approval" | "failed" | "retry" | "
 
 export class JobRunner {
   constructor(
-    private readonly deps: { db: Db; jobs: JobService; log: Logger },
+    private readonly deps: { db: Db; jobs: JobService; log: Logger; platform: Platform },
     private readonly handlers: HandlerRegistry,
     readonly workerId: string,
     private readonly leaseMs = 15 * 60_000,
@@ -333,6 +336,7 @@ export class JobRunner {
       payload: (JobPayloads[job.type] as z.ZodTypeAny).parse(job.payload) as never,
       workspaceId: env.workspaceId,
       appId: job.appId,
+      platform: this.deps.platform,
       db,
       ws: db.ws(env.workspaceId),
       log,
