@@ -14,6 +14,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:packages/autopilot
       '@muselaunch/compositions':
         specifier: workspace:*
         version: link:packages/compositions
