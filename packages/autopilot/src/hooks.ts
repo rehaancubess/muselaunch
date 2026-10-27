@@ -14,7 +14,7 @@ async function resumeWaiting(p: Platform, workspaceId: string, appId: string, jo
     if (!ap.waitingOn.jobIds.includes(jobId)) continue;
     const jobs = await ws.collection("jobs").getMany(ap.waitingOn.jobIds);
     if (jobs.length !== ap.waitingOn.jobIds.length || !jobs.every(isTerminalJob)) continue;
-    await enqueueStep(p, ap, resumeKey(ap.id, ap.waitingOn.jobIds));
+    await enqueueStep(p, ap, resumeKey(ap));
     n++;
   }
   return n;
@@ -67,7 +67,7 @@ export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: numb
       for (const ap of waiting.items as Autopilot[]) {
         const jobs = await ws.collection("jobs").getMany(ap.waitingOn.jobIds);
         if (jobs.length === ap.waitingOn.jobIds.length && jobs.every(isTerminalJob)) {
-          await enqueueStep(p, ap, resumeKey(ap.id, ap.waitingOn.jobIds));
+          await enqueueStep(p, ap, resumeKey(ap));
           resumed++;
         }
       }

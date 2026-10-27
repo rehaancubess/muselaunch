@@ -44,7 +44,8 @@ export function hashId(prefix: string, ...parts: (string | number)[]): string {
 /** Log prefix written when the user resumes a failed loop; delegated work gets fresh job keys. */
 export const RETRY_PREFIX = "Retrying after a failure";
 
-export const resumeKey = (autopilotId: string, jobIds: string[]) => `autopilot:${autopilotId}:resume:${shortHash([...jobIds].sort().join(","))}`;
+/** Idempotency key for resuming one particular wait (same jobs awaited again later → a new key). */
+export const resumeKey = (ap: Pick<Autopilot, "id" | "waitingOn" | "updatedAt">) => `autopilot:${ap.id}:resume:${shortHash(`${[...ap.waitingOn.jobIds].sort().join(",")}@${ap.updatedAt}`)}`;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 

@@ -21,14 +21,15 @@ import {
 } from "@muselaunch/agents/testing";
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { buildFromStoryboard } from "@muselaunch/compositions";
-import { createComposition } from "@muselaunch/compositions/store";
-import type { BrandFinding, BrandReview } from "@muselaunch/contracts";
+import { createComposition, getVersion } from "@muselaunch/compositions/store";
+import type { BrandFinding, BrandReview, CompositionDoc } from "@muselaunch/contracts";
 import { createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
 import { setAutopilotClock } from "./state";
 
-export type ReviewPlan = (review: BrandReview) => { status: BrandReview["status"]; findings: BrandFinding[] } | "fail";
+/** Scripted Brand Guardian outcome for a review (`doc` = the reviewed composition version, when the subject is a composition). */
+export type ReviewPlan = (review: BrandReview, doc?: CompositionDoc) => { status: BrandReview["status"]; findings: BrandFinding[] } | "fail";
 
 export interface AutopilotHarness {
   p: ReturnType<typeof createTestPlatform>;
@@ -144,7 +145,8 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
           // Stand-in for module G's Brand Guardian (follows a scripted plan).
           "brand.review": async (ctx: JobContext<"brand.review">) => {
             const review = await ctx.ws.collection("brandReviews").getOrThrow(ctx.payload.reviewId);
-            const plan = reviewPlan(review);
+            const doc = review.subject.entity === "compositions" && review.subjectVersion ? (await getVersion(ctx.ws, review.subject.id, review.subjectVersion)).doc : undefined;
+            const plan = reviewPlan(review, doc);
             reviews.push(`${review.subject.id}@v${review.subjectVersion}:${plan === "fail" ? "fail" : plan.status}`);
             if (plan === "fail") {
               await ctx.ws.collection("brandReviews").update(review.id, { status: "failed", error: "Guardian offline (test)" }, { actor: ctx.actor });

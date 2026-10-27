@@ -94,7 +94,7 @@ async function kick(p: Platform, saved: Autopilot, outcome: Outcome): Promise<st
   if (outcome.kind === "advance") return (await enqueueStep(p, saved, `autopilot:${saved.id}:it${saved.iteration}:${saved.stage}:enter:${saved.log.length}`)).id;
   if (outcome.kind === "wait") {
     const jobs = await p.db.ws(saved.workspaceId).collection("jobs").getMany(saved.waitingOn.jobIds);
-    if (jobs.length === saved.waitingOn.jobIds.length && jobs.every(isTerminalJob)) return (await enqueueStep(p, saved, resumeKey(saved.id, saved.waitingOn.jobIds))).id;
+    if (jobs.length === saved.waitingOn.jobIds.length && jobs.every(isTerminalJob)) return (await enqueueStep(p, saved, resumeKey(saved))).id;
   }
   return undefined;
 }

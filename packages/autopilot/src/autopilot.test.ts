@@ -1,5 +1,6 @@
 import type { Autopilot } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
+import { brandGate } from "@muselaunch/agents";
 import { autopilotDetail, cancelAutopilot, decideCheckpoint, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
 import { tagOf } from "./state";
 import { autopilotDecisionRoute, autopilotHarness, type AutopilotHarness } from "./testing";
@@ -171,13 +172,70 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("v2") && e.summary.includes("passed"))).toBe(true);
   });
 
-  it("checkpoints after two unsuccessful fix rounds; an unavailable Brand Guardian is reported, never counted as a pass", async () => {
-    const h = await autopilotHarness({ reviewPlan: () => ({ status: "blocked", findings: [{ id: "f1", severity: "block", category: "tone", message: "Tone drift", source: "glimmer", evidence: { preferenceIds: [], claimIds: [] } }] }) });
+  it("applies the Brand Guardian's own suggested fix (new version + re-review) before asking Spark", async () => {
+    const h = await autopilotHarness({
+      reviewPlan: (review, doc) => {
+        if (review.subjectVersion !== 1 || !doc) return { status: "passed", findings: [] };
+        const scene = doc.scenes.find((s) => s.layers.some((l) => l.type === "text"))!;
+        const layer = scene.layers.find((l) => l.type === "text")!;
+        return {
+          status: "blocked",
+          findings: [
+            {
+              id: "f_fix",
+              severity: "block",
+              category: "claim",
+              message: "Headline overstates a result",
+              suggestion: "Use the verified wording",
+              source: "rules",
+              location: { sceneId: scene.id, layerId: layer.id },
+              suggestedOps: [{ op: "update_layer", sceneId: scene.id, layerId: layer.id, set: { text: "Focus sessions that fit your day" } }],
+              evidence: { preferenceIds: [], claimIds: [] },
+            },
+          ],
+        };
+      },
+    });
     const id = await start(h);
     const ap = await get(h, id);
+    expect(ap).toMatchObject({ status: "sleeping", stage: "measure" });
+    const fixes = ap.log.filter((e) => e.summary.startsWith("Fix round 1 (iteration 1): applied the Brand Guardian's suggested fix"));
+    expect(fixes).toHaveLength(2);
+    const ws = h.p.db.ws(h.wid);
+    for (const c of await ws.collection("compositions").getMany(ap.compositionIds)) {
+      expect(c.currentVersion).toBe(2);
+      const reviews = await ws.collection("brandReviews").list({ where: [["subject.id", "==", c.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 10 });
+      expect(reviews.items.find((r) => r.subjectVersion === 1)!.findings[0]!.resolution?.state).toBe("applied");
+      expect(reviews.items.find((r) => r.subjectVersion === 2)!.status).toBe("passed");
+    }
+    // No Spark edit was needed, and only v2 was rendered
+    expect((await ws.collection("jobs").list({ limit: 200 })).items.filter((j) => j.type === "composition.edit")).toHaveLength(0);
+    expect(ap.log.filter((e) => e.summary.startsWith("Final render of") && e.summary.includes(" v2 "))).toHaveLength(2);
+  });
+
+  it("checkpoints after two unsuccessful fix rounds, never overrides the Guardian, and renders only what a person overrode; an unavailable Guardian is never a pass", async () => {
+    const h = await autopilotHarness({ reviewPlan: () => ({ status: "blocked", findings: [{ id: "f1", severity: "block", category: "tone", message: "Tone drift", source: "glimmer", evidence: { preferenceIds: [], claimIds: [] } }] }) });
+    const id = await start(h);
+    let ap = await get(h, id);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "verify" });
     expect(tagOf(ap.waitingOn.reason)).toBe("verify:unresolved");
     expect(ap.log.filter((e) => e.summary.startsWith("Fix round")).length).toBe(4); // 2 rounds × 2 videos
+    // Continuing doesn't bypass the render gate: every video is still blocked → honest failure, nothing rendered.
+    await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(ap).toMatchObject({ status: "failed", stage: "render" });
+    expect(ap.log.filter((e) => e.summary.startsWith("Left out of the final render: the Brand Guardian blocks"))).toHaveLength(2);
+    expect(h.rendered).toHaveLength(0);
+    // A person overrides one video's review (with a reason) → resuming renders exactly that one.
+    const [first] = await h.p.db.ws(h.wid).collection("compositions").getMany(ap.compositionIds);
+    await brandGate(h.p, h.wid, { subject: { entity: "compositions", id: first!.id }, version: first!.currentVersion, override: { reason: "Tone is intentional for this audience" }, actor: "u1", canOverride: true, action: "render_final" });
+    await resumeAutopilot(h.p, h.wid, id, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(h.rendered).toEqual([first!.id]);
+    expect(ap.log.some((e) => e.summary.includes("rendering because u1 overrode the Brand Guardian"))).toBe(true);
+    expect(ap.stage).toBe("measure");
 
     const offline = await autopilotHarness({ reviewPlan: () => "fail", workspaceId: "ws_autopilot_2" });
     const id2 = await start(offline);

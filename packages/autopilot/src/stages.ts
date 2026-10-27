@@ -1,11 +1,11 @@
-import { dnaSummary, ingestMemory, loadAppContext, retrieveMemory, validateClaims } from "@muselaunch/agents";
+import { applyFinding, brandGate, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
 import { gatherExperimentData } from "@muselaunch/analytics";
 import { lintDoc, totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
-import { MetricName, type CampaignGoal, type Channel, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
+import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
-import { toAppError } from "@muselaunch/platform";
-import { glimmerClient, untrusted } from "@muselaunch/providers";
+import { AppError, toAppError } from "@muselaunch/platform";
+import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
@@ -371,29 +371,40 @@ const produce: StageFn = async (env, step) => {
 };
 
 // ---------------------------------------------------------------------------
-// verify (lint + claim validation + Brand Guardian; fix rounds via composition.edit)
+// verify (lint + claim validation + Brand Guardian; fix rounds via the Guardian's suggested fixes
+// or scene-scoped composition.edit; never overrides the Guardian)
 // ---------------------------------------------------------------------------
 
 /** Highest automatic fix round started in this iteration (0 = none). */
 const fixRounds = (env: LoopEnv) =>
   Math.max(0, ...env.fullLog.filter((e) => e.stage === "verify" && e.kind === "action" && e.summary.includes(`(iteration ${env.iteration})`)).map((e) => Number(e.summary.match(/^Fix round (\d+)/)?.[1] ?? 0)));
-const reviewIdFor = (compositionId: string, version: number) => hashId("brv", compositionId, version);
 
 function textLayers(doc: CompositionDoc): { sceneId: string; id: string; text: string }[] {
   return doc.scenes.flatMap((s) => s.layers.flatMap((l) => (l.type === "text" && !l.hidden ? [{ sceneId: s.id, id: l.id, text: l.text }] : [])));
 }
 
+/** Blocking Guardian findings nobody dismissed (dismissals are human decisions) or fixed yet. */
+const openBlocks = (r: BrandReview): BrandFinding[] => r.findings.filter((f) => f.severity === "block" && f.resolution?.state !== "dismissed" && f.resolution?.state !== "applied");
+
+/** Newest review of this exact composition version (terminal ones first). */
+async function reviewOf(env: LoopEnv, compositionId: string, version: number): Promise<BrandReview | undefined> {
+  const all = await reviewsFor(env.ws, { entity: "compositions", id: compositionId }, { version, contentHash: "" });
+  return all.find(isTerminalReview) ?? all[0];
+}
+
 interface Blocking {
   compositionId: string;
+  title: string;
   version: number;
   issues: string[];
   sceneIds: string[];
+  review?: BrandReview;
 }
 
 const verify: StageFn = async (env, step) => {
   const comps = await env.ws.collection("compositions").getMany(env.ap.compositionIds);
   if (step.phase === "approved" && step.tag === "verify:unresolved") {
-    env.note("checkpoint", "You approved rendering despite the remaining verification issues.");
+    env.note("checkpoint", "You chose to continue. Videos the Brand Guardian still blocks are left out of the final render unless someone overrides the review with a reason.");
     return { kind: "advance", to: "render" };
   }
   if (step.phase === "resume" && step.tag === "verify:fix") {
@@ -406,18 +417,23 @@ const verify: StageFn = async (env, step) => {
   if (step.phase !== "resume") {
     const gate = await env.budgetGate(env.estimate("brand.review") * comps.length, "Brand Guardian reviews", step.approved);
     if (gate) return gate;
-    const g = glimmerClient(env.p);
-    const jobs: Job[] = [];
+    const waitIds: string[] = [];
+    const reviewIds: string[] = [];
     for (const c of comps) {
-      const reviewId = reviewIdFor(c.id, c.currentVersion);
-      await env.ws.collection("brandReviews").createIfAbsent(
-        { id: reviewId, appId: env.appId, subject: { entity: "compositions", id: c.id }, subjectVersion: c.currentVersion, status: "queued", reviewer: g.configured ? { engine: "glimmer", model: g.model, label: g.label } : { engine: "rules", label: "Deterministic brand rules (Glimmer not connected)" } },
-        { actor: env.ctx.actor },
-      );
-      jobs.push(await env.delegate("brand.review", { appId: env.appId, reviewId }, { key: `review:${c.id}:v${c.currentVersion}`, label: `Asked the Brand Guardian to review “${c.title}” v${c.currentVersion}.`, credits: { operation: "brand.review" } }));
+      const { review, job, reused } = await requestBrandReview(env.p, env.ctx.workspaceId, {
+        subject: { entity: "compositions", id: c.id },
+        version: c.currentVersion,
+        actor: env.ctx.requestedBy,
+        parentJobId: env.ctx.job.id,
+        idempotencyKey: `autopilot:${env.ap.id}:verify:${c.id}:v${c.currentVersion}`,
+      });
+      reviewIds.push(review.id);
+      if (job && !isTerminalJob(job)) waitIds.push(job.id);
+      if (!env.fullLog.some((e) => e.kind === "action" && e.refs.some((r) => r.entity === "brandReviews" && r.id === review.id)))
+        env.note("action", reused ? `Using the existing Brand Guardian review of “${c.title}” v${c.currentVersion}.` : `Asked the Brand Guardian to review “${c.title}” v${c.currentVersion}.`, [ref("brandReviews", review.id), ...(job && !reused ? [ref("jobs", job.id)] : [])]);
     }
-    env.set({ reviewIds: [...new Set([...env.ap.reviewIds, ...comps.map((c) => reviewIdFor(c.id, c.currentVersion))])] });
-    return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "verify:reviews", reason: `Verifying ${comps.length} video(s): lint, claims, Brand Guardian` };
+    env.set({ reviewIds: [...new Set([...env.ap.reviewIds, ...reviewIds])] });
+    return { kind: "wait", jobIds: waitIds, tag: "verify:reviews", reason: `Verifying ${comps.length} video(s): lint, claims, Brand Guardian` };
   }
 
   // resume: verify:reviews
@@ -433,12 +449,14 @@ const verify: StageFn = async (env, step) => {
     const lintErrors = lint.filter((i) => i.level === "error");
     const texts = textLayers(doc);
     const claimCheck = await validateClaims(env.p, { workspaceId: env.ctx.workspaceId, appId: env.appId, texts: texts.map((t) => ({ id: t.id, text: t.text })), jobId: env.ctx.job.id });
-    const review = await env.ws.collection("brandReviews").get(reviewIdFor(c.id, v.version));
-    const reviewDone = review && ["passed", "warnings", "blocked"].includes(review.status);
-    const blocks = reviewDone ? review!.findings.filter((f) => f.severity === "block") : [];
-    const warns = reviewDone ? review!.findings.filter((f) => f.severity === "warn") : [];
+    const review = await reviewOf(env, c.id, v.version);
+    const reviewDone = review && isTerminalReview(review);
+    const blocks = reviewDone ? openBlocks(review!) : [];
+    const warns = reviewDone ? review!.findings.filter((f) => f.severity === "warn" && f.resolution?.state !== "dismissed") : [];
     const engine = review?.reviewer.engine === "glimmer" ? "Muse Glimmer (self-hosted)" : "rules";
-    const reviewText = reviewDone ? `Brand Guardian (${engine}): ${review!.status}${blocks.length ? `, ${blocks.length} blocking` : ""}${warns.length ? `, ${warns.length} warning(s)` : ""}` : `Brand Guardian unavailable (${review?.status ?? "no review"}${review?.error ? `: ${clip(review.error, 120)}` : ""}) — not counted as a pass`;
+    const reviewText = reviewDone
+      ? `Brand Guardian (${engine}): ${review!.status}${blocks.length ? `, ${blocks.length} blocking` : ""}${warns.length ? `, ${warns.length} warning(s)` : ""}`
+      : `Brand Guardian unavailable (${review?.status ?? "no review"}${review?.error ? `: ${clip(review.error, 120)}` : ""}) — not counted as a pass; the render gate reviews it again`;
     env.note(
       "verification",
       `“${c.title}” v${v.version}: lint ${lintErrors.length ? `${lintErrors.length} error(s)` : "ok"}${lint.length - lintErrors.length ? ` (${lint.length - lintErrors.length} warning(s))` : ""} · claims ${claimCheck.ok ? "ok" : `${claimCheck.issues.length} issue(s)`} · ${reviewText}.`,
@@ -457,7 +475,7 @@ const verify: StageFn = async (env, step) => {
           ...blocks.flatMap((f) => (f.location?.sceneId ? [f.location.sceneId] : [])),
         ]),
       ].filter((id) => doc.scenes.some((s) => s.id === id));
-      blocking.push({ compositionId: c.id, version: v.version, issues, sceneIds });
+      blocking.push({ compositionId: c.id, title: c.title, version: v.version, issues, sceneIds, review: reviewDone ? review : undefined });
     }
   }
   if (!blocking.length) return { kind: "advance", to: "render" };
@@ -465,7 +483,7 @@ const verify: StageFn = async (env, step) => {
   if (round >= MAX_FIX_ROUNDS) {
     return env.checkpoint(
       "agent_continue",
-      `After ${round} automatic fix rounds, ${blocking.length} video(s) still have blocking issues: ${blocking.flatMap((b) => b.issues).slice(0, 3).join(" | ")}. Approve to render anyway, or reject to pause and edit them yourself.`,
+      `After ${round} automatic fix rounds, ${blocking.length} video(s) still have blocking issues: ${blocking.flatMap((b) => b.issues).slice(0, 3).join(" | ")}. Fix them in the editor (or override the Brand Guardian there, with a reason), then approve to continue — videos that are still blocked are left out of the final render. Reject to pause the loop.`,
       undefined,
       "verify:unresolved",
       "Verification issues remain after automatic fixes",
@@ -473,28 +491,90 @@ const verify: StageFn = async (env, step) => {
   }
   const gate = await env.budgetGate(env.estimate("composition.edit") * blocking.length, "automatic fixes", step.approved);
   if (gate) return gate;
-  const jobs: Job[] = [];
+  const label = (b: Blocking, how: string) => `Fix round ${round + 1} (iteration ${env.iteration}): ${how} “${b.title}”`;
+  const waitIds: string[] = [];
   for (const b of blocking) {
+    // 1) The Brand Guardian's own validated fix (suggestedOps) → new version + re-review.
+    const fixable = b.review && b.review.subjectVersion === b.version ? openBlocks(b.review).find((f) => f.suggestedOps?.length) : undefined;
+    if (fixable) {
+      try {
+        const out = await applyFinding(env.p, env.ctx.workspaceId, { reviewId: b.review!.id, findingId: fixable.id, actor: env.ctx.requestedBy });
+        if (out.reReview.job) waitIds.push(out.reReview.job.id);
+        env.note("action", `${label(b, "applied the Brand Guardian's suggested fix to")} (${clip(fixable.suggestion ?? fixable.message, 160)}) → v${out.version.version}; re-reviewing.`, [
+          ref("compositions", b.compositionId),
+          ref("brandReviews", b.review!.id),
+          ...(out.reReview.job ? [ref("jobs", out.reReview.job.id)] : []),
+        ]);
+        continue;
+      } catch (raw) {
+        const e = toAppError(raw);
+        env.note("observation", `The Brand Guardian's suggested fix for “${b.title}” couldn't be applied (${e.opts.userMessage ?? e.message}); asking Muse Spark for a scene-scoped fix instead.`, [ref("brandReviews", b.review!.id)]);
+      }
+    }
+    // 2) Scene-scoped AI edit of exactly the flagged scenes.
     const patchId = hashId("pch", env.ap.id, env.iteration, b.compositionId, round + 1);
     const instruction = clip(`Fix these verification issues without changing anything else: ${b.issues.join(" | ")}`, 2000);
     await env.ws.collection("compositionPatches").createIfAbsent(
       { id: patchId, compositionId: b.compositionId, baseVersion: b.version, ops: [], summary: "Generating fix…", source: "ai", instruction, affectedSceneIds: b.sceneIds, status: "proposed" },
       { actor: env.ctx.actor },
     );
-    jobs.push(
-      await env.delegate(
-        "composition.edit",
-        { appId: env.appId, compositionId: b.compositionId, baseVersion: b.version, instruction, sceneIds: b.sceneIds, patchId, autoApply: true },
-        { key: `fix:${b.compositionId}:r${round + 1}`, label: `Fix round ${round + 1} (iteration ${env.iteration}): asked Muse Spark to fix ${b.issues.length} issue(s) in a scene-scoped edit.`, credits: { operation: "composition.edit" } },
-      ),
+    const job = await env.delegate(
+      "composition.edit",
+      { appId: env.appId, compositionId: b.compositionId, baseVersion: b.version, instruction, sceneIds: b.sceneIds, patchId, autoApply: true },
+      { key: `fix:${b.compositionId}:r${round + 1}`, label: `${label(b, `asked Muse Spark for a scene-scoped fix of ${b.issues.length} issue(s) in`)}.`, credits: { operation: "composition.edit" } },
     );
+    waitIds.push(job.id);
   }
-  return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "verify:fix", reason: `Applying fix round ${round + 1}` };
+  return { kind: "wait", jobIds: waitIds, tag: "verify:fix", reason: `Applying fix round ${round + 1}` };
 };
 
 // ---------------------------------------------------------------------------
-// render (checkpoint unless within auto-approve)
+// render (Brand Guardian gate per video; checkpoint unless within auto-approve)
 // ---------------------------------------------------------------------------
+
+interface RenderPlan {
+  id: string;
+  title: string;
+  version: number;
+  durationSec: number;
+  credits: number;
+}
+
+/**
+ * Videos that may be rendered: no lint errors, and the Brand Guardian gate passes for the exact
+ * version. A blocked review is only rendered when a person already overrode it for a final render
+ * (the loop itself never overrides).
+ */
+async function renderable(env: LoopEnv, comps: Composition[]): Promise<{ plan: RenderPlan[]; excluded: { compositionId: string; why: string }[] }> {
+  const plan: RenderPlan[] = [];
+  const excluded: { compositionId: string; why: string }[] = [];
+  for (const c of comps) {
+    const v = await getVersion(env.ws, c.id, c.currentVersion);
+    const assets = await env.ws.collection("mediaAssets").getMany([...new Set(v.doc.scenes.flatMap((s) => s.layers.flatMap((l) => ("assetId" in l && l.assetId ? [l.assetId] : "screenAssetId" in l ? [l.screenAssetId] : []))))]);
+    const lintErrors = lintDoc(v.doc, { assets: Object.fromEntries(assets.map((a) => [a.id, a])) }).filter((i) => i.level === "error" && /missing asset/.test(i.message));
+    if (lintErrors.length) {
+      excluded.push({ compositionId: c.id, why: `“${c.title}” v${v.version} has missing media (${clip(lintErrors[0]!.message, 120)})` });
+      continue;
+    }
+    try {
+      await brandGate(env.p, env.ctx.workspaceId, { subject: { entity: "compositions", id: c.id }, version: v.version, actor: env.ctx.requestedBy, canOverride: false, action: "render_final" });
+    } catch (raw) {
+      const e = toAppError(raw);
+      const reason = (e.opts.details as { reason?: string } | undefined)?.reason;
+      if (reason === "brand_review_running") throw new AppError("CONFLICT", "Brand Guardian is still reviewing a video", { retryable: true });
+      if (e.code !== "APPROVAL_REQUIRED") throw raw;
+      const review = await reviewOf(env, c.id, v.version);
+      if (!review?.overrides.some((o) => o.action === "render_final")) {
+        excluded.push({ compositionId: c.id, why: `the Brand Guardian blocks “${c.title}” v${v.version} (${clip(e.message.replace(/^Brand Guardian blocked this final render:\s*/, ""), 160)})` });
+        continue;
+      }
+      env.note("observation", `“${c.title}” v${v.version}: rendering because ${review.overrides.find((o) => o.action === "render_final")!.by} overrode the Brand Guardian with a reason.`, [ref("brandReviews", review.id)]);
+    }
+    const durationSec = Math.round(totalDuration(v.doc));
+    plan.push({ id: c.id, title: c.title, version: v.version, durationSec, credits: env.estimate("render.final", { durationSec }) });
+  }
+  return { plan, excluded };
+}
 
 const render: StageFn = async (env, step) => {
   const comps = await env.ws.collection("compositions").getMany(env.ap.compositionIds);
@@ -508,14 +588,14 @@ const render: StageFn = async (env, step) => {
     env.note("observation", `Rendered ${ok.length} final MP4(s) with HyperFrames.`, ok.map((j) => ref("compositions", (j.payload as { compositionId: string }).compositionId)));
     return { kind: "advance", to: "schedule" };
   }
-  const plan = [] as { id: string; version: number; durationSec: number; credits: number }[];
-  for (const c of comps) {
-    const v = await getVersion(env.ws, c.id, c.currentVersion);
-    const durationSec = Math.round(totalDuration(v.doc));
-    plan.push({ id: c.id, version: v.version, durationSec, credits: env.estimate("render.final", { durationSec }) });
+  const { plan, excluded } = await renderable(env, comps);
+  for (const x of excluded) {
+    const summary = `Left out of the final render: ${x.why}. Fix it in the editor (or override with a reason) to include it.`;
+    if (!env.fullLog.some((e) => e.summary === summary && e.refs.some((r) => r.id === x.compositionId))) env.note("verification", summary, [ref("compositions", x.compositionId)]);
   }
+  if (!plan.length) throw fail("CONFLICT", "No video passed the Brand Guardian render gate", "The Brand Guardian blocks every video in this iteration. Fix them in the editor — or override with a reason — then resume the loop.");
   const total = plan.reduce((n, x) => n + x.credits, 0);
-  const renderApproved = (step.phase === "approved" && step.tag === "render:approve") || step.tag === "render:approve";
+  const renderApproved = step.tag === "render:approve";
   const gate = await env.budgetGate(total, `final renders (${plan.length})`, step.approved && step.phase !== "approved");
   if (gate) return gate;
   if (!renderApproved && total > env.ap.budget.autoApproveCredits) {
@@ -525,7 +605,7 @@ const render: StageFn = async (env, step) => {
   else env.note("decision", `Final render auto-approved: ≈${total} credits is within the ${env.ap.budget.autoApproveCredits}-credit auto-approve limit.`);
   const jobs: Job[] = [];
   for (const x of plan) {
-    jobs.push(await env.delegate("render.final", { appId: env.appId, compositionId: x.id, version: x.version, format: "mp4" }, { key: `render:${x.id}:v${x.version}`, label: `Final render of v${x.version} (${x.durationSec}s).`, credits: { operation: "render.final", params: { durationSec: x.durationSec } } }));
+    jobs.push(await env.delegate("render.final", { appId: env.appId, compositionId: x.id, version: x.version, format: "mp4" }, { key: `render:${x.id}:v${x.version}`, label: `Final render of “${x.title}” v${x.version} (${x.durationSec}s), Brand Guardian gate passed.`, credits: { operation: "render.final", params: { durationSec: x.durationSec } } }));
   }
   return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "render", reason: `Rendering ${jobs.length} final video(s)` };
 };
@@ -575,6 +655,8 @@ const schedule: StageFn = async (env, step) => {
       postIds.push(post.id);
       refs.push(ref("scheduledPosts", post.id));
       try {
+        // Same Brand Guardian gate as the approval route (never overridden by the loop).
+        await brandGate(env.p, env.ctx.workspaceId, { subject: { entity: "scheduledPosts", id: post.id }, actor: env.ctx.requestedBy, canOverride: false, action: "request_approval" });
         const { approval } = await requestPostApproval(env.p, env.ctx.workspaceId, post.id, env.ctx.actor);
         refs.push(ref("approvals", approval.id));
       } catch (raw) {
