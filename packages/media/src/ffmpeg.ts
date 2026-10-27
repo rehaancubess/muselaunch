@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants } from "node:fs";
 import { createRequire } from "node:module";
 import type { Readable } from "node:stream";
 import { AppError } from "@muselaunch/platform";
@@ -14,7 +14,10 @@ const require = createRequire(import.meta.url);
 function fromPackage(name: string, pick: (mod: unknown) => unknown): string | undefined {
   try {
     const path = pick(require(name));
-    return typeof path === "string" && existsSync(path) ? path : undefined;
+    if (typeof path !== "string") return undefined;
+    // Package binaries need their install script (chmod/download); skip them when not runnable.
+    accessSync(path, constants.X_OK);
+    return path;
   } catch {
     return undefined;
   }
@@ -72,8 +75,8 @@ function run(bin: string, args: string[], opts: RunOptions = {}): Promise<{ stdo
     });
     child.on("error", (e) =>
       finish(
-        (e as NodeJS.ErrnoException).code === "ENOENT"
-          ? new AppError("PROVIDER_NOT_CONFIGURED", `${bin} not found. Install FFmpeg or set FFMPEG_PATH/FFPROBE_PATH.`, { retryable: false })
+        ["ENOENT", "EACCES"].includes((e as NodeJS.ErrnoException).code ?? "")
+          ? new AppError("PROVIDER_NOT_CONFIGURED", `${bin} not runnable (${(e as NodeJS.ErrnoException).code}). Install FFmpeg or set FFMPEG_PATH/FFPROBE_PATH.`, { retryable: false })
           : e,
       ),
     );
@@ -198,7 +201,8 @@ export async function probeMedia(path: string, opts: RunOptions = {}): Promise<M
   try {
     json = await ffprobeJson(path, [], opts);
   } catch (err) {
-    if (err instanceof AppError && err.code === "PROVIDER_NOT_CONFIGURED") throw err;
+    // Only "ffprobe ran and could not read this file" means unknown media; anything else is a real failure.
+    if (!(err instanceof AppError) || err.code !== "INTERNAL") throw err;
     return { kind: "unknown", container: "unknown", rotation: 0, vfr: false, hasAudio: false, hasVideo: false };
   }
   const streams = json.streams ?? [];
