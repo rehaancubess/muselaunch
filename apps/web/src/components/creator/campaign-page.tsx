@@ -29,7 +29,7 @@ import { QueryState } from "@/components/states";
 import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { AppDnaResponse, CampaignDetailResponse, JobResponse, Page } from "@/lib/api-types";
 import { isActive, useJob } from "@/lib/jobs";
-import { CHANNEL_LABEL, GOAL_LABEL, relativeTime } from "@/lib/labels";
+import { CHANNEL_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
@@ -252,7 +252,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-title-1 font-semibold text-balance">{campaign.name}</h1>
-                      <StatusPill status={statusKindOf(campaign.status)}>{humanizeStatus(campaign.status)}</StatusPill>
+                      <StatusPill status={statusKindOf(campaign.status)}>{campaignStatusLabel(campaign.status)}</StatusPill>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge tone="outline">{GOAL_LABEL[campaign.goal]}</Badge>

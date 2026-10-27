@@ -1,6 +1,6 @@
 "use client";
 import type { Campaign } from "@muselaunch/contracts";
-import { Button, EmptyState, List, ListRow, Notice, Section, Skeleton, StatusPill, humanizeStatus, statusKindOf } from "@muselaunch/ui";
+import { Button, EmptyState, List, ListRow, Notice, Section, Skeleton, StatusPill, statusKindOf } from "@muselaunch/ui";
 import { ArrowUp, Clapperboard, Dna, Plus, Rocket } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,7 +10,7 @@ import { QueryState } from "@/components/states";
 import { AgentRunsList } from "@/features/agents";
 import { wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
-import { CHANNEL_LABEL, GOAL_LABEL, relativeTime } from "@/lib/labels";
+import { CHANNEL_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useCurrentApp, useWorkspace } from "@/lib/workspace";
@@ -92,7 +92,7 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
           }
           title={c.name}
           subtitle={`${GOAL_LABEL[c.goal]}${c.channels.length ? ` for ${c.channels.map((ch) => CHANNEL_LABEL[ch]).join(", ")}` : ""}, started ${relativeTime(c.createdAt)}`}
-          trailing={<StatusPill status={statusKindOf(c.status)}>{humanizeStatus(c.status)}</StatusPill>}
+          trailing={<StatusPill status={statusKindOf(c.status)}>{campaignStatusLabel(c.status)}</StatusPill>}
         />
       ))}
     </List>

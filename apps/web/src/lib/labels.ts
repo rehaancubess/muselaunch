@@ -1,4 +1,12 @@
+import { humanizeStatus } from "@muselaunch/ui";
 import type { AngleType, CampaignGoal, Channel, DeliverableKind, MediaRole } from "@muselaunch/contracts";
+
+/** Campaign status as people read it ("review" means the videos are produced and waiting for the founder). */
+export function campaignStatusLabel(status: string): string {
+  if (status === "review") return "Ready to review";
+  if (status === "producing") return "Producing";
+  return humanizeStatus(status);
+}
 
 export const GOAL_LABEL: Record<CampaignGoal, string> = {
   awareness: "Awareness",
