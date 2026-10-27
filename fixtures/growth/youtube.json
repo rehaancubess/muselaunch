@@ -1,0 +1,14 @@
+{
+  "_fixture": "Documented YouTube Data API v3 shapes; synthetic values",
+  "_source": ["https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol", "https://developers.google.com/youtube/v3/docs/videos#resource", "https://developers.google.com/youtube/v3/docs/channels/list"],
+  "token": { "access_token": "ya29.FIXTURE_ACCESS", "expires_in": 3599, "refresh_token": "1//FIXTURE_REFRESH", "scope": "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly", "token_type": "Bearer" },
+  "channels": { "kind": "youtube#channelListResponse", "etag": "FIXTUREetag", "pageInfo": { "totalResults": 1, "resultsPerPage": 5 }, "items": [{ "kind": "youtube#channel", "etag": "FIXTUREetag2", "id": "UCFIXTURE0000000000000001", "snippet": { "title": "Fixture Apps", "customUrl": "@fixtureapps", "publishedAt": "2024-01-01T00:00:00Z" } }] },
+  "sessionLocation": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&upload_id=FIXTURE_UPLOAD_ID",
+  "video": {
+    "kind": "youtube#video",
+    "etag": "FIXTUREvideoetag",
+    "id": "FIXTUREvid01",
+    "snippet": { "publishedAt": "2026-10-27T10:00:00Z", "channelId": "UCFIXTURE0000000000000001", "title": "Plan your week in 15 seconds", "description": "Fixture description", "tags": ["productivity"], "categoryId": "28" },
+    "status": { "uploadStatus": "uploaded", "privacyStatus": "public", "license": "youtube", "embeddable": true, "publicStatsViewable": true, "selfDeclaredMadeForKids": false, "containsSyntheticMedia": false }
+  }
+}

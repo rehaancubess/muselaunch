@@ -39,3 +39,6 @@ export function publishingAdapterForChannel(channel: Channel): ProviderAdapter |
  * (Reddit/communities: drafts + manual only, never implicit auto-posting).
  */
 export const MANUAL_ONLY_CHANNELS: readonly Channel[] = ["threads", "reddit", "producthunt", "hackernews", "newsletter", "website", "app_store", "google_play", "other"];
+
+/** Test utilities (scripted fetch + documented fixtures); not used by product code. */
+export { FakeFetch, growthFixture, type RecordedRequest } from "./fake-fetch";
