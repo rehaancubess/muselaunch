@@ -116,6 +116,9 @@ importers:
 
   packages/agents:
     dependencies:
+      '@muselaunch/compositions':
+        specifier: workspace:*
+        version: link:../compositions
       '@muselaunch/contracts':
         specifier: workspace:*
         version: link:../contracts

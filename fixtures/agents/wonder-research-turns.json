@@ -1,0 +1,21 @@
+{
+  "_fixture": "Scripted Muse Wonder function_call turns for a research run (Responses API function_call items). URLs match spark-search.json. NOT live output.",
+  "turns": [
+    [
+      { "name": "set_plan", "args": { "goal": "Find formats, competitor hooks and creators for Tidy Timer", "hypotheses": ["Study-with-me timers resonate with students"], "tasks": [ { "title": "Trends", "role": "research", "objective": "Short-form study formats" }, { "title": "Creators", "role": "research", "objective": "Study creators" } ] } },
+      { "name": "search_web", "args": { "query": "study with me pomodoro short video trend 2026" } }
+    ],
+    [
+      { "name": "save_finding", "args": { "kind": "format", "statement": "Study-with-me videos with an on-screen timer are a recurring short-form format.", "interpretation": "Tidy Timer's 25:00 timer screen could anchor a study-with-me style Reel.", "sourceUrls": ["https://trends.example.com/2026/study-with-me-format"], "confidence": 0.8, "channels": ["tiktok", "youtube"], "tags": ["students"] } },
+      { "name": "save_finding", "args": { "kind": "trend", "statement": "Focus apps get 10 million new users a month.", "sourceUrls": ["https://made-up.example.net/stats"], "confidence": 0.9 } },
+      { "name": "save_competitor_observation", "args": { "name": "Forest", "websiteUrl": "https://www.forestapp.cc", "positioning": "Grow a virtual tree while you focus", "observedHooks": ["App blocking as the main hook"], "comparison": [ { "topic": "Blocking", "them": "Leads with app blocking", "us": "Also blocks distracting apps during sessions" } ], "sourceUrls": ["https://blog.example.org/focus-apps-compared"] } },
+      { "name": "fetch_page", "args": { "url": "https://calmstudy.example.com/about" } }
+    ],
+    [
+      { "name": "save_opportunity", "args": { "title": "Study-with-me Reel using the real timer screen", "topic": "Study-with-me", "audience": "Students", "whyRelevant": "The format centres on a visible timer, which is Tidy Timer's core screen.", "proposedAngle": "A 25-minute session compressed into 15 seconds with the real timer UI.", "confidence": 0.7, "score": 78, "effort": "low", "contentType": "short_video", "channels": ["tiktok", "instagram"], "geography": ["us"], "sourceUrls": ["https://trends.example.com/2026/study-with-me-format"], "findingIds": ["$ID:fnd:0"] } },
+      { "name": "save_creator_prospect", "args": { "channel": "youtube", "handle": "@calmstudy", "url": "https://calmstudy.example.com/about", "displayName": "CalmStudy", "niche": "Pomodoro study-with-me streams", "relevanceScore": 82, "relevanceReasons": ["Daily Pomodoro sessions match the core feature"], "sourceUrls": ["https://calmstudy.example.com/about"], "publicContacts": [ { "kind": "email", "value": "hello@calmstudy.example.com", "sourceUrl": "https://calmstudy.example.com/about" }, { "kind": "email", "value": "ceo@calmstudy.example.com", "sourceUrl": "https://calmstudy.example.com/about" } ] } },
+      { "name": "save_creator_prospect", "args": { "channel": "tiktok", "handle": "@inventedcreator", "niche": "Productivity", "relevanceScore": 60, "sourceUrls": ["https://blog.example.org/focus-apps-compared"] } },
+      { "name": "finish", "args": { "summary": "Study-with-me timer videos are a strong fit; Forest leads with blocking; CalmStudy is a relevant creator." } }
+    ]
+  ]
+}

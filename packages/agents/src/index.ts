@@ -2,6 +2,7 @@ import type { HandlerRegistry } from "@muselaunch/platform";
 import { appAnalyzeHandler } from "./dna/analyze";
 import { appImportHandler } from "./import/handler";
 import { memoryIngestHandler } from "./memory";
+import { researchRunHandler } from "./research/handler";
 
 export { retrieveMemory, rememberPreference, ingestMemory, rankPreferences, type MemoryResult } from "./memory";
 export { validateClaims, unsupportedSpecifics, initialClaimState } from "./claims";
@@ -14,5 +15,6 @@ export { paletteFromImages, dominantColors } from "./dna/palette";
 export const handlers: HandlerRegistry = {
   "app.import": appImportHandler,
   "app.analyze": appAnalyzeHandler,
+  "research.run": researchRunHandler,
   "memory.ingest": memoryIngestHandler,
 };

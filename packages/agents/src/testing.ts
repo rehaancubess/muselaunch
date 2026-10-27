@@ -187,3 +187,102 @@ export function installFakeGlimmer(p: Platform, reply: (messages: { role: string
   installGlimmerClient(p, new GlimmerClient(p, { fetch: f, baseUrl: "http://glimmer.test:8080" }));
   return { requests };
 }
+
+// ---------------------------------------------------------------------------
+// Seeds and scripted agents
+// ---------------------------------------------------------------------------
+
+/** Wonder tool-loop route: answers each Wonder turn with the next scripted function calls (placeholders resolved). */
+export function wonderRoute(turns: { name: string; args: unknown }[][], match: (req: MetaRequest) => boolean = (req) => toolNames(req).includes("finish")): MetaRoute & { turns: number } {
+  let n = 0;
+  const route = ((req: MetaRequest) => {
+    if (!String(req.model).startsWith("muse-wonder") || !match(req)) return undefined;
+    const turn = turns[Math.min(n, turns.length - 1)]!;
+    n++;
+    route.turns = n;
+    return responsesBody({ model: "muse-wonder-1.0", functionCalls: turn.map((c) => ({ name: c.name, args: resolvePlaceholders(c.args, req) })) });
+  }) as unknown as MetaRoute & { turns: number };
+  route.turns = 0;
+  return route;
+}
+
+/** Spark search-grounded calls (web_search tool present). */
+export function searchRoute(name = "spark-search.json"): MetaRoute {
+  return (req) => {
+    if (!((req.tools ?? []) as MetaRequest[]).some((t) => t.type === "web_search")) return undefined;
+    const f = fixtureJson<{ text: string; citations: { url: string; title?: string }[]; searchResults: { url: string; title?: string; snippet?: string }[] }>(name);
+    return responsesBody({ text: f.text, citations: f.citations, searchResults: f.searchResults });
+  };
+}
+
+/** Plain text answers for instructions containing `needle`. */
+export function textRoute(needle: string, text: string): MetaRoute {
+  return (req) => (String(req.instructions ?? "").includes(needle) && !schemaName(req) ? responsesBody({ text }) : undefined);
+}
+
+export interface SeededApp {
+  appId: string;
+  screenshotIds: string[];
+  iconId: string;
+  claimIds: { verified: string[]; review: string[] };
+  featureIds: string[];
+}
+
+/** Seed an app with App DNA, evidence, claims and real (generated test PNG) screenshots in storage. */
+export async function seedApp(p: Platform, workspaceId: string, opts: { name?: string } = {}): Promise<SeededApp> {
+  const ws = p.db.ws(workspaceId);
+  const actor = "seed";
+  const app = await ws.collection("apps").create({ name: opts.name ?? "Tidy Timer", platforms: ["ios"], category: "Productivity", status: "draft", dnaStatus: "needs_review", storeUrls: { ios: "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890" }, targetCountries: ["US"] }, { actor });
+  const put = async (name: string, buf: Buffer) => {
+    const key = `workspaces/${workspaceId}/apps/${app.id}/seed/${name}.png`;
+    const r = await p.storage.put(key, buf, { contentType: "image/png" });
+    return { key, ...r };
+  };
+  const mk = async (role: "screenshot" | "icon", name: string, buf: Buffer) => {
+    const s = await put(name, buf);
+    return ws.collection("mediaAssets").create({ appId: app.id, kind: "image", role, origin: "store_import", storagePath: s.key, mimeType: "image/png", bytes: s.bytes, sha256: s.sha256, width: 90, height: 160, status: "ready", title: `${name}`, isProductTruth: true, license: { type: "public_listing", sourceUrl: "https://is1-ssl.mzstatic.com/image/thumb/fixture/x.png" } }, { actor });
+  };
+  const shots = [await mk("screenshot", "timer-screen", await png([250, 250, 250])), await mk("screenshot", "report-screen", await png([22, 24, 36]))];
+  const icon = await mk("icon", "icon", await png([92, 70, 220], [64, 64]));
+  const src = { kind: "store_listing" as const, url: "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890", retrievedAt: new Date().toISOString() };
+  const ev = async (kind: "feature" | "pricing" | "visual", fact: string, assetId?: string) =>
+    ws.collection("appEvidence").create({ appId: app.id, kind, fact, source: src, assetId, observedAt: new Date().toISOString(), reviewState: "verified" }, { actor });
+  const e1 = await ev("feature", "Pomodoro timer with custom session lengths");
+  const e2 = await ev("feature", "Block distracting apps during focus sessions");
+  const e3 = await ev("feature", "Weekly focus reports with streaks");
+  await ev("pricing", "App Store price: Free");
+  await ev("visual", "Screenshot 1 of 2 from the App Store listing", shots[0]!.id);
+  const featureIds = ["feat_timer", "feat_block", "feat_reports"];
+  await ws.collection("brandProfiles").create(
+    {
+      id: app.id,
+      appId: app.id,
+      version: 1,
+      status: "confirmed",
+      oneLiner: "A calm Pomodoro timer that blocks distracting apps and tracks weekly focus streaks.",
+      description: "Tidy Timer is an iPhone focus app built around custom-length Pomodoro sessions.",
+      platforms: ["ios"],
+      audiences: [{ id: "aud_students", name: "Students", description: "Students studying in focused blocks.", painPoints: ["Phone distractions"], motivations: ["Finish revision"], evidenceIds: [] }],
+      problems: [{ id: "prob_1", text: "Phones pull attention away during focused work.", evidenceIds: [e2.id] }],
+      features: [
+        { id: featureIds[0]!, name: "Pomodoro timer", description: "Custom-length focus sessions.", evidenceIds: [e1.id], assetIds: [shots[0]!.id] },
+        { id: featureIds[1]!, name: "Distraction blocking", description: "Blocks distracting apps during sessions.", evidenceIds: [e2.id], assetIds: [] },
+        { id: featureIds[2]!, name: "Weekly focus reports", description: "Weekly reports with streaks.", evidenceIds: [e3.id], assetIds: [shots[1]!.id] },
+      ],
+      differentiators: [{ id: "diff_1", text: "Calm design.", evidenceIds: [] }],
+      monetization: { model: "freemium", evidenceIds: [] },
+      tone: { voice: ["calm", "encouraging"], vocabularyUse: ["focus"], vocabularyAvoid: ["hustle"] },
+      visual: { palette: [{ hex: "#5C46DC", role: "primary" }], styleKeywords: ["minimal"], logoAssetIds: [icon.id], sampleAssetIds: shots.map((s) => s.id) },
+      preferredCtas: ["Start your first focus session"],
+      prohibitedClaims: ["works offline"],
+    },
+    { actor },
+  );
+  await ws.collection("apps").update(app.id, { iconAssetId: icon.id, brandProfileId: app.id, dnaStatus: "confirmed" }, { actor });
+  const claim = (text: string, state: "verified" | "needs_review", evidenceIds: string[]) =>
+    ws.collection("claims").create({ appId: app.id, text, evidenceIds, confidence: 0.9, state, origin: "extracted", speculative: state !== "verified" }, { actor });
+  const c1 = await claim("Block distracting apps during focus sessions", "verified", [e2.id]);
+  const c2 = await claim("Weekly focus reports with streaks", "verified", [e3.id]);
+  const c3 = await claim("The #1 focus app for students", "needs_review", [e1.id]);
+  return { appId: app.id, screenshotIds: shots.map((s) => s.id), iconId: icon.id, claimIds: { verified: [c1.id, c2.id], review: [c3.id] }, featureIds };
+}
