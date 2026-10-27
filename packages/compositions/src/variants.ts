@@ -62,6 +62,7 @@ function carry(from: Layer, onto: Layer): Layer {
     device: ["device", "screenAssetId", "screenKind", "trimInSec", "frameColor", "shadow"],
     shape: ["shape", "fill", "gradientTo", "blurPx"],
     block: ["blockId", "params"],
+    effect: ["effect", "target", "color", "intensity", "assetId", "inset"],
   };
   for (const k of [...keep, ...byType[from.type]]) if (src[k] !== undefined) out[k] = clone(src[k]);
   if (from.type === "text" && onto.type === "text") {

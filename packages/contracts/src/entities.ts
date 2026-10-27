@@ -6,7 +6,9 @@ import { CreditLedgerEntry, CreditReservation, Subscription } from "./billing";
 import { Campaign, CampaignBrief, CampaignVariant, CopyPack, Storyboard } from "./campaign";
 import { Composition, CompositionPatch, CompositionVersion } from "./composition";
 import { Job, JobEvent } from "./jobs";
-import { MediaAsset, Segmentation, Transcript } from "./media";
+import { ClipAnalysis, MediaAsset, Segmentation, Transcript } from "./media";
+import { BrandReview } from "./guardian";
+import { Autopilot } from "./autopilot";
 import { Approval, ConnectedAccount, OutreachDraft, OutreachProspect, Publication, ScheduledPost } from "./publishing";
 import { AudienceSegment, Opportunity, ResearchFinding, ResearchRun } from "./research";
 import { AuditLogEntry, WorkspaceMember } from "./tenancy";
@@ -64,6 +66,9 @@ export const ENTITY_SCHEMAS = {
   reservations: CreditReservation,
   subscriptions: Subscription,
   modelUsage: ModelUsageEvent,
+  clipAnalyses: ClipAnalysis,
+  brandReviews: BrandReview,
+  autopilots: Autopilot,
 } as const;
 
 export type EntityName = keyof typeof ENTITY_SCHEMAS;
@@ -118,6 +123,9 @@ export const ID_PREFIX: Record<EntityName, string> = {
   reservations: "rsv",
   subscriptions: "sub",
   modelUsage: "use",
+  clipAnalyses: "cla",
+  brandReviews: "brv",
+  autopilots: "apl",
 };
 
 /** Input to `create`: system fields are set by the repository. */

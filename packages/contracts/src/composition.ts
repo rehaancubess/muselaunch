@@ -27,6 +27,10 @@ export const TEMPLATE_IDS = [
   "stat-card", // REAL measured number with source label
   "cta-endcard", // logo, CTA, store badges
   "carousel-slide", // static slide for carousels/static ads/thumbnails
+  // Object-aware templates (SAM tracks + HyperFrames compositing):
+  "presenter-depth", // presenter cutout in FRONT, app demo + motion graphics BEHIND them (depth sandwich)
+  "object-spotlight", // tracked real object (e.g. the phone) highlighted; callouts anchored to it follow it
+  "product-in-hand", // real app recording placed onto the tracked phone in the presenter's hand
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -86,10 +90,31 @@ export const Animation = z.object({
 });
 export type Animation = z.infer<typeof Animation>;
 
+/**
+ * Pins a layer to a SAM-tracked object: the compiler drives the layer's position (and optionally
+ * scale) from the object's per-frame track, so labels/graphics follow real objects in footage.
+ * `box` remains the fallback position when the object is not visible.
+ */
+export const ObjectAnchor = z.object({
+  segmentationId: Id,
+  objectId: z.string().max(40),
+  point: z.enum(["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]).default("center"),
+  /** Offset from the anchor point, in frame fractions. */
+  offset: z.object({ x: z.number().min(-1).max(1).default(0), y: z.number().min(-1).max(1).default(0) }).default({ x: 0, y: 0 }),
+  scaleWithObject: z.boolean().default(false),
+  /** Smoothing window (frames) to remove tracking jitter. */
+  smoothFrames: z.number().int().min(0).max(30).default(5),
+  /** When the object leaves frame: hold last position or hide the layer. */
+  whenLost: z.enum(["hold", "hide"]).default("hide"),
+});
+export type ObjectAnchor = z.infer<typeof ObjectAnchor>;
+
 const LayerBase = z.object({
   id: Id,
   name: z.string().max(80).optional(),
   box: Box,
+  /** Optional: follow a tracked object (see ObjectAnchor). */
+  anchor: ObjectAnchor.optional(),
   timing: LayerTiming.default({ start: 0 }),
   animation: Animation.default({ loop: "none" }),
   locked: z.boolean().default(false),
@@ -196,7 +221,29 @@ export const BlockLayer = LayerBase.extend({
   params: z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean()])).default({}),
 });
 
-export const Layer = z.discriminatedUnion("type", [TextLayer, ImageLayer, VideoLayer, DeviceLayer, ShapeLayer, BlockLayer]);
+/**
+ * Object-aware effect driven by a SAM track/matte of the SAME source clip shown in the scene.
+ * - spotlight: dim everything except the object
+ * - outline-glow: animated glow following the object's matte edge
+ * - focus-blur: blur everything except the object (depth-of-field look)
+ * - highlight-ring: ring/rounded-rect that follows the object's bbox
+ * - follow-arrow: pointer that tracks the object
+ * - screen-insert: places `assetId` (REAL app recording/screenshot) onto the tracked object region
+ *   (e.g. the phone screen in the presenter's hand), clipped by the object's matte
+ */
+export const EffectLayer = LayerBase.extend({
+  type: z.literal("effect"),
+  effect: z.enum(["spotlight", "outline-glow", "focus-blur", "highlight-ring", "follow-arrow", "screen-insert"]),
+  target: z.object({ segmentationId: Id, objectId: z.string().max(40) }),
+  color: ColorValue.optional(),
+  intensity: z.number().min(0).max(1).default(0.7),
+  /** screen-insert only: real product media (isProductTruth) to place on the object. */
+  assetId: Id.optional(),
+  /** screen-insert only: inset of the screen inside the object's bbox (fractions). */
+  inset: z.object({ top: z.number().min(0).max(0.5), right: z.number().min(0).max(0.5), bottom: z.number().min(0).max(0.5), left: z.number().min(0).max(0.5) }).optional(),
+});
+
+export const Layer = z.discriminatedUnion("type", [TextLayer, ImageLayer, VideoLayer, DeviceLayer, ShapeLayer, BlockLayer, EffectLayer]);
 export type Layer = z.infer<typeof Layer>;
 export type LayerType = Layer["type"];
 

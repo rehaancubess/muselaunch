@@ -82,4 +82,22 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
     purposes: ["hook", "feature", "demo", "proof", "cta", "other"],
     needs: ["screenshot", "none"],
   },
+  "presenter-depth": {
+    label: "Presenter in front of the app",
+    description: "SAM cutout of the presenter in front, the real app demo and motion graphics behind them (depth layering).",
+    purposes: ["founder", "demo", "hook"],
+    needs: ["founder_cutout", "app_recording"],
+  },
+  "object-spotlight": {
+    label: "Spotlight a real object",
+    description: "A tracked real object (e.g. the phone in hand) is highlighted; callouts anchored to it follow it through the shot.",
+    purposes: ["demo", "feature"],
+    needs: ["video"],
+  },
+  "product-in-hand": {
+    label: "App on the phone in hand",
+    description: "The real app recording is placed onto the tracked phone the presenter is holding.",
+    purposes: ["demo", "founder"],
+    needs: ["video", "app_recording"],
+  },
 };

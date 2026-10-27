@@ -135,6 +135,10 @@ export const Segmentation = BaseEntity.extend({
   outputAssetId: Id.optional(),
   /** Set when the result came from an earlier identical request (same content hash + prompt): no new SAM call. */
   reusedFromSegmentationId: Id.optional(),
+  /** JSON asset holding `ObjectTrack[]` (per-frame bbox/centroid/area per object) for anchoring + effects. */
+  tracksAssetId: Id.optional(),
+  /** Per-object outputs so effects can target one object (e.g. the phone) while another (the person) is cut out. */
+  objectOutputs: z.record(z.string(), z.object({ cutoutAssetId: Id.optional(), matteAssetId: Id.optional() })).default({}),
   usageEventIds: z.array(Id).default([]),
   error: z.string().max(1000).optional(),
 });
@@ -281,3 +285,60 @@ export const TtsRequest = z.object({
   compositionId: Id.optional(),
 });
 export type TtsRequest = z.infer<typeof TtsRequest>;
+
+/** One frame of an object track (normalised 0..1 frame coordinates). */
+export const ObjectTrackFrame = z.object({
+  /** Seconds from the start of the source clip. */
+  t: z.number().min(0),
+  visible: z.boolean(),
+  bbox: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+  centroid: z.object({ x: z.number(), y: z.number() }).optional(),
+  /** Mask area as a fraction of the frame. */
+  area: z.number().min(0).max(1).optional(),
+  score: Percent01.optional(),
+});
+
+/** Stored as JSON (asset `Segmentation.tracksAssetId`): `{ fps, frameCount, tracks: ObjectTrack[] }`. */
+export const ObjectTrack = z.object({
+  objectId: z.string().max(40),
+  label: z.string().max(80),
+  frames: z.array(ObjectTrackFrame),
+});
+export type ObjectTrack = z.infer<typeof ObjectTrack>;
+
+export const TracksFile = z.object({ fps: z.number().positive(), frameCount: z.number().int().nonnegative(), width: z.number().int().positive(), height: z.number().int().positive(), tracks: z.array(ObjectTrack) });
+export type TracksFile = z.infer<typeof TracksFile>;
+
+/**
+ * Object-aware understanding of one real clip (e.g. founder holding a phone): SAM segmentations per
+ * prompt (person, phone, hand...), their tracks, and the Voice transcript. Spark's effects director
+ * reads this to decide which object-aware effects support the message.
+ */
+export const ClipAnalysis = BaseEntity.extend({
+  appId: Id.optional(),
+  sourceAssetId: Id,
+  status: z.enum(["queued", "running", "succeeded", "partial", "failed"]),
+  prompts: z.array(z.string().min(1).max(60)).min(1).max(6),
+  /** prompt → segmentation id */
+  segmentationIds: z.record(z.string(), Id).default({}),
+  transcriptId: Id.optional(),
+  durationSec: z.number().nonnegative().optional(),
+  objects: z
+    .array(
+      z.object({
+        key: z.string().max(60),
+        label: z.string().max(80),
+        segmentationId: Id,
+        objectId: z.string().max(40),
+        trackingQuality: Percent01.optional(),
+        /** Time ranges where the object is visible. */
+        presence: z.array(z.object({ startSec: z.number().min(0), endSec: z.number().min(0) })).max(100).default([]),
+        /** Typical normalised position, for prompts ("phone mostly lower-right"). */
+        meanBbox: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
+      }),
+    )
+    .default([]),
+  jobId: Id.optional(),
+  error: z.string().max(1000).optional(),
+});
+export type ClipAnalysis = z.infer<typeof ClipAnalysis>;

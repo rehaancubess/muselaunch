@@ -50,6 +50,9 @@ const APP_SCOPED: EntityName[] = [
   "experimentResults",
   "recommendations",
   "modelUsage",
+  "clipAnalyses",
+  "brandReviews",
+  "autopilots",
 ];
 
 const CAMPAIGN_SCOPED: EntityName[] = ["campaignBriefs", "campaignVariants", "storyboards", "compositions", "copyPacks", "scheduledPosts", "mediaAssets", "publications", "metricObservations"];
@@ -73,6 +76,9 @@ export const INDEXES: IndexDef[] = [
   byCreated("modelUsage", "jobId"),
   byCreated("segmentations", "sourceAssetId"),
   byCreated("transcripts", "sourceAssetId"),
+  byCreated("clipAnalyses", "sourceAssetId"),
+  byCreated("brandReviews", "subject.id"),
+  byCreated("autopilots", "appId", "status"),
   byCreated("approvals", "status"),
   byCreated("trackedCreators", "kind"),
   { collection: "compositionVersions", fields: [{ field: "compositionId" }, { field: "version", dir: "desc" }] },

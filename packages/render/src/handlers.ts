@@ -396,7 +396,7 @@ async function saveStills(
 // composition.variants
 // ---------------------------------------------------------------------------
 
-export function variantId(compositionId: string, target: string, mode: "aspect" | "audience"): string {
+export function variantId(compositionId: string, target: string, mode: "aspect" | "audience" | "hooks"): string {
   return mode === "aspect" ? `${compositionId}_${target.replace(":", "x")}`.slice(0, 120) : `${compositionId}_aud_${shortHash(target.toLowerCase().trim(), 10)}`.slice(0, 120);
 }
 
