@@ -11,3 +11,6 @@ export { describeForLLM } from "./describe";
 export { sceneHash, docHash, sceneHashes, canonicalJson, sha256Hex } from "./hash";
 export { TEMPLATE_CATALOG, type TemplateInfo, type TemplateNeed } from "./catalog";
 export { BLOCK_IDS, BLOCK_PARAMS, type BlockId } from "./blocks";
+export { compileToHtml, collectAssetRefs, ROOT_COMPOSITION_ID, type CompileOptions, type CompileResult, type SegmentationInfo } from "./compile";
+export { buildFromStoryboard, themeFromBrand, type BuildInput } from "./build";
+export { registerCompileRuntime, getCompileRuntime, type CompileRuntime } from "./runtime";
