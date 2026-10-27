@@ -14,6 +14,7 @@ import { campaignRoutes } from "./routes/campaigns";
 import { compositionRoutes } from "./routes/compositions";
 import { creditRoutes } from "./routes/core-billing";
 import { discoverRoutes } from "./routes/discover";
+import { guardianRoutes } from "./routes/guardian";
 import { jobRoutes } from "./routes/jobs";
 import { meRoutes } from "./routes/me";
 import { mediaRoutes } from "./routes/media";
@@ -80,6 +81,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", publishingRoutes);
   ws.route("/", analyticsRoutes);
   ws.route("/", billingRoutes);
+  ws.route("/", guardianRoutes);
   v1.route("/workspaces/:workspaceId", ws);
 
   app.route("/v1", v1);

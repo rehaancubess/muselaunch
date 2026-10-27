@@ -23,6 +23,7 @@ import { AlertTriangle, ChevronLeft, Download, History, Package, Redo2, Clapperb
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { BrandGuardianBadge, BrandOverrideForm, brandBlockOf, type ReviewBrief } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { EstimateResponse, Page, SignedUrl } from "@/lib/api-types";
 import { useJob } from "@/lib/jobs";
@@ -59,17 +60,22 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
   const [job, setJob] = useState<Job | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Brand Guardian (module G): a blocked review of this version needs an override reason (logged).
+  const [block, setBlock] = useState<ReviewBrief | null>(null);
   const errors = data.lint.filter((i) => i.level === "error");
   const isVideo = data.version.doc.kind === "video";
   const last = data.lastRender;
-  const start = async () => {
+  const start = async (overrideReason?: string) => {
     setSubmitting(true);
     setError(null);
     try {
-      const r = await api.post<RenderResponse>(`${base}/render`, { quality, version: data.composition.currentVersion }, { idempotent: true });
+      const r = await api.post<RenderResponse>(`${base}/render`, { quality, version: data.composition.currentVersion, ...(overrideReason ? { override: { reason: overrideReason } } : {}) }, { idempotent: true });
+      setBlock(null);
       setJob(r.job);
     } catch (e) {
-      setError(errorMessage(e));
+      const b = brandBlockOf(e);
+      if (b) setBlock(b);
+      else setError(errorMessage(e));
     } finally {
       setSubmitting(false);
     }
@@ -79,7 +85,10 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (!o) setJob(null);
+        if (!o) {
+          setJob(null);
+          setBlock(null);
+        }
       }}
       trigger={
         <Button size="sm" icon={<Clapperboard className="size-4" aria-hidden />}>
@@ -89,7 +98,7 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
       title="Render video"
       description={`Version ${data.composition.currentVersion} · ${data.version.doc.aspectRatio} · ${Math.round(data.durationSec * 10) / 10}s`}
       footer={
-        job ? (
+        job || block ? (
           <Button variant="secondary" onClick={() => setOpen(false)}>
             Close
           </Button>
@@ -98,7 +107,7 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
             <Button variant="secondary" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={start} loading={submitting} disabled={quality === "final" && errors.length > 0}>
+            <Button onClick={() => void start()} loading={submitting} disabled={quality === "final" && errors.length > 0}>
               {quality === "final" ? "Render final" : "Render preview"}
             </Button>
           </>
@@ -106,7 +115,9 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
       }
     >
       <div className="space-y-4">
-        {!job ? (
+        {block && !job ? (
+          <BrandOverrideForm block={block} actionLabel="render" busy={submitting} onOverride={(reason) => void start(reason)} onCancel={() => setOpen(false)} />
+        ) : !job ? (
           <>
             <SegmentedControl<"preview" | "final">
               label="Quality"
@@ -129,6 +140,7 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
                 note="Charged per started 15 seconds. Unused credits return if the render fails or is cancelled; re-rendering an unchanged version is free."
               />
             ) : null}
+            {quality === "final" ? <BrandGuardianBadge subject={{ entity: "compositions", id: data.composition.id }} version={data.composition.currentVersion} /> : null}
             {quality === "final" && errors.length ? (
               <Notice tone="danger" title={`Fix ${errors.length} issue${errors.length === 1 ? "" : "s"} first`}>
                 <ul className="list-disc pl-4">

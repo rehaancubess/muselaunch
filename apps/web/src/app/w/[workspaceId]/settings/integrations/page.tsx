@@ -1,16 +1,14 @@
 "use client";
-import type { ConnectedAccount } from "@muselaunch/contracts";
-import { Badge, ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, StatusPill, humanizeStatus, statusKindOf, type Provenance } from "@muselaunch/ui";
-import { Bot, Clapperboard, Globe, Image as ImageIcon, Mic, Brain, ScanFace, Sparkles, Volume2, Film, Link2 } from "lucide-react";
+import { ErrorState, List, ListRow, PageHeader, ProvenanceBadge, Section, Skeleton, type Provenance } from "@muselaunch/ui";
+import { Bot, Globe, Image as ImageIcon, Mic, Brain, ScanFace, Sparkles, Volume2, Film } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { QueryState } from "@/components/states";
-import { errorMessage, wsPath } from "@/lib/api";
-import type { Page, ProviderState, ProviderStatusResponse } from "@/lib/api-types";
-import { relativeTime } from "@/lib/labels";
+import { errorMessage } from "@/lib/api";
+import type { ProviderState, ProviderStatusResponse } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
+import { ConnectionsPanel } from "@/features/publishing/connections";
 
 const STATE_BADGE: Record<ProviderState, { kind: Provenance; label: string }> = {
   live: { kind: "live_ai", label: "Live" },
@@ -44,7 +42,6 @@ function regionName(code: string | null) {
 export default function IntegrationsPage() {
   const { workspaceId } = useWorkspace();
   const status = useApiQuery<ProviderStatusResponse>("/v1/status/providers", { staleTime: 60_000 });
-  const connections = useApiQuery<Page<ConnectedAccount>>(wsPath(workspaceId, "/connections"), { retry: false });
 
   return (
     <div className="space-y-12">
@@ -99,43 +96,9 @@ export default function IntegrationsPage() {
         ) : null}
       </Section>
 
-      <Section title="Connected accounts" description="Publishing, analytics and outreach accounts you’ve authorised. Posting always asks for approval first.">
-        <QueryState
-          query={connections}
-          feature="Account connections"
-          unavailable={
-            <Notice icon={<Link2 aria-hidden />} title="Account connections aren’t available in this build yet">
-              Until they are, export packages and manual posting checklists cover publishing, and CSV imports cover analytics, each labelled as imported.
-            </Notice>
-          }
-        >
-          {(data) =>
-            data.items.length ? (
-              <List label="Connected accounts">
-                {data.items.map((a) => (
-                  <ListRow
-                    key={a.id}
-                    leading={<span className="flex size-9 items-center justify-center rounded-lg bg-mist text-ink-2"><Clapperboard className="size-[18px]" aria-hidden /></span>}
-                    title={`${humanizeStatus(a.provider)}: ${a.displayName}`}
-                    subtitle={`${a.purposes.map(humanizeStatus).join(", ")}${a.lastSyncAt ? `, synced ${relativeTime(a.lastSyncAt)}` : ""}`}
-                    trailing={
-                      <>
-                        {a.capabilities.slice(0, 2).map((c) => (
-                          <Badge key={c} tone="outline" className="hidden sm:inline-flex">
-                            {humanizeStatus(c)}
-                          </Badge>
-                        ))}
-                        <StatusPill status={statusKindOf(a.status)}>{humanizeStatus(a.status)}</StatusPill>
-                      </>
-                    }
-                  />
-                ))}
-              </List>
-            ) : (
-              <Notice>No accounts connected. Connect publishing accounts from the Calendar and analytics sources from Insights.</Notice>
-            )
-          }
-        </QueryState>
+      <Section title="Connected accounts" description="Publishing, analytics and outreach accounts you’ve authorised. Posting and sending always ask for approval first.">
+        {/* Module E: connect/disconnect + finishing OAuth returns (pending connections are bound to the user who started them). */}
+        <ConnectionsPanel />
       </Section>
 
       {status.data ? (

@@ -1,4 +1,5 @@
-import { Id } from "@muselaunch/contracts";
+import { brandGate, reviewBrief } from "@muselaunch/agents";
+import { can, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
 import {
   calendar,
   CalendarQuery,
@@ -12,6 +13,8 @@ import {
   draftView,
   enqueuePublish,
   enqueueSend,
+  finishConnection,
+  FinishConnectionRequest,
   manualPackage,
   markPosted,
   MarkPostedRequest,
@@ -21,6 +24,7 @@ import {
   onPostApprovalDecided,
   postView,
   providerCatalog,
+  purgeExpiredPendingConnections,
   ReminderRequest,
   requestDraftApproval,
   requestPackage,
@@ -65,6 +69,7 @@ const tzDefault = (c: Ctx) => c.get("workspace").settings.defaultTimezone ?? "UT
 // ---------------------------------------------------------------------------
 
 publishingRoutes.get("/connections", async (c) => {
+  await purgeExpiredPendingConnections(p(c), wid(c)).catch(() => 0);
   const items = (await wsOf(c).collection("connectedAccounts").list({ limit: 200 })).items.map(({ secretId: _secret, ...a }) => ({ ...a, hasCredentials: Boolean(_secret) }));
   return c.json({ items, providers: providerCatalog(p(c)) });
 });
@@ -75,6 +80,21 @@ publishingRoutes.post("/connections/:provider/start", requireCap("accounts.manag
   const out = await startConnection(p(c), wid(c), actorOf(c), c.req.param("provider"), { appId: input.appId });
   await audit(p(c), wid(c), actorOf(c), "connection.started", { provider: out.provider });
   return c.json(out);
+});
+
+/**
+ * Finish an OAuth connection (security review N1). The public callback only parks a PENDING
+ * connection; it becomes active only when the user who started it, still holding accounts.manage,
+ * presents the completion token their browser received. Other callers' valid tokens are discarded.
+ * The capability check lives in finishConnection so a refused caller still discards the pending tokens.
+ */
+publishingRoutes.post("/connections/finish", async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const parsed = FinishConnectionRequest.safeParse(raw);
+  const out = await finishConnection(p(c), wid(c), c.get("member"), parsed.success ? parsed.data.token : undefined);
+  await audit(p(c), wid(c), actorOf(c), "connection.finished", { provider: out.account.provider, accountId: out.account.id });
+  const { secretId: _secret, ...account } = out.account;
+  return c.json({ account: { ...account, hasCredentials: Boolean(_secret) } });
 });
 
 publishingRoutes.delete("/connections/:id", requireCap("accounts.manage"), async (c) => {
@@ -172,8 +192,27 @@ publishingRoutes.patch("/posts/:id", requireCap("content.write"), async (c) => {
   return c.json(await updatePost(p(c), wid(c), c.req.param("id"), input, actorOf(c)));
 });
 
+/**
+ * Brand Guardian gate (module G) for approval requests: attach the latest review of the exact
+ * post/draft content (reviewing it now if there is none). A `blocked` review needs
+ * `override.reason` from someone with this route's capability (content.write); overrides are stored
+ * on the review and audited. Publishing/sending still needs an approver's decision afterwards.
+ */
+async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outreachDrafts"; id: string }) {
+  let raw: unknown = {};
+  try {
+    raw = await c.req.json();
+  } catch {
+    raw = {}; // body is optional
+  }
+  const input = GuardedApprovalRequest.parse(raw ?? {});
+  const gate = await brandGate(p(c), wid(c), { subject, override: input.override, actor: actorOf(c), canOverride: can(c.get("member"), "content.write"), action: "request_approval" });
+  return { ...reviewBrief(gate.review), overridden: gate.overridden };
+}
+
 publishingRoutes.post("/posts/:id/request-approval", requireCap("content.write"), async (c) => {
-  return c.json(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c)));
+  const brandReview = await guardianGate(c, { entity: "scheduledPosts", id: c.req.param("id") });
+  return c.json({ ...(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
 });
 
 publishingRoutes.post("/posts/:id/publish", requireCap("publish"), async (c) => {
@@ -223,7 +262,10 @@ publishingRoutes.patch("/outreach/drafts/:id", requireCap("content.write"), asyn
 
 publishingRoutes.post("/outreach/drafts/:id/validate", requireCap("content.write"), async (c) => c.json({ draft: await revalidateDraft(p(c), wid(c), c.req.param("id"), actorOf(c)) }));
 
-publishingRoutes.post("/outreach/drafts/:id/request-approval", requireCap("content.write"), async (c) => c.json(await requestDraftApproval(p(c), wid(c), c.req.param("id"), actorOf(c))));
+publishingRoutes.post("/outreach/drafts/:id/request-approval", requireCap("content.write"), async (c) => {
+  const brandReview = await guardianGate(c, { entity: "outreachDrafts", id: c.req.param("id") });
+  return c.json({ ...(await requestDraftApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
+});
 
 publishingRoutes.post("/outreach/drafts/:id/send", requireCap("outreach.send"), async (c) => {
   const out = await enqueueSend(p(c), wid(c), c.req.param("id"), actorOf(c));

@@ -530,7 +530,7 @@ function TrackedLinksSection({ workspaceId, appId, highlight }: { workspaceId: s
   };
   const campaignName = (id: string) => campaigns.data?.items.find((c) => c.id === id)?.name ?? id;
   return (
-    <Section title="Tracked links" description="Short links that count clicks per campaign (link-level attribution). No cookies or IP addresses are stored; link-preview bots aren't counted." className={highlight ? "scroll-mt-24" : undefined}>
+    <Section title="Tracked links" description="Short links that count clicks per campaign (link-level attribution). App Store and Google Play links open the store directly; website links show a short “Continue to <site>” page first, so MuseLaunch links can't be misused as redirects. No cookies or IP addresses are stored; link-preview bots aren't counted." className={highlight ? "scroll-mt-24" : undefined}>
       {can("analytics.write") ? (
         campaigns.data?.items.length ? (
           <Card className="space-y-4">
@@ -555,7 +555,7 @@ function TrackedLinksSection({ workspaceId, appId, highlight }: { workspaceId: s
               </Field>
             </div>
             {f.destination === "custom" ? (
-              <Checkbox checked={f.confirm} onCheckedChange={(v) => setF({ ...f, confirm: v })} label="I confirm this destination" description="It isn't one of your app's own store pages or website." />
+              <Checkbox checked={f.confirm} onCheckedChange={(v) => setF({ ...f, confirm: v })} label="I confirm this destination" description="It isn't one of your app's own store pages or website, so visitors first see a “You're leaving to <site>” page." />
             ) : null}
             <Button icon={<Link2 aria-hidden />} onClick={() => void create()} loading={busy} disabled={!f.campaignId || !f.source.trim() || !f.medium.trim() || (f.destination === "custom" && (!f.url || !f.confirm))}>
               Create link

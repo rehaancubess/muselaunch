@@ -1,4 +1,5 @@
-import { AiEditRequest, ApplyPatchRequest, AspectRatio, RenderRequest, TracksFile, type ClipAnalysis, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
+import { brandGate, reviewBrief } from "@muselaunch/agents";
+import { AiEditRequest, ApplyPatchRequest, AspectRatio, can, RenderRequest, TracksFile, type ClipAnalysis, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
 import { applyPatch, collectAssetRefs, compileToHtml, docHash, lintDoc, PatchError, totalDuration } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { commitVersion, getVersion, redo, revertTo, undo } from "@muselaunch/compositions/store";
@@ -358,6 +359,10 @@ compositionRoutes.post("/compositions/:id/render", requireCap("content.write"), 
   if (input.quality === "final") {
     const errors = issues.filter((i) => i.level === "error");
     if (errors.length) throw new AppError("VALIDATION_FAILED", `${errors.length} blocking issue(s) must be fixed before the final render`, { userMessage: "Fix the flagged issues before the final render.", details: { issues: errors } });
+    // Brand Guardian gate (module G): attach the latest review of this exact version (reviewing it
+    // now if there is none). A `blocked` review needs `override.reason` from someone with this
+    // route's own capability (content.write); overrides are stored on the review + audit log.
+    const gate = await brandGate(p, wid, { subject: { entity: "compositions", id: comp.id }, version, override: input.override, actor, canOverride: can(c.get("member"), "content.write"), action: "render_final" });
     const format = ver.doc.kind === "video" ? "mp4" : "png";
     const job = await p.jobs.create(
       wid,
@@ -370,7 +375,7 @@ compositionRoutes.post("/compositions/:id/render", requireCap("content.write"), 
         credits: ver.doc.kind === "video" ? { operation: "render.final", params: { durationSec } } : { operation: "render.final", amount: Math.max(1, Math.ceil(ver.doc.scenes.length / 4)) },
       },
     );
-    return c.json({ job, estimate: p.credits.estimate("render.final", { durationSec }) }, 202);
+    return c.json({ job, estimate: p.credits.estimate("render.final", { durationSec }), brandReview: { ...reviewBrief(gate.review), overridden: gate.overridden } }, 202);
   }
   const job = await p.jobs.create(wid, "render.preview", { appId: comp.appId, compositionId: comp.id, version }, { actor, appId: comp.appId, idempotencyKey: idempotencyKey(c, `render.preview:${comp.id}:v${version}`) });
   return c.json({ job }, 202);

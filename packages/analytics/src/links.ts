@@ -17,6 +17,8 @@ export const LinkRegistry = z.object({
   campaignId: z.string(),
   redirectUrl: z.string(),
   active: z.boolean(),
+  /** User-confirmed destination outside the app's own store pages/website: served via an interstitial, never a 302. */
+  external: z.boolean().optional(),
   createdAt: z.string(),
 });
 export type LinkRegistry = z.infer<typeof LinkRegistry>;
@@ -145,7 +147,7 @@ export async function createTrackedLink(p: Platform, workspaceId: string, campai
           { id, appId: app.id, campaignId, publicationId: input.publicationId, scheduledPostId: input.scheduledPostId, slug, destinationUrl, utm, clickCount: 0, active: true, destinationKind, destinationConfirmedBy, redirectUrl, channel: input.channel, uaClassCounts: {} },
           { actor },
         );
-        tx.setGlobal(registryKey(slug), LinkRegistry, { workspaceId, linkId: id, appId: app.id, campaignId, redirectUrl, active: true, createdAt: nowIso() });
+        tx.setGlobal(registryKey(slug), LinkRegistry, { workspaceId, linkId: id, appId: app.id, campaignId, redirectUrl, active: true, external: destinationKind === "other", createdAt: nowIso() });
         return link;
       });
     } catch (err) {
@@ -202,11 +204,39 @@ export function shouldThrottle(clientKey: string | undefined, slug: string, perM
  * per-UTC-day `clicks` observation (attribution `link`) change in one transaction.
  * Bots and throttled repeats are tallied by class only and never counted as clicks.
  */
-export async function resolveAndCount(p: Platform, slug: string, opts: { method: string; userAgent?: string; throttled?: boolean; now?: number }): Promise<{ redirectUrl: string } | null> {
+/** Only official store pages get a direct 302; everything else goes through the interstitial. */
+export const STORE_HOSTS: ReadonlySet<string> = new Set(["apps.apple.com", "itunes.apple.com", "play.google.com"]);
+
+export function isStoreUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && STORE_HOSTS.has(u.hostname.toLowerCase()) && !u.username && !u.password && (!u.port || u.port === "443");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * - `redirect`: 302 to an App Store / Google Play page (fixed, trusted hosts)
+ * - `own_site`: the app's own (user-entered) website → neutral "Continue to <host>" page
+ * - `external`: user-confirmed outside destination → "You're leaving to <host>" page
+ * `/r/*` therefore never redirects silently to a user-controlled host.
+ */
+export type LinkServeMode = "redirect" | "own_site" | "external";
+
+export async function resolveAndCount(p: Platform, slug: string, opts: { method: string; userAgent?: string; throttled?: boolean; now?: number }): Promise<{ redirectUrl: string; mode: LinkServeMode } | null> {
   if (!SLUG_RE.test(slug)) return null;
   const reg = await p.db.global(registryKey(slug), LinkRegistry).get();
   if (!reg || !reg.active) return null;
-  if (opts.method !== "GET") return { redirectUrl: reg.redirectUrl };
+  let external = reg.external;
+  if (external === undefined) {
+    // Registry entries written before the `external` flag: decide from the link itself (fail closed).
+    const link = await p.db.ws(reg.workspaceId).collection("attributionLinks").get(reg.linkId);
+    external = !link || link.destinationKind === "other" || !link.destinationKind;
+  }
+  const mode: LinkServeMode = isStoreUrl(reg.redirectUrl) ? "redirect" : external ? "external" : "own_site";
+  const out = { redirectUrl: reg.redirectUrl, mode };
+  if (opts.method !== "GET") return out;
   const cls: UaClass | "throttled" = opts.throttled ? "throttled" : classifyUserAgent(opts.userAgent);
   const human = cls === "mobile" || cls === "desktop" || cls === "other";
   const now = opts.now ?? Date.now();
@@ -260,5 +290,35 @@ export async function resolveAndCount(p: Platform, slug: string, opts: { method:
     // Never block the visitor's redirect on a counting failure; it is logged for ops.
     p.log.warn({ err, slug }, "click count failed");
   }
-  return { redirectUrl: reg.redirectUrl };
+  return out;
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+
+const INTERSTITIAL_STYLE =
+  "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f7;color:#1d1d1f;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}main{max-width:28rem;margin:1.5rem;padding:2rem;background:#fff;border-radius:1rem;box-shadow:0 1px 3px rgba(0,0,0,.08)}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:#424245;word-break:break-all}a.c{display:inline-block;padding:.6rem 1.2rem;border-radius:999px;background:#0071e3;color:#fff;text-decoration:none;font-weight:600}small{display:block;margin-top:1rem;color:#6e6e73}";
+const INTERSTITIAL_STYLE_HASH = `sha256-${createHash("sha256").update(INTERSTITIAL_STYLE).digest("base64")}`;
+
+/** Strict CSP for the interstitial: no scripts, no external loads, no framing, no forms. */
+export const INTERSTITIAL_CSP = `default-src 'none'; style-src '${INTERSTITIAL_STYLE_HASH}'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+
+/**
+ * Interstitial for any non-store destination, so `/r/*` can't be used as an open redirector:
+ * "Continue to <host>" for the app's own website, "You're leaving to <host>" (with a trust warning)
+ * for user-confirmed outside sites. Shows only the destination host (punycode, so look-alike
+ * Unicode hosts are visible) and the full URL: no workspace, app or campaign data. Returns null
+ * for anything that isn't a plain http(s) URL.
+ */
+export function renderInterstitial(redirectUrl: string, kind: "own_site" | "external" = "external"): { html: string; host: string } | null {
+  let url: URL;
+  try {
+    url = new URL(redirectUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname;
+  const href = escapeHtml(url.toString());
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>${kind === "external" ? "Leaving for" : "Continue to"} ${escapeHtml(host)}</title><style>${INTERSTITIAL_STYLE}</style></head><body><main><h1>${kind === "external" ? "You’re leaving to" : "Continue to"} ${escapeHtml(host)}</h1><p>${href}</p><a class="c" href="${href}" rel="noopener noreferrer nofollow">Continue</a><small>${kind === "external" ? "This link was shared through MuseLaunch. Only continue if you trust the site." : "This link was shared through MuseLaunch."}${url.protocol === "http:" ? " The connection to this site isn’t encrypted." : ""}</small></main></body></html>`;
+  return { html, host };
 }

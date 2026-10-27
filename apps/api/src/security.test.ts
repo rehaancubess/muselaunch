@@ -74,6 +74,7 @@ const GRANT_GATED: string[] = [
   "POST /v1/workspaces/:workspaceId/outreach/drafts/:id/mark-sent",
   "POST /v1/workspaces/:workspaceId/outreach/drafts/:id/reset-send",
   "POST /v1/workspaces/:workspaceId/connections/:provider/start",
+  "POST /v1/workspaces/:workspaceId/connections/finish",
   "DELETE /v1/workspaces/:workspaceId/connections/:id",
   "POST /v1/workspaces/:workspaceId/apps/:appId/analytics/revenuecat",
   "DELETE /v1/workspaces/:workspaceId/analytics/connections/:id",
@@ -360,10 +361,22 @@ describe("security inventory: every route, every role", () => {
       { appId, sourceAssetId: clipVideoId, status: "succeeded", prompts: ["person", "phone"], segmentationIds: { phone: ids["segmentations:id"]! }, transcriptId: ids["transcripts:id"] },
       { actor: "alice" },
     );
-    await ws.collection("brandReviews").create(
-      { appId, subject: { entity: "compositions", id: ids["compositions:id"]! }, subjectVersion: 1, status: "warnings", reviewer: { engine: "rules" }, summary: "ALICE_PRIVATE review" },
-      { actor: "alice" },
-    );
+    // Module G routes are `/reviews/:id[/findings/:findingId/...]`: register real fixtures for them.
+    ids["reviews:id"] = (
+      await ws.collection("brandReviews").create(
+        {
+          appId,
+          subject: { entity: "compositions", id: ids["compositions:id"]! },
+          subjectVersion: 1,
+          status: "warnings",
+          reviewer: { engine: "rules" },
+          summary: "ALICE_PRIVATE review",
+          findings: [{ id: "bf_alice_private", severity: "warn", category: "tone", message: "ALICE_PRIVATE finding", source: "rules", suggestedOps: [{ op: "update_layer", sceneId: "sc_hook", layerId: "ly_hook", set: { text: "ALICE_PRIVATE fix" } }] }],
+        },
+        { actor: "alice" },
+      )
+    ).id;
+    ids.findingId = "bf_alice_private";
     await ws.collection("autopilots").create({ appId, goal: "ALICE_PRIVATE autopilot goal", status: "paused", stage: "research", budget: { maxCredits: 100 } }, { actor: "alice" });
 
     ids.uid = "eddie";

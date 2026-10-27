@@ -1,7 +1,7 @@
 "use client";
 import { Badge, Button, List, ListRow, Notice, ProvenanceBadge, StatusPill, statusKindOf, useToast } from "@muselaunch/ui";
 import { ExternalLink, Link2, Unplug } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { QueryState } from "@/components/states";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useApiQuery, useInvalidate } from "@/lib/query";
@@ -27,6 +27,33 @@ export function ConnectionsPanel({ appId }: { appId?: string }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const manage = can("accounts.manage");
+
+  // OAuth return (security review N1): the callback only parked a PENDING connection. The signed-in
+  // user finishes it here; the API attaches it only if this user started it. The completion token is
+  // stripped from the URL immediately so it doesn't linger in history.
+  const handled = useRef(false);
+  useEffect(() => {
+    if (handled.current) return;
+    handled.current = true;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.has("connections") && !sp.has("finish")) return;
+    const finish = sp.get("finish");
+    const status = sp.get("status");
+    const message = sp.get("message");
+    for (const k of ["connections", "finish", "status", "provider", "message", "account"]) sp.delete(k);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${sp.toString() ? `?${sp}` : ""}`);
+    if (finish) {
+      api
+        .post<{ account: { displayName: string } }>(wsPath(workspaceId, "/connections/finish"), { token: finish })
+        .then((r) => {
+          toast.success("Account connected", r.account.displayName);
+          void invalidate(path);
+        })
+        .catch((e) => toast.error("The account wasn’t connected", errorMessage(e)));
+    } else if (status === "cancelled" || status === "error") {
+      toast.error("Connection didn’t complete", message ?? undefined);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connect = async (provider: string) => {
     setBusy(provider);
@@ -68,7 +95,7 @@ export function ConnectionsPanel({ appId }: { appId?: string }) {
                     trailing={
                       <>
                         <StatusPill status={statusKindOf(a.status === "expired" ? "needs_review" : a.status)}>{a.status === "expired" ? "Reconnect needed" : a.status}</StatusPill>
-                        {manage ? (
+                        {manage && data.providers.some((p) => p.provider === a.provider) ? (
                           <Button size="sm" variant="ghost" icon={<Unplug aria-hidden />} loading={busy === a.id} onClick={() => disconnect(a.id)}>
                             Disconnect
                           </Button>

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fallbackMemoryApi, handlers as analyticsHandlers, installAnalyticsHooks, installMemoryApi, installRevenueCatFetch } from "@muselaunch/analytics";
+import { LinkRegistry, fallbackMemoryApi, handlers as analyticsHandlers, installAnalyticsHooks, installMemoryApi, installRevenueCatFetch } from "@muselaunch/analytics";
 import { AppError, BALANCE_KEY, createTestPlatform, type HandlerRegistry } from "@muselaunch/platform";
 import { CreditBalance } from "@muselaunch/contracts";
 import { installMetaClient, MetaClient } from "@muselaunch/providers";
@@ -203,7 +203,13 @@ describe("Tracked links", () => {
 
     const human = { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148" };
     const results = await Promise.all(Array.from({ length: 25 }, (_, i) => ctx.app.request("/r/launch-week", { headers: { ...human, "x-forwarded-for": `10.0.0.${i}` } })));
-    expect(results.every((r) => r.status === 302 && r.headers.get("location") === link.redirectUrl)).toBe(true);
+    // The app's own (user-entered) website is never a silent 302: neutral "Continue to <host>" page
+    expect(results.every((r) => r.status === 200 && r.headers.get("location") === null)).toBe(true);
+    const page = await results[0]!.text();
+    expect(page).toContain("Continue to focusly.app");
+    expect(page).not.toContain("leaving");
+    expect(/<a class="c" href="([^"]+)"/.exec(page)![1]!.replace(/&amp;/g, "&")).toBe(link.redirectUrl);
+    expect(results[0]!.headers.get("content-security-policy")).toContain("default-src 'none'");
     await ctx.app.request("/r/launch-week", { headers: { "user-agent": "facebookexternalhit/1.1" } });
     await ctx.app.request("/r/launch-week", { method: "HEAD", headers: human });
     expect((await ctx.app.request("/r/nope-nope")).status).toBe(404);
@@ -228,6 +234,65 @@ describe("Tracked links", () => {
     expect((await ctx.app.request("/r/launch-week", { headers: human })).status).toBe(404);
   });
 
+  it("never 302s to a confirmed external destination: serves a safe interstitial and counts the click once", async () => {
+    const ctx = await setup();
+    const human = { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15" };
+    const ext = await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, {
+      destinationUrl: 'https://evil.example.com/landing?q="><script>alert(1)</script>',
+      confirmExternalDestination: true,
+      slug: "partner-post",
+      utm: { source: "x", medium: "social" },
+    });
+    expect(ext.status).toBe(201);
+    const res = await ctx.app.request("/r/partner-post", { headers: human });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("form-action 'none'");
+    expect(csp).not.toMatch(/script-src|unsafe-inline/);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain("You’re leaving to evil.example.com");
+    expect(html).not.toContain("<script>");
+    const href = /<a class="c" href="([^"]+)"/.exec(html)![1]!.replace(/&amp;/g, "&");
+    expect(href).toBe(ext.body.link.redirectUrl);
+    expect(href.startsWith("https://evil.example.com/")).toBe(true);
+    // no workspace data on the page
+    for (const secret of [ctx.wsA, ctx.appId, ctx.campaignId, "Launch week", "Alice", ext.body.link.id]) expect(html).not.toContain(secret);
+    // counted exactly once for the view; HEAD and bots don't count; "Continue" doesn't come back through /r
+    expect((await ctx.app.request("/r/partner-post", { method: "HEAD", headers: human })).status).toBe(200);
+    await ctx.app.request("/r/partner-post", { headers: { "user-agent": "Slackbot-LinkExpanding 1.0" } });
+    const link = (await ctx.alice.get(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`)).body.items.find((l: J) => l.slug === "partner-post");
+    expect(link).toMatchObject({ clickCount: 1, destinationKind: "other", uaClassCounts: { desktop: 1, bot: 1 } });
+    const obs = (await ctx.alice.get(`/v1/workspaces/${ctx.wsA}/apps/${ctx.appId}/observations?metric=clicks`)).body.items;
+    expect(obs).toHaveLength(1);
+    expect(obs[0].value).toBe(1);
+    // only official store pages redirect directly
+    await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destination: "ios", slug: "ios-store", utm: { source: "x", medium: "social" } });
+    const own = await ctx.app.request("/r/ios-store", { headers: human });
+    expect(own.status).toBe(302);
+    expect(own.headers.get("location")).toBe("https://apps.apple.com/us/app/focusly/id123456789");
+    // a confirmed external link that happens to point at a store page is still a safe direct redirect
+    await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destinationUrl: "https://play.google.com/store/apps/details?id=com.partner.app", confirmExternalDestination: true, slug: "partner-store", utm: { source: "x", medium: "social" } });
+    const store = await ctx.app.request("/r/partner-store", { headers: human });
+    expect(store.status).toBe(302);
+    expect(new URL(store.headers.get("location")!).hostname).toBe("play.google.com");
+  });
+
+  it("fails closed for legacy registry entries without the external flag", async () => {
+    const ctx = await setup();
+    await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destinationUrl: "https://blog.example.org/p", confirmExternalDestination: true, slug: "legacy-ext", utm: { source: "x", medium: "y" } });
+    const reg = ctx.p.db.global("link.legacy-ext", LinkRegistry);
+    const { external: _e, ...legacy } = (await reg.get())!;
+    await reg.set(legacy);
+    const res = await ctx.app.request("/r/legacy-ext");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
   it("accepts an external destination only with explicit confirmation and Play links get an install referrer", async () => {
     const ctx = await setup();
     const ok = await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destinationUrl: "https://blog.example.org/post", confirmExternalDestination: true, utm: { source: "x", medium: "social" } });
@@ -236,6 +301,9 @@ describe("Tracked links", () => {
     await ctx.p.db.ws(ctx.wsA).collection("apps").update(ctx.appId, { storeUrls: { ios: "https://apps.apple.com/us/app/focusly/id123456789", android: "https://play.google.com/store/apps/details?id=app.focusly" } }, { actor: "t" });
     const play = await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destination: "android", utm: { source: "tiktok", medium: "social" } });
     expect(new URL(play.body.link.redirectUrl).searchParams.get("referrer")).toBe("utm_source=tiktok&utm_medium=social&utm_campaign=launch-week");
+    const redirected = await ctx.app.request(`/r/${play.body.link.slug}`);
+    expect(redirected.status).toBe(302);
+    expect(redirected.headers.get("location")).toBe(play.body.link.redirectUrl);
     const unsafe = await ctx.alice.post(`/v1/workspaces/${ctx.wsA}/campaigns/${ctx.campaignId}/links`, { destinationUrl: "http://169.254.169.254/latest", confirmExternalDestination: true, utm: { source: "x", medium: "y" } });
     expect(unsafe.status).toBe(400);
   });
