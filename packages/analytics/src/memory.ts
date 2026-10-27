@@ -34,7 +34,8 @@ async function agentsApi(): Promise<Partial<MemoryApi>> {
   }
 }
 
-const fallback: MemoryApi = {
+/** Direct Firestore implementation used until module B's Glimmer-backed API is merged. */
+export const fallbackMemoryApi: MemoryApi = {
   async retrieveMemory(p, input) {
     const ws = p.db.ws(input.workspaceId);
     const limit = input.limit ?? 8;
@@ -67,5 +68,5 @@ export async function memoryApi(): Promise<MemoryApi & { implementation: "agents
   if (override) return { ...override, implementation: "override" };
   const a = await agentsApi();
   if (a.retrieveMemory && a.rememberPreference) return { retrieveMemory: a.retrieveMemory, rememberPreference: a.rememberPreference, implementation: "agents" };
-  return { ...fallback, implementation: "fallback" };
+  return { ...fallbackMemoryApi, implementation: "fallback" };
 }

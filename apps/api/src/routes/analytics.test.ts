@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { handlers as analyticsHandlers, installAnalyticsHooks, installMemoryApi, installRevenueCatFetch } from "@muselaunch/analytics";
+import { fallbackMemoryApi, handlers as analyticsHandlers, installAnalyticsHooks, installMemoryApi, installRevenueCatFetch } from "@muselaunch/analytics";
 import { AppError, BALANCE_KEY, createTestPlatform, type HandlerRegistry } from "@muselaunch/platform";
 import { CreditBalance } from "@muselaunch/contracts";
 import { installMetaClient, MetaClient } from "@muselaunch/providers";
@@ -352,7 +352,7 @@ describe("Experiments and recommendations", () => {
     const ctx = await setup();
     const ws = ctx.p.db.ws(ctx.wsA);
     const pref = await ws.collection("brandPreferences").create({ appId: ctx.appId, kind: "lesson", text: "Founder-on-camera videos outperform screen recordings for us", source: { type: "explicit" }, weight: 0.8, tags: [], active: true }, { actor: "alice" });
-    installMemoryApi(undefined); // use the fallback (module B's retrieveMemory not merged yet)
+    installMemoryApi(fallbackMemoryApi); // deterministic: module B has its own tests for the Glimmer-backed API
     const interpretation = { insights: [{ text: "No measured performance data yet.", basis: "measured", observationIds: ["obs_unknown"], resultIds: [] }], dataGaps: ["No installs data"] };
     const proposal = {
       recommendations: [
