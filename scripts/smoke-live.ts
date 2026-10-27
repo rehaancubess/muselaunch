@@ -7,7 +7,7 @@ import { readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
-loadDotenv({ path: fileURLToPath(new URL("../.env", import.meta.url)) });
+loadDotenv({ path: fileURLToPath(new URL("../.env", import.meta.url)), quiet: true });
 process.env.DB_DRIVER ??= "memory";
 process.env.JOB_DISPATCH = "inline";
 process.env.STORAGE_DRIVER = "local";

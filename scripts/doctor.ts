@@ -9,7 +9,7 @@ import { config as loadDotenv } from "dotenv";
 
 const envPath = fileURLToPath(new URL("../.env", import.meta.url));
 const hasEnv = existsSync(envPath);
-loadDotenv({ path: envPath });
+loadDotenv({ path: envPath, quiet: true });
 const env = process.env;
 
 const ok = (m: string) => console.log(`  ✅ ${m}`);
