@@ -192,7 +192,7 @@ function PostRow({ item, onOpen }: { item: CalendarItem; onOpen: () => void }) {
   return (
     <ListRow
       onClick={onOpen}
-      leading={<span className="inline-flex w-14 justify-end text-footnote tabular text-ink-2">{at ?? "—"}</span>}
+      leading={<span className="inline-flex w-14 justify-end text-footnote tabular text-ink-2">{at ?? <span className="text-ink-3">No time</span>}</span>}
       title={item.title ?? "Untitled post"}
       subtitle={`${CHANNEL_LABEL[item.channel]} · ${item.mode === "api" ? "via API" : "manual"}${item.lastError && item.status === "failed" ? ` · ${item.lastError}` : ""}`}
       trailing={
