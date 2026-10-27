@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@meta-sam/parser": "0.1.0",
     "@muselaunch/contracts": "workspace:*",
     "@muselaunch/platform": "workspace:*",
     "openai": "^7.45.0",
