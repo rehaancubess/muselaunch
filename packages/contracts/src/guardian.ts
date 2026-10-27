@@ -60,6 +60,8 @@ export const BrandFinding = z.object({
   rule: z.string().max(60).optional(),
   /** The exact text span / value the finding is about (used for highlighting and for learning). */
   quote: z.string().max(300).optional(),
+  /** Stable identity of the issue across versions; dismissals are remembered by this key. */
+  key: z.string().max(80).optional(),
   resolution: BrandFindingResolution.optional(),
 });
 export type BrandFinding = z.infer<typeof BrandFinding>;
