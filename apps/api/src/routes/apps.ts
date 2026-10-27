@@ -83,7 +83,8 @@ const UpdateApp = z.object({
 appRoutes.patch("/:appId", requireCap("apps.write"), async (c) => {
   const p = c.get("platform");
   const input = await body(c, UpdateApp);
-  if (input.websiteUrl) assertSafeUrl(input.websiteUrl);
+  // Same URL policy as POST /apps: store URLs are fetched by re-imports and used as tracked-link destinations.
+  for (const u of [input.websiteUrl, input.storeUrls?.ios, input.storeUrls?.android]) if (u) assertSafeUrl(u);
   const app = await p.db.ws(c.get("workspaceId")).collection("apps").update(c.req.param("appId"), input, { actor: actorOf(c) });
   return c.json({ app });
 });
