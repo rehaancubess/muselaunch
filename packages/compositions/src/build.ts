@@ -1147,14 +1147,19 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
     // Put the demo on the side away from the phone in hand (else away from the presenter's mass).
     const phoneMean = co.phone?.meanBbox;
     const personLeft = phoneMean ? phoneMean.x + phoneMean.w / 2 < 0.5 === false : mean.x + mean.w / 2 < 0.5;
+    // Separate vertical bands, top to bottom: headline → wordmark (behind the head) → app demo.
+    const headline = topHeadline(ctx, head, 8, 84);
+    let bandTop = headline.box.y + headline.box.h + 0.022;
     if (co.cutoutReady(co.person)) {
-      // Big word behind the presenter: reads as depth when the cutout sits in front of it.
+      // Big word behind the presenter: reads as depth when the cutout sits in front of it. Faded so
+      // the headline above stays the first read.
       const word = (app.name || head).toUpperCase().slice(0, 14);
-      // As wide as the platform safe zone allows (UI overlays never cover it).
       const gw = 1 - f.safe.left - f.safe.right;
-      const size = Math.round(Math.min(300 * f.u, (f.W * gw * 0.96) / Math.max(3, word.length * 0.62)));
+      const gx = f.safe.left;
+      const size = Math.round(Math.min((f.portrait ? 240 : 200) * f.u, (f.W * gw * 0.96) / Math.max(3, word.length * 0.62)));
+      const gh = (size * 1.05) / f.H;
       layers.push(
-        text(`${sceneId}_ghost`, word, box(f.safe.left, Math.max(f.safe.top, f.portrait ? 0.175 : 0.14), gw, (size * 1.05) / f.H, 3), {
+        text(`${sceneId}_ghost`, word, box(gx, bandTop, gw, gh, 3), {
           role: "label",
           size,
           weight: 860,
@@ -1164,22 +1169,32 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
           enter: { preset: "blur-in", durationSec: 1.1, delaySec: 0.1 },
         }),
       );
-      layers[layers.length - 1]!.box.opacity = 0.92;
+      layers[layers.length - 1]!.box.opacity = 0.72;
       layers[layers.length - 1]!.name = "Word behind presenter";
+      bandTop += gh + 0.012;
     }
     if (demo) {
       // The phone is on the right when personLeft === false (we keep the demo away from it).
       const demoRight = phoneMean ? phoneMean.x + phoneMean.w / 2 < 0.5 : personLeft;
-      const cx = demoRight ? (f.landscape ? 0.76 : 0.8) : f.landscape ? 0.24 : 0.2;
-      // Below the wordmark band so both read; the presenter overlaps the device's inner edge.
-      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.335 : 0.3, f.portrait ? 0.5 : 0.64, 0.5);
-      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: demoRight ? 6 : -6 }));
+      // Sized to the room beside the presenter (they may overlap its inner edge: that is the depth
+      // effect) and kept wholly inside the platform safe zone, rotation included.
+      const room = demoRight ? 1 - f.safe.right - (mean.x + mean.w) : mean.x - f.safe.left;
+      const maxW = Math.min(f.landscape ? 0.34 : 0.42, Math.max(f.landscape ? 0.2 : f.portrait ? 0.36 : 0.3, room / 0.6));
+      const y = Math.max(bandTop, f.portrait ? 0.3 : 0.32);
+      const hFrac = Math.max(0.24, Math.min(f.portrait ? 0.44 : 0.6, 1 - f.safe.bottom - y - 0.03));
+      const rot = demoRight ? 4 : -4;
+      const raw = deviceBox(f, app, demo, 0.5, y, hFrac, maxW);
+      const th = (Math.abs(rot) * Math.PI) / 180;
+      const extX = (raw.w * f.W * Math.cos(th) + raw.h * f.H * Math.sin(th)) / 2 / f.W;
+      const cx = demoRight ? 1 - f.safe.right - extX : f.safe.left + extX;
+      const devB = { ...raw, x: cx - raw.w / 2 };
+      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: rot }));
       layers[layers.length - 1]!.name = "App demo (behind presenter)";
     }
     if (co.cutoutReady(co.person)) layers.push(cutoutLayer(`${sceneId}_presenter`, "Presenter (cutout, in front)", base, co.person!, 6));
     // The phone in hand is foreground too (a person mask has a hole where the phone occludes them).
     if (co.cutoutReady(co.phone)) layers.push(cutoutLayer(`${sceneId}_phone`, "Phone in hand (cutout, in front)", base, co.phone!, 7));
-    layers.push(topHeadline(ctx, head, 8, 84));
+    layers.push(headline);
     return { template: t, layers, background: darkBg };
   }
 
