@@ -160,6 +160,8 @@ export const OutreachDraft = BaseEntity.extend({
   body: z.string().max(8000),
   claimIds: z.array(Id).default([]),
   offer: z.string().max(1000).optional(),
+  /** `ai_suggested` offers must be confirmed/edited by the user before approval can be requested. */
+  offerSource: z.enum(["user", "ai_suggested"]).optional(),
   /** Recipient: one of the prospect's publicly listed contact routes, with its source. */
   to: z.object({ kind: z.enum(["email", "contact_form", "dm", "website", "business_inquiry"]), value: z.string().max(300), source: SourceRef }).optional(),
   /** Claim validation over subject + body (Spark validator, or deterministic rules when unavailable). */
