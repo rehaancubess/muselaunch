@@ -10,6 +10,7 @@ import { handlers } from "./index";
 import { importStock, requestTranscript, waitForTranscript } from "./service";
 import { installFakeMeta, loadFixture, makeTestAudio, makeTestImage, storeUpload, type RecordedCall } from "./testing";
 import { installMediaDeps } from "./util";
+import { needsVideoNormalisation } from "./probe";
 
 const dir = mkdtempSync(join(tmpdir(), "media-test-"));
 const wid = "ws_media_b";
@@ -206,6 +207,27 @@ describe("Muse Image eligibility gate + OpenAI images", () => {
     expect(calls[1]!.form!.getAll("image[]")).toHaveLength(1);
   });
 
+  it("uses Muse Image only when the operator and end user are both eligible", async () => {
+    const p = createTestPlatform({ META_API_KEY: "k", MUSE_IMAGE_ENABLED: "1", IMAGE_PROVIDER: "muse", OPERATOR_COUNTRY: "US" }, handlers);
+    const b64 = loadFixture<{ response: { data: { b64_json: string }[] } }>("openai-images-generate.json").response.data[0]!.b64_json;
+    const meta = installFakeMeta(p, { images: () => ({ created: 1, data: [{ b64_json: b64 }], output_format: "png", background: "opaque" }) });
+    await p.credits.ensureAccount(wid, { grant: 100, reason: "test" });
+    const job = await p.jobs.create(wid, "media.image_generate", { prompt: "Abstract calm shapes", count: 1, size: "1024x1024", endUserCountry: "US" }, { actor: "tester" });
+    await p.inline!.drain();
+    const done = await p.jobs.get(wid, job.id);
+    expect(done!.status).toBe("succeeded");
+    const call = meta.calls.find((c) => c.url.endsWith("/v1/images/generations"))!;
+    expect(call.json).toMatchObject({ model: "muse-image-1.0", n: 1, size: "1024x1024", response_format: "b64_json", output_format: "png" });
+    const asset = await p.db.ws(wid).collection("mediaAssets").getOrThrow((done!.output!.data as { assetIds: string[] }).assetIds[0]!);
+    expect(asset.generation).toMatchObject({ provider: "muse", model: "muse-image-1.0" });
+    // Same deployment, Indian end user → no Meta image call at all; with no OpenAI key the job fails visibly.
+    const before = meta.calls.length;
+    const blocked = await p.jobs.create(wid, "media.image_generate", { prompt: "Abstract calm shapes", count: 1, size: "1024x1024", endUserCountry: "IN" }, { actor: "tester" });
+    await p.inline!.drain();
+    expect(await p.jobs.get(wid, blocked.id)).toMatchObject({ status: "failed", error: { code: "PROVIDER_NOT_CONFIGURED" } });
+    expect(meta.calls.length).toBe(before);
+  });
+
   it("refuses to AI-edit a real screenshot", async () => {
     const p = createTestPlatform({ OPENAI_API_KEY: "sk-test" }, handlers);
     installMediaDeps(p, { fetch: (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch });
@@ -215,6 +237,18 @@ describe("Muse Image eligibility gate + OpenAI images", () => {
     const job = await p.jobs.create(wid, "media.image_generate", { prompt: "make it pop", count: 1, size: "1024x1024", parentAssetId: shot.id }, { actor: "tester" });
     await p.inline!.drain();
     expect(await p.jobs.get(wid, job.id)).toMatchObject({ status: "failed", error: { code: "BAD_REQUEST" } });
+  });
+});
+
+describe("video normalisation plan", () => {
+  const base = { kind: "video" as const, container: "mov,mp4,m4a,3gp,3g2,mj2", width: 1920, height: 1080, displayWidth: 1920, displayHeight: 1080, rotation: 0, vfr: false, videoCodec: "h264", pixFmt: "yuv420p", hasAudio: true, audioCodec: "aac", hasVideo: true, fps: 30 };
+  it("remuxes clean MOV/H.264, transcodes HEVC/rotated/VFR/4K, keeps clean MP4", () => {
+    expect(needsVideoNormalisation(base, "video/mp4")).toMatchObject({ transcode: false, remux: false });
+    expect(needsVideoNormalisation(base, "video/quicktime")).toMatchObject({ transcode: false, remux: true });
+    expect(needsVideoNormalisation({ ...base, videoCodec: "hevc" }, "video/quicktime").transcode).toBe(true);
+    expect(needsVideoNormalisation({ ...base, rotation: 90, displayWidth: 1080, displayHeight: 1920 }, "video/mp4").reasons).toContain("rotation 90");
+    expect(needsVideoNormalisation({ ...base, vfr: true }, "video/mp4").reasons).toContain("variable frame rate");
+    expect(needsVideoNormalisation({ ...base, width: 3840, height: 2160, displayWidth: 3840, displayHeight: 2160 }, "video/mp4").transcode).toBe(true);
   });
 });
 
