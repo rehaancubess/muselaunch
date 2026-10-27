@@ -125,11 +125,27 @@ export class LoopEnv {
     return [...this.ap.log, ...this.entries];
   }
 
-  /** Enqueue a delegated job with a deterministic key (idempotent) and log it with its ref. */
+  /**
+   * Enqueue a delegated job with a deterministic key (idempotent) and log it with its ref.
+   * After the user resumes a failed loop, work that already succeeded is reused and failed work is
+   * re-run through the quota-aware retry path (`retryOfJobId`), never silently duplicated.
+   */
   async delegate<T extends JobType>(type: T, payload: z.input<(typeof JobPayloads)[T]>, opts: { key: string; label: string; credits?: { operation: string; params?: Record<string, unknown> } }): Promise<Job> {
+    const baseKey = `autopilot:${this.ap.id}:it${this.iteration}:${opts.key}`;
     const retries = this.fullLog.filter((e) => e.summary.startsWith(RETRY_PREFIX)).length;
-    const job = await this.ctx.enqueue(type, payload, { idempotencyKey: `autopilot:${this.ap.id}:it${this.iteration}:${opts.key}${retries ? `:retry${retries}` : ""}`, credits: opts.credits, appId: this.appId });
-    this.note("action", opts.label, [{ entity: "jobs", id: job.id }]);
+    const prior = (await this.ws.collection("jobs").getMany(delegatedJobIds(this.fullLog)))
+      .filter((j) => j.idempotencyKey === baseKey || j.idempotencyKey.startsWith(`${baseKey}:retry`))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const last = prior[prior.length - 1];
+    if (last && last.status !== "failed" && last.status !== "cancelled") return last;
+    const retryOf = last && retries > 0 ? last : undefined;
+    const job = await this.ctx.enqueue(type, payload, {
+      idempotencyKey: retryOf ? `${baseKey}:retry${retries}` : baseKey,
+      retryOfJobId: retryOf?.id,
+      credits: opts.credits,
+      appId: this.appId,
+    });
+    if (!prior.some((j) => j.id === job.id)) this.note("action", retryOf ? `${opts.label} (retry)` : opts.label, [{ entity: "jobs", id: job.id }]);
     return job;
   }
 

@@ -128,6 +128,12 @@ export async function autopilotStepHandler(ctx: JobContext<"autopilot.step">): P
       await commit(env, null).catch(() => {});
       throw err;
     }
+    if (err.code === "QUOTA_EXCEEDED" || err.code === "INSUFFICIENT_CREDITS" || err.code === "SPEND_CEILING") {
+      // Plan limits and credit balance are the workspace's call, not a loop failure: pause and say why.
+      env.note("budget", `Paused: ${err.opts.userMessage ?? err.message} Resume when ready.`);
+      await commit(env, null, { status: "paused", error: err.toInfo() });
+      return { creditsUsed: 0, data: { paused: err.code } };
+    }
     env.note("error", err.opts.userMessage ?? err.message);
     await commit(env, null, { status: "failed", error: err.toInfo() });
     return { creditsUsed: 0, data: { failed: err.code } };
