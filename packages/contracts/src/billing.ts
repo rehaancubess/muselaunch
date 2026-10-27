@@ -137,6 +137,10 @@ export const DEFAULT_CREDIT_PRICES = {
   "analytics.import_csv": 0,
   "outreach.draft": 3,
   "memory.retrieve": 0,
+  /** Glimmer runs locally; covers the rules pass and the Spark fallback when Glimmer is offline. */
+  "brand.review": 1,
+  /** Autopilot steps are free; the jobs they delegate reserve their own credits within the loop budget. */
+  "autopilot.step": 0,
 } as const;
 export type CreditOperation = keyof typeof DEFAULT_CREDIT_PRICES;
 

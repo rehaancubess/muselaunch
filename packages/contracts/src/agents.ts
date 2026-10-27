@@ -12,6 +12,9 @@ export const AgentKind = z.enum([
   "experiment_analysis",
   "outreach_drafting",
   "copywriting",
+  "growth_autopilot",
+  "brand_review",
+  "effects_direction",
 ]);
 export type AgentKind = z.infer<typeof AgentKind>;
 

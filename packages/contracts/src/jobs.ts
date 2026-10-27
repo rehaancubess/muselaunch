@@ -15,8 +15,18 @@ export const JobPayloads = {
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
   "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).default(15) }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
-  "composition.edit": z.object({ appId: Id, compositionId: Id, baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).default([]), patchId: Id, autoApply: z.boolean().default(false) }),
-  "composition.variants": z.object({ appId: Id, compositionId: Id, mode: z.enum(["aspect", "audience"]), targets: z.array(z.string().max(200)).min(1).max(5) }),
+  "composition.edit": z.object({
+    appId: Id,
+    compositionId: Id,
+    baseVersion: z.number().int().min(1),
+    instruction: z.string().min(1).max(2000),
+    sceneIds: z.array(Id).default([]),
+    patchId: Id,
+    autoApply: z.boolean().default(false),
+    /** Object-aware context: Spark may use these clips' SAM tracks/mattes + transcript to direct effects. */
+    clipAnalysisIds: z.array(Id).max(4).default([]),
+  }),
+  "composition.variants": z.object({ appId: Id, compositionId: Id, mode: z.enum(["aspect", "audience", "hooks"]), targets: z.array(z.string().max(200)).min(1).max(5) }),
   "copy.generate": z.object({ appId: Id, campaignId: Id, variantId: Id.optional(), channels: z.array(z.string()).min(1) }),
   "render.preview": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1) }),
   "render.final": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), format: z.enum(["mp4", "png", "jpeg"]).default("mp4") }),
@@ -35,6 +45,12 @@ export const JobPayloads = {
   "experiment.analyze": z.object({ appId: Id, experimentId: Id }),
   "recommendations.generate": z.object({ appId: Id }),
   "memory.ingest": z.object({ appId: Id.optional(), ref: EntityRef }),
+  /** SAM on several prompts (person, phone…) + tracks + Voice transcript for one real clip. */
+  "media.analyze_clip": z.object({ clipAnalysisId: Id }),
+  /** Muse Glimmer Brand Guardian review of a composition version / copy pack / asset. */
+  "brand.review": z.object({ appId: Id, reviewId: Id }),
+  /** Advance the Growth Autopilot loop by one stage. */
+  "autopilot.step": z.object({ autopilotId: Id }),
 } as const;
 
 export type JobType = keyof typeof JobPayloads;
@@ -75,6 +91,9 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "experiment.analyze": "agents",
   "recommendations.generate": "agents",
   "memory.ingest": "agents",
+  "media.analyze_clip": "media",
+  "brand.review": "agents",
+  "autopilot.step": "agents",
 };
 
 export const JobProgress = z.object({

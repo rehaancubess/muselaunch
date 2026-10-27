@@ -86,7 +86,7 @@ export const ProduceVariantRequest = z.object({
 });
 
 export const ApplyPatchRequest = z.object({ baseVersion: z.number().int().min(1), ops: z.array(PatchOp).min(1).max(100), summary: z.string().max(500).default("Manual edit") });
-export const AiEditRequest = z.object({ baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).max(30).default([]), autoApply: z.boolean().default(false) });
+export const AiEditRequest = z.object({ baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).max(30).default([]), autoApply: z.boolean().default(false), clipAnalysisIds: z.array(Id).max(4).default([]) });
 export const RenderRequest = z.object({ version: z.number().int().min(1).optional(), quality: z.enum(["preview", "final"]).default("preview") });
 
 export const EstimateRequest = z.object({ operation: z.string().max(80), params: z.record(z.string(), z.unknown()).default({}) });

@@ -19,6 +19,9 @@ export const RUN_KIND_LABEL: Record<AgentRun["kind"], string> = {
   experiment_analysis: "Experiment analysis",
   outreach_drafting: "Outreach drafting",
   copywriting: "Copywriting",
+  growth_autopilot: "Growth Autopilot",
+  brand_review: "Brand Guardian review",
+  effects_direction: "Effects direction",
 };
 
 /** Friendly names for the Meta models (ids stay visible for transparency). */
