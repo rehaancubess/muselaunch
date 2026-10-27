@@ -1,0 +1,12 @@
+rules_version = '2';
+// MuseLaunch accesses Firestore only from trusted servers via the Admin SDK, which bypasses
+// these rules. Browsers never read or write Firestore directly, so all client access is denied.
+// Tenant isolation is enforced in the API (workspace membership + capability checks) and by
+// the repository layer, which derives every path from the authorised workspace id.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

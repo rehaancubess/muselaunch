@@ -1,0 +1,21 @@
+node_modules/
+.pnpm-store/
+dist/
+.next/
+out/
+coverage/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+!.env.example
+# local runtime data (local storage driver, memory db snapshots, render scratch)
+.data/
+.render-tmp/
+# raw live API captures may contain private app data; only redacted fixtures are committed
+fixtures/live/raw/
+service-account*.json
+*.log
+.DS_Store
+Thumbs.db

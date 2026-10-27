@@ -1,0 +1,30 @@
+{
+  "name": "@muselaunch/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/app.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@muselaunch/contracts": "workspace:*",
+    "@muselaunch/db": "workspace:*",
+    "@muselaunch/platform": "workspace:*",
+    "@muselaunch/providers": "workspace:*",
+    "@muselaunch/agents": "workspace:*",
+    "@muselaunch/compositions": "workspace:*",
+    "@muselaunch/media": "workspace:*",
+    "@muselaunch/growth": "workspace:*",
+    "@muselaunch/analytics": "workspace:*",
+    "hono": "^4.13.14",
+    "@hono/node-server": "^2.1.5",
+    "zod": "^4.6.7",
+    "dotenv": "^17.2.3",
+    "@muselaunch/worker": "workspace:*"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@muselaunch/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "gen:indexes": "tsx scripts-gen-indexes.ts"
+  },
+  "dependencies": {
+    "@muselaunch/contracts": "workspace:*",
+    "firebase-admin": "^14.5.0",
+    "zod": "^4.6.7"
+  }
+}

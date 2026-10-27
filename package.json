@@ -1,0 +1,38 @@
+{
+  "name": "muselaunch",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MuseLaunch: an AI growth studio for indie app developers.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,worker,web -c blue,magenta,green \"pnpm --filter @muselaunch/api dev\" \"pnpm --filter @muselaunch/worker dev\" \"pnpm --filter @muselaunch/web dev\"",
+    "dev:backend": "concurrently -k -n api,worker -c blue,magenta \"pnpm --filter @muselaunch/api dev\" \"pnpm --filter @muselaunch/worker dev\"",
+    "typecheck": "pnpm -r --workspace-concurrency=2 typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:live": "tsx scripts/smoke-live.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "seed:dev": "tsx scripts/seed-dev.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "concurrently": "^10.0.6",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "puppeteer",
+      "sharp",
+      "protobufjs",
+      "@firebase/util"
+    ]
+  }
+}
