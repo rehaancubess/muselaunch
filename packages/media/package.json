@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -14,6 +15,11 @@
     "@muselaunch/db": "workspace:*",
     "@muselaunch/platform": "workspace:*",
     "@muselaunch/providers": "workspace:*",
+    "heic-convert": "2.1.0",
     "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "@ffprobe-installer/ffprobe": "2.1.2",
+    "ffmpeg-static": "5.3.0"
   }
 }

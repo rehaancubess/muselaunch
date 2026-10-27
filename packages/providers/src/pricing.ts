@@ -24,7 +24,7 @@ export const PRICES = {
   samPerVideoFrame: 0.2 / 1000,
   samMinFramesPerVideoRequest: 50,
   voicePerHour: 0.18,
-  /** OpenAI gpt-image-1 medium quality, portrait ≈ $0.063; overridable. */
+  /** Fallback per-image estimate when token usage is absent (OpenAI images; overridable). */
   openaiImagePerImage: 0.07,
   openaiTtsPer1kChars: 0.015,
 };

@@ -1,0 +1,60 @@
+/**
+ * Generates SYNTHETIC SAM 3.1 fixtures in the documented wire format
+ * (https://dev.meta.ai/docs/sam/reading-segmentation): `<Nf>id<|box;…;w;h;c|><|mask;x=0;y=0;c;data=H,W,!payload|>`.
+ * Mask payloads are produced with the encoder shipped inside Meta's `@meta-sam/parser` (the same
+ * codec its decoder validates), so parsing exercises the real decoder. These are NOT live outputs.
+ *
+ *   pnpm tsx fixtures/media/generate-sam-fixtures.ts
+ */
+import { writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(join(here, "../../packages/providers/package.json"));
+const parserIndex = require.resolve("@meta-sam/parser");
+const { encodeSegmentationMask } = (await import(pathToFileURL(join(dirname(parserIndex), "mask-codec.js")).href)) as {
+  encodeSegmentationMask: (raster: Uint8Array, width: number, height: number) => { payload: string };
+};
+
+/** Solid rectangle with rounded-off corners (so the mask is not trivially a box). */
+function rectMask(w: number, h: number): Uint8Array {
+  const r = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) r[y * w + x] = (x < 2 || x >= w - 2) && (y < 2 || y >= h - 2) ? 0 : 1;
+  return r;
+}
+
+function record(id: number, x1: number, y1: number, w: number, h: number, frameW: number, frameH: number, c: number) {
+  const { payload } = encodeSegmentationMask(rectMask(w, h), w, h);
+  return `${id}<|box;x1=${x1};y1=${y1};x2=${x1 + w - 1};y2=${y1 + h - 1};w=${frameW};h=${frameH};c=${c}|><|mask;x=0;y=0;c=${c};data=${h},${w},${payload}|>`;
+}
+
+const LABEL = "SYNTHETIC fixture in the documented SAM 3.1 output format (masks encoded with @meta-sam/parser's codec). Not a live API response.";
+
+// Video: 160x120 @10fps, 20 frames. Object 0 = red 40x60 box at x=10+3i, y=30 (matches the test clip).
+// Object 1 = small 16x16 box at the top-right, visible only in frames 0-4.
+{
+  const W = 160, H = 120;
+  const lines: string[] = [];
+  for (let i = 0; i < 20; i++) {
+    const recs = [record(0, 10 + 3 * i, 30, 40, 60, W, H, 0.96)];
+    if (i < 5) recs.push(record(1, 130, 8, 16, 16, W, H, 0.61));
+    lines.push(`<${i}f>${recs.join(",")}`);
+  }
+  writeFileSync(join(here, "sam-video-moving-box.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 20, prompt: "red box", rawOutput: `${lines.join("\n")}\n` }, null, 2));
+}
+
+// Image: 96x64, one object 40x30 at (20,16).
+{
+  const W = 96, H = 64;
+  writeFileSync(join(here, "sam-image-box.json"), JSON.stringify({ fixture: true, label: LABEL, media: "image", width: W, height: H, prompt: "red box", rawOutput: `<0f>${record(0, 20, 16, 40, 30, W, H, 0.92)}\n` }, null, 2));
+}
+
+// Box-prompt refinement result (one object, id from the request = 1) for the same clip.
+{
+  const W = 160, H = 120;
+  const lines = Array.from({ length: 20 }, (_, i) => `<${i}f>${record(1, 10 + 3 * i, 30, 40, 60, W, H, 0.99)}`);
+  writeFileSync(join(here, "sam-video-box-prompt.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 20, prompt: "box", rawOutput: `${lines.join("\n")}\n` }, null, 2));
+}
+console.log("wrote SAM fixtures");
