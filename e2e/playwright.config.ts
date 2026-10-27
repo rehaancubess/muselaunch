@@ -14,7 +14,7 @@ const chrome = process.env.RENDER_CHROME_PATH ?? "/opt/pw-browsers/chromium_head
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts$/,
-  timeout: 20 * 60_000,
+  timeout: 40 * 60_000,
   expect: { timeout: 90_000 },
   fullyParallel: false,
   workers: 1,

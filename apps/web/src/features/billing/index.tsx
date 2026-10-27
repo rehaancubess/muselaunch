@@ -78,7 +78,7 @@ function PlanSection({ workspaceId }: { workspaceId: string }) {
             <p className="text-footnote text-ink-2">{p.allowancePolicy}</p>
             {!p.payments.enabled ? (
               <Notice tone="info" icon={<CreditCard aria-hidden />} title="Payments aren't enabled in the beta">
-                {p.payments.message}
+                {(p.payments.message ?? "").replace(/^Payments aren['’]t enabled in the beta\.?\s*/i, "") || "Request an upgrade and an operator will switch your plan; nothing is charged."}
               </Notice>
             ) : null}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

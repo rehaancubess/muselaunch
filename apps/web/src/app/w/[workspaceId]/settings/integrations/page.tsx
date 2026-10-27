@@ -71,8 +71,8 @@ export default function IntegrationsPage() {
       <Suspense>
         <OAuthReturnToast />
       </Suspense>
-      {fixture ? <Notice tone="warning" title="Fixture mode">Providers marked “Fixture” answer from labelled test fixtures on this local server. Nothing here reflects a live model.</Notice> : null}
       <PageHeader title="Integrations" description="What’s live on this deployment, what isn’t, and what MuseLaunch uses instead. Nothing unavailable is simulated." className="pb-0" />
+      {fixture ? <Notice tone="warning" title="Fixture mode">Providers marked “Fixture” answer from labelled test fixtures on this local server. Nothing here reflects a live model.</Notice> : null}
 
       <Section title="AI models & media providers">
         {status.isLoading ? (
@@ -86,7 +86,10 @@ export default function IntegrationsPage() {
         ) : status.data ? (
           <div className="space-y-4">
             <List label="Providers">
-              {status.data.items.map((p) => (
+              {status.data.items.map((raw) => {
+                // Honest product copy for Muse Image: where Meta permits it, otherwise the labelled alternative.
+                const p = raw.id === "muse-image" && raw.state === "restricted" ? { ...raw, detail: "Used where Meta permits it. Region-restricted on this deployment, so campaign images come from OpenAI (when connected) and are labelled as such." } : raw;
+                return (
                 <ListRow
                   key={p.id}
                   leading={<span className="flex size-9 items-center justify-center rounded-lg bg-mist text-ink-2 [&_svg]:size-[18px]">{ICONS[p.id] ?? <Globe aria-hidden />}</span>}
@@ -104,7 +107,8 @@ export default function IntegrationsPage() {
                     {p.detail}
                   </p>
                 </ListRow>
-              ))}
+                );
+              })}
             </List>
             <p className="text-footnote text-ink-2">
               {status.data.country ? (

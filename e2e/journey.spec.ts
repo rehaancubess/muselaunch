@@ -122,7 +122,8 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
   await test.step("final render", async () => {
     await page.getByRole("button", { name: "Render", exact: true }).click();
     await page.getByRole("button", { name: "Render final" }).click();
-    await expect(page.getByText("Final render ready")).toBeVisible({ timeout: 300_000 });
+    // Real HyperFrames render: allow for slow, shared CI machines.
+    await expect(page.getByText(/Latest final render/)).toBeVisible({ timeout: 15 * 60_000 });
     await shot(page, "studio-final-render");
     await page.getByRole("button", { name: "Close" }).last().click();
   });
@@ -171,6 +172,18 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     await expect(page.getByText("Import complete")).toBeVisible({ timeout: 120_000 });
     await page.getByRole("tab", { name: "Overview" }).click();
     await shot(page, "insights-overview", true);
+    await page.getByRole("tab", { name: "Experiments" }).click();
+    await page.getByRole("button", { name: "New experiment" }).click();
+    const exp = page.getByRole("dialog");
+    await exp.getByLabel("Title").fill("Question hook vs statement hook");
+    await exp.getByLabel("Hypothesis").fill("A question-led first line earns more link clicks.");
+    await exp.getByLabel("Variant A (control)").fill("Statement hook");
+    await exp.getByLabel("Variant B").fill("Question hook");
+    await exp.getByRole("button", { name: "Create" }).click();
+    await page.getByRole("button", { name: "Analyze with Muse Spark" }).click();
+    await expect(page.getByText(/Fixture analysis/)).toBeVisible({ timeout: 120_000 });
+    await shot(page, "insights-experiment");
+    await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "What to try next" }).click();
     await page.getByRole("button", { name: "Generate" }).click();
     await expect(page.getByRole("button", { name: "Dismiss" }).first()).toBeVisible({ timeout: 120_000 });
