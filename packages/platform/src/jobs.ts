@@ -57,6 +57,11 @@ export interface CreateJobOptions {
   credits?: { operation: string; amount?: number; params?: Record<string, unknown> };
   maxAttempts?: number;
   parentJobId?: string;
+  /**
+   * Set by `retry()`: the job is a user-initiated re-run of `retryOfJobId` (also linked as the parent
+   * for audit). Quota hooks must treat it as new top-level work, not a chained child.
+   */
+  retryOfJobId?: string;
   agentRunId?: string;
   dependsOn?: string[];
   /** Create without dispatching (caller dispatches later). */
@@ -331,6 +336,7 @@ export class JobService {
       actor,
       appId: job.appId,
       parentJobId: job.id,
+      retryOfJobId: job.id,
       agentRunId: job.agentRunId,
       idempotencyKey: `${job.idempotencyKey}:retry:${newId("r")}`,
       credits: credits ?? (job.reservation ? { operation: job.type, amount: job.reservation.credits } : undefined),
@@ -535,7 +541,10 @@ export class CloudTasksDispatcher implements Dispatcher {
       await this.client.createTask({
         parent,
         task: {
-          name: `${parent}/tasks/${env.jobId}-a${env.attempt ?? 0}`,
+          // Task names are unique per QUEUE (shared by all tenants) while job ids are only unique per
+          // workspace (derived from type + idempotency key), so the workspace is part of the name:
+          // otherwise one tenant's task could dedupe (silently drop) another tenant's job.
+          name: `${parent}/tasks/${env.workspaceId}-${env.jobId}-a${env.attempt ?? 0}`,
           dispatchDeadline: { seconds: pool === "render" ? 1800 : 900 },
           httpRequest: {
             httpMethod: "POST",

@@ -23,7 +23,9 @@ export interface TracePayload {
   error?: unknown;
 }
 
-const SECRET_KEYS = /^(authorization|api[-_]?key|x-api-key|token|access_token|refresh_token|password|secret)$/i;
+// Exact key names (snake, kebab and camelCase), so usage counters such as `input_tokens` stay visible.
+const SECRET_KEYS =
+  /^(authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|api[-_]?key|x[-_]?api[-_]?key|token|bearer|(access|refresh|id|session|upload)[-_]?token|client[-_]?secret|secret[-_]?key|private[-_]?key|password|secret)$/i;
 
 /** Deep-redact secrets and truncate very large strings (base64 media) in traces. */
 export function redactForTrace(value: unknown, depth = 0): unknown {

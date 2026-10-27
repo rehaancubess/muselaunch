@@ -57,8 +57,13 @@ export interface EditCheck {
 function layerAssetIds(l: Layer): string[] {
   if (l.type === "image" || l.type === "video") return [l.assetId];
   if (l.type === "device") return [l.screenAssetId];
+  // Phase-2 screen-insert effects place media onto a tracked phone: same "real product media" rule.
+  if (l.type === "effect" && l.assetId) return [l.assetId];
   return [];
 }
+
+/** Layers whose media must be the app's REAL screenshots/recordings (never generated or stock). */
+const needsProductTruth = (l: Layer) => l.type === "device" || l.type === "effect";
 
 /** Validate a proposed edit: real PatchOps, scene scope, untouched scenes byte-identical, real assets, locked layers. */
 export function checkEdit(base: CompositionDoc, out: EditOutput, opts: { sceneIds: string[]; assets: Map<string, MediaAsset> }): EditCheck {
@@ -102,7 +107,7 @@ export function checkEdit(base: CompositionDoc, out: EditOutput, opts: { sceneId
         if (baseAssets.has(assetId)) continue;
         const a = opts.assets.get(assetId);
         if (!a) problems.push(`Layer ${l.id} references unknown asset ${assetId}; use an id from the asset list.`);
-        else if (l.type === "device" && !(a.isProductTruth && (a.role === "screenshot" || a.role === "app_recording"))) problems.push(`Device layer ${l.id} must show a real screenshot or recording, not ${a.role}.`);
+        else if (needsProductTruth(l) && !(a.isProductTruth && (a.role === "screenshot" || a.role === "app_recording"))) problems.push(`${l.type === "device" ? "Device" : "Screen-insert"} layer ${l.id} must show a real screenshot or recording, not ${a.role}.`);
       }
       if (l.type === "text" && baseTexts.get(l.id) !== l.text) changedTexts.push({ id: l.id, text: l.text });
     }

@@ -28,6 +28,10 @@ localStorageRoutes.get("/:token", async (c) => {
     "accept-ranges": "bytes",
     "cache-control": "private, max-age=300",
     "x-content-type-options": "nosniff",
+    // SECURITY: objects are user-controlled (uploaded SVG/text, imported listing icons, stock files)
+    // and are served from the API origin. A sandboxed, script-less CSP keeps an SVG or HTML-ish file
+    // opened directly from running script on this origin; <img>/<video> embedding is unaffected.
+    "content-security-policy": "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
   };
   if (grant.n) headers["content-disposition"] = `attachment; filename="${safeFilename(grant.n)}"`;
   const range = c.req.header("range")?.match(/^bytes=(\d*)-(\d*)$/);
@@ -51,6 +55,7 @@ localStorageRoutes.put("/:token", async (c) => {
   if (grant.ct && ct !== grant.ct) throw new AppError("BAD_REQUEST", "Content-Type does not match the signed upload");
   const raw = c.req.raw.body;
   if (!raw) throw new AppError("BAD_REQUEST", "Empty upload");
-  const bytes = await storage.writeStream(grant.k, Readable.fromWeb(raw as import("node:stream/web").ReadableStream), grant.ct ?? "application/octet-stream", grant.mx);
+  // Create-only: a signed upload URL can't overwrite an object (e.g. after it was probed and approved).
+  const bytes = await storage.writeStream(grant.k, Readable.fromWeb(raw as import("node:stream/web").ReadableStream), grant.ct ?? "application/octet-stream", grant.mx, { exclusive: true });
   return c.json({ ok: true, bytes });
 });
