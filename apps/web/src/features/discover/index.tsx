@@ -168,7 +168,7 @@ function Feed({ appId }: { appId: string }) {
             <EmptyState
               icon={<Compass aria-hidden />}
               title="Nothing in your feed yet"
-              description="Run research from the Creator tab or track competitors and creators above. Every card here links to the public sources it’s based on."
+              description="Use Research market above, or track competitors and creators. Every card here links to the public sources it’s based on."
             />
           )
         }

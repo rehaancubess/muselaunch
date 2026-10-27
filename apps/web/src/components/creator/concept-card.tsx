@@ -1,5 +1,5 @@
 "use client";
-import type { AspectRatio, CampaignVariant, Claim } from "@muselaunch/contracts";
+import type { AspectRatio, CampaignVariant, Claim, Composition } from "@muselaunch/contracts";
 import { Badge, Button, Dialog, SegmentedControl, Select, StatusPill, Tooltip, cn, humanizeStatus, statusKindOf, useToast } from "@muselaunch/ui";
 import { Brain, CheckCircle2, Clapperboard, FileSearch, Target } from "lucide-react";
 import Link from "next/link";
@@ -9,9 +9,12 @@ import type { JobResponse } from "@/lib/api-types";
 import { WorkspaceCostEstimate } from "@/lib/estimate";
 import { ANGLE_LABEL, CHANNEL_LABEL } from "@/lib/labels";
 import { useInvalidate } from "@/lib/query";
+import { routes } from "@/lib/routes";
 
 export interface ConceptCardProps {
   variant: CampaignVariant;
+  /** Compositions produced from this concept. */
+  produced: Composition[];
   campaignId: string;
   workspaceId: string;
   claims: Map<string, Claim>;
@@ -21,10 +24,10 @@ export interface ConceptCardProps {
 }
 
 /** A strategically distinct concept: angle, hook, audience, rationale, evidence, memory influence. */
-export function ConceptCard({ variant: v, campaignId, workspaceId, claims, runHref, canEdit, onJob }: ConceptCardProps) {
+export function ConceptCard({ variant: v, produced, campaignId, workspaceId, claims, runHref, canEdit, onJob }: ConceptCardProps) {
   const toast = useToast();
   const invalidate = useInvalidate();
-  const [busy, setBusy] = useState<"select" | "produce" | null>(null);
+  const [busy, setBusy] = useState<"select" | "produce" | "reject" | null>(null);
   const [produceOpen, setProduceOpen] = useState(false);
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [duration, setDuration] = useState("15");
@@ -34,17 +37,19 @@ export function ConceptCard({ variant: v, campaignId, workspaceId, claims, runHr
   const selected = v.status === "selected" || v.status === "produced";
   const linkedClaims = v.claimIds.map((id) => claims.get(id)).filter((c): c is Claim => Boolean(c));
 
-  const select = async () => {
-    setBusy("select");
+  const decide = async (action: "select" | "reject") => {
+    setBusy(action);
     try {
-      await api.post(`${campaignPath}/variants/${v.id}/select`);
+      await api.post(`${campaignPath}/variants/${v.id}/${action}`);
       await invalidate(campaignPath);
+      if (action === "reject") toast.toast({ title: "Concept set aside", description: "Muse remembers this so future concepts avoid the same angle." });
     } catch (e) {
-      toast.error("Couldn’t select the concept", errorMessage(e));
+      toast.error(action === "select" ? "Couldn’t select the concept" : "Couldn’t set the concept aside", errorMessage(e));
     } finally {
       setBusy(null);
     }
   };
+  const select = () => decide("select");
 
   const produce = async () => {
     setBusy("produce");
@@ -73,7 +78,7 @@ export function ConceptCard({ variant: v, campaignId, workspaceId, claims, runHr
     >
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <Badge tone="neutral">{ANGLE_LABEL[v.angleType]}</Badge>
-        {v.status !== "proposed" ? <StatusPill status={statusKindOf(v.status)}>{humanizeStatus(v.status)}</StatusPill> : null}
+        {produced.length ? <StatusPill status="success">Produced</StatusPill> : v.status === "rejected" ? <StatusPill status="cancelled">Set aside</StatusPill> : v.status !== "proposed" ? <StatusPill status={statusKindOf(v.status)}>{humanizeStatus(v.status)}</StatusPill> : null}
         {v.memoryRefs.length ? (
           <Tooltip content={`Shaped by ${v.memoryRefs.length} of your saved preferences (Muse Glimmer memory).`}>
             <span>
@@ -143,19 +148,40 @@ export function ConceptCard({ variant: v, campaignId, workspaceId, claims, runHr
           </Badge>
         ))}
       </div>
-      {canEdit && v.status !== "rejected" ? (
-        <div className="mt-auto flex gap-2 pt-6">
-          {v.status === "proposed" ? (
-            <Button variant="secondary" className="flex-1" loading={busy === "select"} onClick={select}>
-              Select
+      {canEdit ? (
+        <div className="mt-auto flex flex-wrap gap-2 pt-6">
+          {v.status === "rejected" ? (
+            <Button variant="ghost" className="flex-1" loading={busy === "select"} onClick={select}>
+              Bring back
             </Button>
-          ) : null}
-          {v.status === "selected" ? (
-            <Button className="flex-1" icon={<Clapperboard className="size-4" aria-hidden />} onClick={() => setProduceOpen(true)}>
-              Produce
-            </Button>
-          ) : null}
-          {v.status === "produced" ? <p className="py-2 text-footnote text-ink-2">Produced. See compositions below.</p> : null}
+          ) : produced.length ? (
+            <>
+              <Button className="flex-1" icon={<Clapperboard className="size-4" aria-hidden />} asChild>
+                <Link href={routes.app(workspaceId, v.appId).studio(produced[0]!.id)}>
+                  <Clapperboard className="size-4" aria-hidden />
+                  Open in Studio
+                </Link>
+              </Button>
+              <Button variant="ghost" onClick={() => setProduceOpen(true)}>
+                Another format
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" loading={busy === "reject"} onClick={() => decide("reject")}>
+                Set aside
+              </Button>
+              {v.status === "proposed" ? (
+                <Button variant="secondary" className="flex-1" loading={busy === "select"} onClick={select}>
+                  Select
+                </Button>
+              ) : (
+                <Button className="flex-1" icon={<Clapperboard className="size-4" aria-hidden />} onClick={() => setProduceOpen(true)}>
+                  Produce
+                </Button>
+              )}
+            </>
+          )}
         </div>
       ) : null}
       <Dialog

@@ -2,7 +2,7 @@
 import type { App, Capability, CreditBalance, Workspace, WorkspaceMember } from "@muselaunch/contracts";
 import { capabilitiesFor } from "@muselaunch/contracts";
 import { useParams } from "next/navigation";
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { wsPath, type ApiError } from "./api";
 import type { MeResponse, Page, WorkspaceResponse } from "./api-types";
 import { useApiQuery } from "./query";
@@ -82,4 +82,22 @@ export function useCurrentApp(): { app: App | null; appId: string; workspaceId: 
   const ctx = useWorkspace();
   if (!appId) throw new Error("useCurrentApp must be used under /w/[workspaceId]/a/[appId]");
   return { app: ctx.app, appId, workspaceId, loading: ctx.appsLoading };
+}
+
+/**
+ * Name for a workspace member's user id: "you" for the signed-in member, otherwise their display name
+ * or email. Falls back to the id itself when the member isn't listed (e.g. removed since).
+ */
+export function useMemberName(): (userId?: string | null) => string {
+  const { workspaceId, member } = useWorkspace();
+  const q = useApiQuery<Page<WorkspaceMember>>(workspaceId ? wsPath(workspaceId, "/members") : null, { staleTime: 60_000 });
+  return useCallback(
+    (userId?: string | null) => {
+      if (!userId) return "";
+      if (userId === member?.userId) return "you";
+      const m = q.data?.items.find((x) => x.userId === userId);
+      return m?.displayName ?? m?.email ?? userId;
+    },
+    [q.data, member?.userId],
+  );
 }

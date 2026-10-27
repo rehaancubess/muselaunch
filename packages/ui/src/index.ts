@@ -42,3 +42,4 @@ export { JobProgress, jobLabel, PipelineSteps, PIPELINE_STEPS, type JobProgressP
 export { Avatar, initialsOf, StoryRingRow, SourceChip, domainOf, formatShortDate, type StoryItem } from "./components/identity";
 export { CostEstimate, CostEstimateView, type EstimateResult, type CostEstimateProps } from "./components/cost";
 export { TagInput, type TagInputProps } from "./components/tag-input";
+export { UiLinkProvider, UiLink, type UiLinkComponent } from "./components/link";

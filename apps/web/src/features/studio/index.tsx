@@ -14,6 +14,7 @@ import { BrandGuardianPanel, useBrandReviews } from "@/features/guardian";
 import { wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
+import { emitAiEdit, useAiEditCommand } from "@/lib/commands";
 import { useCurrentApp } from "@/lib/workspace";
 import { AiPanel } from "./ai-panel";
 import { AssetsDrawer } from "./assets-drawer";
@@ -54,6 +55,17 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   // Same query (and cache entry) as the media drawer.
   const assets = useApiQuery<Page<MediaAsset>>(appId ? wsPath(workspaceId, "/assets") : null, { query: { appId, limit: 120 } });
   const demo = useMemo(() => pickDemo(assets.data?.items ?? []), [assets.data]);
+  // ⌘K "Edit video" while another tab is open: switch to Ask Muse, then re-deliver once it's mounted.
+  useAiEditCommand(
+    useCallback(
+      (cmd) => {
+        if (cmd.compositionId !== compositionId || rightTab === "ai") return;
+        setRightTab("ai");
+        setTimeout(() => emitAiEdit(cmd), 80);
+      },
+      [compositionId, rightTab],
+    ),
+  );
 
   // Keep selection valid across versions (scenes/layers can be removed by edits or undo).
   const scene = useMemo(() => (doc ? (doc.scenes.find((s) => s.id === sceneId) ?? null) : null), [doc, sceneId]);

@@ -3,10 +3,11 @@ import type { Job } from "@muselaunch/contracts";
 import { EmptyState, ErrorState, IconButton, JobProgress, Popover, Skeleton, cn, useToast } from "@muselaunch/ui";
 import { Activity } from "lucide-react";
 import { useState } from "react";
-import { errorMessage, wsPath } from "@/lib/api";
-import type { Page } from "@/lib/api-types";
-import { isActive, useJob } from "@/lib/jobs";
-import { useApiQuery } from "@/lib/query";
+import { useQueryClient } from "@tanstack/react-query";
+import { api, errorMessage, wsPath } from "@/lib/api";
+import type { JobResponse, Page } from "@/lib/api-types";
+import { RETRY_ELSEWHERE, canRetryGenerically, isActive, useJob } from "@/lib/jobs";
+import { keyFor, useApiQuery } from "@/lib/query";
 
 function relTime(iso?: string) {
   if (!iso) return "";
@@ -19,25 +20,39 @@ function relTime(iso?: string) {
 
 function TrayRow({ workspaceId, initial }: { workspaceId: string; initial: Job }) {
   const toast = useToast();
-  const live = useJob(workspaceId, isActive(initial) ? initial.id : null, { initial });
+  const qc = useQueryClient();
+  // Only active rows stream. A failed row starts streaming once it's retried.
+  const [retriedId, setRetriedId] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const live = useJob(workspaceId, isActive(initial) ? initial.id : retriedId, { initial });
   const job = live.job ?? initial;
+  const elsewhere = RETRY_ELSEWHERE[job.type];
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      const r = await api.post<JobResponse>(wsPath(workspaceId, `/jobs/${job.id}/retry`));
+      qc.setQueryData<JobResponse>(keyFor(wsPath(workspaceId, `/jobs/${r.job.id}`)), r);
+      setRetriedId(r.job.id);
+    } catch (e) {
+      toast.error("Couldn't retry", errorMessage(e));
+    } finally {
+      setRetrying(false);
+    }
+  };
   return (
     <li className="px-4 py-3">
       <JobProgress
         job={job}
         variant="row"
         cancelling={live.cancelling}
-        retrying={live.retrying}
+        retrying={retrying}
         onCancel={() => live.cancel().catch((e) => toast.error("Couldn't cancel", errorMessage(e)))}
-        onRetry={async () => {
-          try {
-            await live.retry();
-          } catch (e) {
-            toast.error("Couldn't retry", errorMessage(e));
-          }
-        }}
+        onRetry={canRetryGenerically(job) ? () => void retry() : undefined}
       />
-      <p className="mt-1 text-caption text-ink-3">{relTime(job.queuedAt ?? job.createdAt)}</p>
+      <p className="mt-1 text-caption text-ink-3">
+        {relTime(job.queuedAt ?? job.createdAt)}
+        {job.status === "failed" && elsewhere ? ` · ${elsewhere}` : null}
+      </p>
     </li>
   );
 }

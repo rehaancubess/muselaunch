@@ -1,5 +1,7 @@
+"use client";
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../cn";
+import { UiLink } from "./link";
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   /** `raised` = white card with hairline; `well` = recessed mist; `plain` = no chrome. */
@@ -82,9 +84,9 @@ export function ListRow({ leading, title, subtitle, trailing, className, onClick
   const cls = cn("flex min-h-14 items-center gap-3 px-4 py-2.5", (onClick || href) && "transition-colors hover:bg-mist/60", className);
   if (href)
     return (
-      <a role="listitem" href={href} className={cls}>
+      <UiLink role="listitem" href={href} className={cls}>
         {inner}
-      </a>
+      </UiLink>
     );
   if (onClick)
     return (

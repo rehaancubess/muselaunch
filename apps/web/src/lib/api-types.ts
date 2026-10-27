@@ -5,7 +5,7 @@
 import type {
   AgentRun,
   AgentStep,
-  AgentUsage,
+  AttributionLink,
   App,
   AppEvidence,
   AppImport,
@@ -26,7 +26,10 @@ import type {
   MediaAsset,
   ModelUsageEvent,
   Plan,
+  ResearchFinding,
+  ResearchRun,
   Storyboard,
+  ToolInvocation,
   UserProfile,
   Workspace,
   WorkspaceMember,
@@ -62,10 +65,13 @@ export type ProviderStatusResponse = { items: ProviderStatus[]; country: string 
 // ---- Module B (App DNA) — INTERFACES.md: GET /apps/:appId/dna → { profile, evidence, claims, import }
 export type AppDnaResponse = { profile: BrandProfile | null; evidence: AppEvidence[]; claims: Claim[]; import: AppImport | null };
 export type CompetitorsResponse = Page<Competitor>;
-export type MemoryResponse = Page<BrandPreference>;
+export type GlimmerStatus = { connected: boolean; model?: string; label?: string };
+export type MemoryResponse = Page<BrandPreference> & { glimmer?: GlimmerStatus };
 
 // ---- Module B (campaigns)
 export type CreateCampaignResponse = { campaign: Campaign; job: Job };
+export type VariantActionResponse = { variant: CampaignVariant; campaign: Campaign };
+export type ConfirmDnaResponse = { profile: BrandProfile; app: App };
 export type CampaignDetailResponse = {
   campaign: Campaign;
   brief: CampaignBrief | null;
@@ -74,6 +80,10 @@ export type CampaignDetailResponse = {
   compositions: Composition[];
   copyPacks: CopyPack[];
 };
-export type AgentRunResponse = { run: AgentRun; steps: AgentStep[]; usage: AgentUsage | ModelUsageEvent[] };
+export type AgentRunResponse = { run: AgentRun; steps: AgentStep[]; usage: ModelUsageEvent[]; tools: ToolInvocation[] };
+export type ResearchRunResponse = { run: ResearchRun; findings: ResearchFinding[] };
+export type CreateResearchResponse = { researchRun: ResearchRun; job: Job };
+export type TrackedLinkView = AttributionLink & { publicUrl: string };
+export type CreateTrackedLinkResponse = { link: AttributionLink; publicUrl: string };
 
 export type UsagePage = Page<ModelUsageEvent>;

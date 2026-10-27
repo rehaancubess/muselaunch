@@ -11,7 +11,7 @@ type Filter = "needs_review" | "verified" | "rejected" | "all";
 
 const STATE_LABEL: Record<ReviewState, string> = { verified: "Verified", needs_review: "Needs review", rejected: "Rejected" };
 
-function ClaimRow({ claim, evidence, workspaceId, appId, canEdit }: { claim: Claim; evidence: AppEvidence[]; workspaceId: string; appId: string; canEdit: boolean }) {
+function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: { claim: Claim; evidence: AppEvidence[]; workspaceId: string; appId: string; canEdit: boolean; canApprove: boolean }) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const [busy, setBusy] = useState<ReviewState | "edit" | null>(null);
@@ -58,12 +58,12 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit }: { claim: Cla
           <IconButton label="Edit claim" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" aria-hidden />
           </IconButton>
-          {claim.state !== "rejected" ? (
+          {canApprove && claim.state !== "rejected" ? (
             <Button size="sm" variant="ghost" loading={busy === "rejected"} onClick={() => patch({ state: "rejected" }, "rejected")} icon={<X className="size-3.5" aria-hidden />}>
               Reject
             </Button>
           ) : null}
-          {claim.state !== "verified" ? (
+          {canApprove && claim.state !== "verified" ? (
             <Button size="sm" variant="secondary" loading={busy === "verified"} onClick={() => patch({ state: "verified" }, "verified")} icon={<Check className="size-3.5" aria-hidden />}>
               Verify
             </Button>
@@ -93,7 +93,7 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit }: { claim: Cla
 }
 
 /** Verified product-claim library: verify / reject / edit, with evidence. */
-export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit }: { claims: Claim[]; evidence: AppEvidence[]; workspaceId: string; appId: string; canEdit: boolean }) {
+export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit, canApprove }: { claims: Claim[]; evidence: AppEvidence[]; workspaceId: string; appId: string; canEdit: boolean; canApprove: boolean }) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const counts = useMemo(() => ({ needs_review: claims.filter((c) => c.state === "needs_review").length, verified: claims.filter((c) => c.state === "verified").length, rejected: claims.filter((c) => c.state === "rejected").length }), [claims]);
@@ -125,10 +125,11 @@ export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit }:
           </Button>
         ) : null}
       </div>
+      {canEdit && !canApprove && counts.needs_review ? <p className="text-footnote text-ink-2">An owner or admin verifies claims. You can edit wording or add new ones.</p> : null}
       {shown.length ? (
         <ul className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-raised">
           {shown.map((c) => (
-            <ClaimRow key={c.id} claim={c} evidence={c.evidenceIds.map((id) => byId.get(id)).filter((x): x is AppEvidence => Boolean(x))} workspaceId={workspaceId} appId={appId} canEdit={canEdit} />
+            <ClaimRow key={c.id} claim={c} evidence={c.evidenceIds.map((id) => byId.get(id)).filter((x): x is AppEvidence => Boolean(x))} workspaceId={workspaceId} appId={appId} canEdit={canEdit} canApprove={canApprove} />
           ))}
         </ul>
       ) : (
@@ -145,7 +146,7 @@ export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit }:
         open={adding}
         onOpenChange={setAdding}
         title="Add a claim"
-        description="Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. It starts in review."
+        description={canApprove ? "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. Claims you add are verified straight away." : "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. It starts in review."}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAdding(false)}>

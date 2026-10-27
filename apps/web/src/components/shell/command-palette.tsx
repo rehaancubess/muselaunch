@@ -14,6 +14,7 @@ import {
   Wand2,
   CalendarDays,
   Plus,
+  Rocket,
 } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { usePathname, useRouter } from "next/navigation";
@@ -104,6 +105,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       Edit video: <span className="text-ink-2">“{trimmed}”</span>
                     </Item>
                   ) : null}
+                  <Item value={`__autopilot ${trimmed}`} icon={<Rocket aria-hidden />} hint="Bounded, approval-gated" onSelect={() => go(`${r.autopilot}?goal=${encodeURIComponent(trimmed)}`)}>
+                    Start Growth Autopilot: <span className="text-ink-2">“{trimmed}”</span>
+                  </Item>
                   <Item value={`__campaign ${trimmed}`} icon={<Clapperboard aria-hidden />} hint="New campaign" onSelect={() => go(`${r.newCampaign}?request=${encodeURIComponent(trimmed)}`)}>
                     Create campaign: <span className="text-ink-2">“{trimmed}”</span>
                   </Item>
@@ -120,6 +124,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Item>
                   <Item value="insights analytics metrics experiments" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insights)}>
                     Insights
+                  </Item>
+                  <Item value="growth autopilot autonomous loop goal" icon={<Rocket aria-hidden />} onSelect={() => go(r.autopilot)}>
+                    Growth Autopilot
                   </Item>
                   <Item value="new campaign" icon={<Plus aria-hidden />} onSelect={() => go(r.newCampaign)}>
                     New campaign

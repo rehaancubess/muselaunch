@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "dev:fixture": "tsx src/dev-fixture.ts"
   },
   "dependencies": {
     "@muselaunch/contracts": "workspace:*",

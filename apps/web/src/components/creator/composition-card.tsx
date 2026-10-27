@@ -1,8 +1,9 @@
 "use client";
 import type { Composition } from "@muselaunch/contracts";
 import { Badge, Button, StatusPill, cn, humanizeStatus, statusKindOf } from "@muselaunch/ui";
-import { Download, Film, PenSquare } from "lucide-react";
+import { Download, Film, PenSquare, Send } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { relativeTime } from "@/lib/labels";
 import { routes } from "@/lib/routes";
@@ -10,7 +11,8 @@ import { routes } from "@/lib/routes";
 const ASPECT_CLASS: Record<string, string> = { "9:16": "aspect-[9/16]", "1:1": "aspect-square", "4:5": "aspect-[4/5]", "16:9": "aspect-video" };
 
 /** Composition tile with poster, render status and Studio / download actions. */
-export function CompositionCard({ composition: c, workspaceId }: { composition: Composition; workspaceId: string }) {
+/** `badge` is a slot for per-composition status from other modules (e.g. the Brand Guardian review). */
+export function CompositionCard({ composition: c, workspaceId, onPost, badge }: { composition: Composition; workspaceId: string; onPost?: (finalAssetId?: string) => void; badge?: ReactNode }) {
   const thumb = useAssetUrl(workspaceId, c.thumbnailAssetId);
   const renderAsset = c.lastRender?.assetId;
   const download = useAssetUrl(workspaceId, c.lastRender?.quality === "final" ? renderAsset : null, { download: true });
@@ -46,7 +48,8 @@ export function CompositionCard({ composition: c, workspaceId }: { composition: 
         </div>
         <StatusPill status={statusKindOf(c.status)}>{humanizeStatus(c.status)}</StatusPill>
       </div>
-      <div className="flex gap-2 px-0.5">
+      {badge ? <div className="px-0.5">{badge}</div> : null}
+      <div className="flex flex-wrap gap-x-1 gap-y-2 px-0.5">
         <Button size="sm" variant="secondary" asChild>
           <Link href={r.studio(c.id)}>
             <PenSquare className="size-3.5" aria-hidden />
@@ -57,8 +60,13 @@ export function CompositionCard({ composition: c, workspaceId }: { composition: 
           <Button size="sm" variant="ghost" asChild>
             <a href={download.data.url} download>
               <Download className="size-3.5" aria-hidden />
-              MP4
+              {c.kind === "video" ? "MP4" : "PNG"}
             </a>
+          </Button>
+        ) : null}
+        {onPost ? (
+          <Button size="sm" variant="ghost" icon={<Send className="size-3.5" aria-hidden />} onClick={() => onPost(c.lastRender?.quality === "final" ? c.lastRender.assetId : undefined)}>
+            Post
           </Button>
         ) : null}
       </div>

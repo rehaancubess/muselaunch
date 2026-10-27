@@ -1,12 +1,14 @@
 "use client";
-import { ErrorState, List, ListRow, PageHeader, ProvenanceBadge, Section, Skeleton, type Provenance } from "@muselaunch/ui";
-import { Bot, Globe, Image as ImageIcon, Mic, Brain, ScanFace, Sparkles, Volume2, Film } from "lucide-react";
+import { ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, type Provenance } from "@muselaunch/ui";
+import { BarChart3, Bot, Brain, Film, Globe, Image as ImageIcon, Mic, ScanFace, Sparkles, Volume2 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { readLastApp } from "@/components/shell/app-shell";
 import { errorMessage } from "@/lib/api";
 import type { ProviderState, ProviderStatusResponse } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
+import { useRuntime } from "@/lib/runtime";
 import { useWorkspace } from "@/lib/workspace";
 import { ConnectionsPanel } from "@/features/publishing/connections";
 
@@ -40,12 +42,17 @@ function regionName(code: string | null) {
 }
 
 export default function IntegrationsPage() {
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, apps } = useWorkspace();
+  const runtime = useRuntime();
+  const fixture = runtime.data?.fixtureMode === true;
   const status = useApiQuery<ProviderStatusResponse>("/v1/status/providers", { staleTime: 60_000 });
+  const last = typeof window !== "undefined" ? readLastApp(workspaceId) : null;
+  const appId = apps.find((a) => a.id === last)?.id ?? apps[0]?.id;
 
   return (
     <div className="space-y-12">
       <PageHeader title="Integrations" description="What’s live on this deployment, what isn’t, and what MuseLaunch uses instead. Nothing unavailable is simulated." className="pb-0" />
+      {fixture ? <Notice tone="warning" title="Fixture mode">Providers marked “Fixture” answer from labelled test fixtures on this local server. Nothing here reflects a live model.</Notice> : null}
 
       <Section title="AI models & media providers">
         {status.isLoading ? (
@@ -59,19 +66,29 @@ export default function IntegrationsPage() {
         ) : status.data ? (
           <div className="space-y-4">
             <List label="Providers">
-              {status.data.items.map((p) => (
+              {status.data.items.map((raw) => {
+                // Honest product copy for Muse Image: where Meta permits it, otherwise the labelled alternative.
+                const p = raw.id === "muse-image" && raw.state === "restricted" ? { ...raw, detail: "Used where Meta permits it. Region-restricted on this deployment, so campaign images come from OpenAI (when connected) and are labelled as such." } : raw;
+                return (
                 <ListRow
                   key={p.id}
                   leading={<span className="flex size-9 items-center justify-center rounded-lg bg-mist text-ink-2 [&_svg]:size-[18px]">{ICONS[p.id] ?? <Globe aria-hidden />}</span>}
                   title={p.label}
                   subtitle={p.role}
-                  trailing={<ProvenanceBadge kind={STATE_BADGE[p.state].kind} label={STATE_BADGE[p.state].label} detail={p.detail} />}
+                  trailing={
+                    fixture && p.state === "live" ? (
+                      <ProvenanceBadge kind="restricted" label="Fixture" detail="Fixture mode: answered from labelled test fixtures, not a live model" />
+                    ) : (
+                      <ProvenanceBadge kind={STATE_BADGE[p.state].kind} label={STATE_BADGE[p.state].label} detail={p.detail} />
+                    )
+                  }
                 >
                   <p className="mt-0.5 truncate text-caption text-ink-3" title={p.detail}>
                     {p.detail}
                   </p>
                 </ListRow>
-              ))}
+                );
+              })}
             </List>
             <p className="text-footnote text-ink-2">
               {status.data.country ? (
@@ -99,6 +116,20 @@ export default function IntegrationsPage() {
       <Section title="Connected accounts" description="Publishing, analytics and outreach accounts you’ve authorised. Posting and sending always ask for approval first.">
         {/* Module E: connect/disconnect + finishing OAuth returns (pending connections are bound to the user who started them). */}
         <ConnectionsPanel />
+      </Section>
+
+      <Section title="Analytics sources">
+        <Notice icon={<BarChart3 aria-hidden />}>
+          Connect RevenueCat or import App Store, Play Console and social CSVs from each app’s{" "}
+          {appId ? (
+            <Link href={routes.app(workspaceId, appId).insights} className="font-medium text-accent hover:underline">
+              Insights › Data sources
+            </Link>
+          ) : (
+            "Insights › Data sources"
+          )}
+          . Imported numbers stay labelled as imported.
+        </Notice>
       </Section>
 
       {status.data ? (

@@ -30,6 +30,7 @@ import { ROLE_LABEL, formatBytes, formatDuration, relativeTime } from "@/lib/lab
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useCurrentApp, useWorkspace } from "@/lib/workspace";
 import { Uploader } from "./uploader";
+import { UseCutoutDialog } from "./use-cutout";
 
 type Filter = "all" | "product" | "founder" | "generated" | "renders" | "audio";
 
@@ -102,6 +103,8 @@ function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsse
   const invalidate = useInvalidate();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [segmentationId, setSegmentationId] = useState<string | null>(null);
+  const [useOpen, setUseOpen] = useState(false);
   const dl = useAssetUrl(workspaceId, asset && asset.status !== "pending_upload" ? asset.id : null, { download: true });
   if (!asset) return null;
   const rows: [string, string][] = [
@@ -118,7 +121,7 @@ function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsse
       onOpenChange={(v) => !v && onClose()}
       title={asset.title ?? asset.originalFilename ?? ROLE_LABEL[asset.role]}
       description={asset.isProductTruth ? "Real product media: can be used as evidence" : undefined}
-      width="max-w-lg"
+      width="max-w-xl"
       footer={
         <>
           {canEdit ? (
@@ -160,10 +163,27 @@ function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsse
           </div>
         ) : null}
         {asset.error ? <ErrorState compact message={asset.error} /> : null}
-        {(asset.kind === "video" || asset.kind === "image") && (asset.role === "founder_clip" || asset.role === "app_recording" || asset.role === "product_photo") ? (
-          <div className="space-y-3">
-            <p className="text-body-sm font-semibold">Cut out a subject</p>
-            <MaskSelector assetId={asset.id} />
+        {asset.kind === "video" && asset.role !== "render" && asset.role !== "preview" ? (
+          <div className="space-y-3 border-t border-line pt-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-body-sm font-semibold">Cut out subject</p>
+                <p className="text-footnote text-ink-2">SAM 3.1 tracks a person or object through the clip so it can stand in front of your app.</p>
+              </div>
+              {segmentationId ? (
+                <Button size="sm" onClick={() => setUseOpen(true)}>
+                  Use in a video
+                </Button>
+              ) : null}
+            </div>
+            <MaskSelector
+              assetId={asset.id}
+              onSegmentation={(id) => {
+                setSegmentationId(id);
+                setUseOpen(true);
+              }}
+            />
+            <UseCutoutDialog open={useOpen} onOpenChange={setUseOpen} workspaceId={workspaceId} appId={asset.appId ?? ""} asset={asset} segmentationId={segmentationId} />
           </div>
         ) : null}
       </div>

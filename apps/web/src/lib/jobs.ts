@@ -11,6 +11,16 @@ import { subscribe } from "./sse";
 export const isTerminal = (j: Pick<Job, "status"> | null | undefined) => Boolean(j && (TERMINAL_JOB_STATUSES as readonly string[]).includes(j.status));
 export const isActive = (j: Pick<Job, "status"> | null | undefined) => Boolean(j && (j.status === "queued" || j.status === "running"));
 
+/**
+ * Jobs that act outside MuseLaunch (publishing, sending email) can't be retried generically: the API
+ * requires their own endpoints, which re-check the publish grant and approval. Hide Retry for them.
+ */
+export const RETRY_ELSEWHERE: Partial<Record<Job["type"], string>> = {
+  "publish.post": "Publish it again from the calendar.",
+  "outreach.send": "Send the draft again from outreach.",
+};
+export const canRetryGenerically = (j: Pick<Job, "type"> | null | undefined) => Boolean(j && !RETRY_ELSEWHERE[j.type]);
+
 export interface UseJobResult {
   job: Job | null;
   /** live = SSE stream, polling = fallback, done = terminal, idle = no job id */

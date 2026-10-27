@@ -8,6 +8,7 @@ import type { CampaignDetailResponse, Page } from "@/lib/api-types";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery } from "@/lib/query";
 import { useWorkspace } from "@/lib/workspace";
+import { createTrackedLink, destinationsFor } from "@/components/creator/tracked-links";
 import type { ConnectionsResponse, PostView, SuggestedTimes } from "./types";
 
 const CHANNELS: Channel[] = ["youtube", "instagram", "tiktok", "linkedin", "x", "facebook", "threads", "reddit", "producthunt", "hackernews", "newsletter", "website", "other"];
@@ -20,8 +21,17 @@ const toLocalInput = (iso: string) => {
 };
 
 /** Create a post from a rendered composition (or other media) and a copy pack. Starts as a draft. */
-export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCampaignId }: { appId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (postId: string) => void; initialCampaignId?: string }) {
-  const { workspaceId } = useWorkspace();
+/** Render assets are usually titled "<composition> — v<n> final"; only add the version when the title lacks it. */
+function finalLabel(a: MediaAsset): string {
+  const v = a.render?.version;
+  if (!a.title) return `${a.render?.compositionId ?? a.id}${v ? ` v${v}` : ""}`;
+  return v && !new RegExp(`\\bv${v}\\b`).test(a.title) ? `${a.title} v${v}` : a.title;
+}
+
+export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCampaignId, initialAssetId }: { appId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (postId: string) => void; initialCampaignId?: string; initialAssetId?: string }) {
+  const { workspaceId, app } = useWorkspace();
+  const linkDests = destinationsFor(app);
+  const [withLink, setWithLink] = useState(true);
   const toast = useToast();
   const campaigns = useApiQuery<Page<Campaign>>(open ? wsPath(workspaceId, `/apps/${appId}/campaigns`) : null);
   const [campaignId, setCampaignId] = useState(initialCampaignId ?? "");
@@ -29,7 +39,10 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
   const assets = useApiQuery<Page<MediaAsset>>(open ? wsPath(workspaceId, "/assets") : null, { query: { appId, limit: 200 } });
   const conns = useApiQuery<ConnectionsResponse>(open ? wsPath(workspaceId, "/connections") : null);
   const [channel, setChannel] = useState<Channel>("youtube");
-  const [assetId, setAssetId] = useState("");
+  const [assetId, setAssetId] = useState(initialAssetId ?? "");
+  useEffect(() => {
+    if (open && initialAssetId) setAssetId(initialAssetId);
+  }, [open, initialAssetId]);
   const [accountId, setAccountId] = useState("");
   const [copyPackId, setCopyPackId] = useState("");
   const [title, setTitle] = useState("");
@@ -53,6 +66,10 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
     return { finals, others };
   }, [assets.data, campaignId]);
   const chosen = [...media.finals, ...media.others].find((a) => a.id === assetId);
+  // Default to the newest final render so posting right after rendering is one click.
+  useEffect(() => {
+    if (open && !assetId && media.finals[0]) setAssetId(media.finals[0].id);
+  }, [open, assetId, media.finals]);
   const accounts = (conns.data?.items ?? []).filter((a) => a.status === "connected" && a.provider === PROVIDER_FOR[channel]);
   const packs = (detail.data?.copyPacks ?? []).filter((p) => p.channel === channel);
 
@@ -69,8 +86,15 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
   const submit = async () => {
     setSaving(true);
     try {
+      // Tracked link (module F) so clicks from this post are attributed to the campaign.
+      let trackingLinkId: string | undefined;
+      if (withLink && linkDests[0]) {
+        const campaignName = campaigns.data?.items.find((c) => c.id === campaignId)?.name;
+        trackingLinkId = (await createTrackedLink(workspaceId, campaignId, { destination: linkDests[0].value, channel, campaignName })).link.id;
+      }
       const r = await api.post<PostView>(wsPath(workspaceId, `/apps/${appId}/posts`), {
         campaignId,
+        trackingLinkId,
         assetIds: [assetId],
         compositionId: chosen?.render?.compositionId,
         compositionVersion: chosen?.render?.version,
@@ -128,7 +152,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
             {({ id }) => <Select id={id} value={channel} onChange={(e) => setChannel(e.target.value as Channel)} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))} />}
           </Field>
         </div>
-        <Field label="Media" hint={media.finals.length ? "Final renders first. Render the final video in the studio to see it here." : "No final renders yet: render a composition in the studio, or pick uploaded media."}>
+        <Field label="Media" hint={media.finals.length ? "Final renders are listed first. Newer renders from the studio appear here too." : "No final renders yet: render a composition in the studio, or pick uploaded media."}>
           {({ id }) => (
             <Select
               id={id}
@@ -136,7 +160,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
               onChange={(e) => setAssetId(e.target.value)}
               placeholder="Choose media"
               options={[
-                ...media.finals.map((a) => ({ value: a.id, label: `Final render · ${a.title ?? a.render?.compositionId} v${a.render?.version}` })),
+                ...media.finals.map((a) => ({ value: a.id, label: `Final render · ${finalLabel(a)}` })),
                 ...media.others.map((a) => ({ value: a.id, label: `${a.role.replace(/_/g, " ")} · ${a.title ?? a.originalFilename ?? a.id}` })),
               ]}
             />
@@ -177,7 +201,22 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
             )}
           </Field>
         </div>
-        <Switch checked={synthetic ?? chosen?.origin === "generated"} onCheckedChange={setSynthetic} label="Disclose AI-generated or synthetic media (YouTube, TikTok labels)" />
+        <label className="flex items-start justify-between gap-4 rounded-lg bg-mist/70 px-3 py-2.5">
+          <span className="text-footnote text-ink-2">
+            <span className="block font-medium text-ink">Disclose AI-generated or synthetic media</span>
+            Turns on YouTube’s and TikTok’s labels. On by default for generated media.
+          </span>
+          <Switch checked={synthetic ?? chosen?.origin === "generated"} onCheckedChange={setSynthetic} label="Disclose AI-generated or synthetic media" />
+        </label>
+        {linkDests.length ? (
+          <label className="flex items-start justify-between gap-4 rounded-lg bg-mist/70 px-3 py-2.5">
+            <span className="text-footnote text-ink-2">
+              <span className="block font-medium text-ink">Add a tracked link</span>
+              Clicks to {linkDests[0]!.label} from this post are counted in Insights for this campaign.
+            </span>
+            <Switch checked={withLink} onCheckedChange={setWithLink} label="Add a tracked link" />
+          </label>
+        ) : null}
         <Field label="When" optional hint="Leave empty to publish when you click Publish after approval.">
           {({ id }) => <Input id={id} type="datetime-local" value={when} onChange={(e) => (setWhen(e.target.value), setReason(undefined))} />}
         </Field>
