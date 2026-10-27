@@ -65,7 +65,7 @@ const tzDefault = (c: Ctx) => c.get("workspace").settings.defaultTimezone ?? "UT
 // ---------------------------------------------------------------------------
 
 publishingRoutes.get("/connections", async (c) => {
-  const items = (await wsOf(c).collection("connectedAccounts").list({ limit: 200 })).items;
+  const items = (await wsOf(c).collection("connectedAccounts").list({ limit: 200 })).items.map(({ secretId: _secret, ...a }) => ({ ...a, hasCredentials: Boolean(_secret) }));
   return c.json({ items, providers: providerCatalog(p(c)) });
 });
 
