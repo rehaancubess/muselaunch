@@ -1,6 +1,6 @@
 "use client";
-import { PageContainer } from "@/components/page-container";
+import { DnaPage } from "@/components/dna/dna-page";
 
-export default function Page() {
-  return <PageContainer>Coming next.</PageContainer>;
+export default function BrandPage() {
+  return <DnaPage />;
 }
