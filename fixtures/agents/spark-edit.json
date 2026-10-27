@@ -1,0 +1,18 @@
+{
+  "_fixture": "Muse Spark structured-output content for schema CompositionEdit. First attempt touches a scene outside the requested one (exercises the scope check). NOT live output.",
+  "first": {
+    "summary": "Punchier hook headline",
+    "targetSceneIds": ["sc_hook"],
+    "ops": [
+      { "op": "update_layer", "sceneId": "sc_hook", "layerId": "ly_hook_title", "set": { "text": "Your phone stole 3 hours today", "style": { "sizePx": 96 } } },
+      { "op": "update_layer", "sceneId": "sc_cta", "layerId": "ly_cta_text", "set": { "text": "Download now!!!" } }
+    ]
+  },
+  "repaired": {
+    "summary": "Punchier hook headline with a pop-in animation",
+    "targetSceneIds": ["sc_hook"],
+    "ops": [
+      { "op": "update_layer", "sceneId": "sc_hook", "layerId": "ly_hook_title", "set": { "text": "Where did your focus go?", "style": { "sizePx": 96 }, "animation": { "enter": { "preset": "pop", "durationSec": 0.5 } } } }
+    ]
+  }
+}

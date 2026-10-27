@@ -20,6 +20,26 @@ export type InputPart =
   | { type: "input_text"; text: string }
   | { type: "input_image"; image_url?: string; file_id?: string; detail?: "low" | "high" | "auto" };
 
+/** Function tool declaration (Responses API: flat object, not nested under `function`). */
+export interface FunctionTool {
+  name: string;
+  description: string;
+  /** JSON Schema (root type object). Validate arguments yourself: the model output is not guaranteed to match. */
+  parameters: Record<string, unknown>;
+}
+
+/** Items accepted in `input` for multi-turn tool loops. */
+export type ResponseInputItem =
+  | { role: "user"; content: InputPart[] }
+  | { type: "function_call_output"; call_id: string; output: string };
+
+export interface FunctionCall {
+  callId: string;
+  name: string;
+  /** Raw JSON string from the model. */
+  arguments: string;
+}
+
 export interface LlmCall {
   ctx: CallContext;
   model?: ModelRole;
@@ -31,6 +51,8 @@ export interface LlmCall {
   reasoningEffort?: "low" | "medium" | "high";
   webSearch?: boolean | { contextSize?: "low" | "medium" | "high"; country?: string };
   temperature?: number;
+  /** Stable prefix name for prompt caching (`prompt_cache_key`), e.g. "agents.app_dna". */
+  cacheKey?: string;
 }
 
 export interface LlmTextResult {
@@ -40,6 +62,23 @@ export interface LlmTextResult {
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number; reasoningTokens: number };
   responseId?: string;
   model: string;
+  /** Estimated USD cost of this call (tokens + search queries), as metered. */
+  costUsd: number;
+  /** Raw `web_search_call.results` entries (what search returned, cited or not). */
+  searchResults: SourceRef[];
+}
+
+/** Multi-turn Responses call with function tools (agent loops). */
+export interface RespondCall extends Omit<LlmCall, "input"> {
+  input: string | ResponseInputItem[];
+  tools?: FunctionTool[];
+  /** Server-managed history: the API rebuilds prior turns (instructions/tools must be resent). */
+  previousResponseId?: string;
+  parallelToolCalls?: boolean;
+}
+
+export interface RespondResult extends LlmTextResult {
+  functionCalls: FunctionCall[];
 }
 
 /** Wrap untrusted content (web pages, listings, uploads, creator bios) so the model treats it as data. */
@@ -61,6 +100,12 @@ interface ResponsesOutputItem {
   type: string;
   content?: { type: string; text?: string; annotations?: { type: string; url?: string; title?: string; start_index?: number; end_index?: number }[] }[];
   status?: string;
+  /** function_call */
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  /** web_search_call with include ["web_search_call.results"] */
+  results?: { type?: string; title?: string; url?: string; snippet?: string }[];
 }
 
 interface ResponsesResult {
@@ -73,14 +118,27 @@ interface ResponsesResult {
   incomplete_details?: { reason?: string } | null;
 }
 
-function extract(res: ResponsesResult): Omit<LlmTextResult, "model"> {
+function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd"> & { functionCalls: FunctionCall[] } {
   let text = res.output_text ?? "";
   const citations: SourceRef[] = [];
+  const searchResults: SourceRef[] = [];
+  const functionCalls: FunctionCall[] = [];
   const seen = new Set<string>();
+  const seenResults = new Set<string>();
   let searchCalls = 0;
   const now = new Date().toISOString();
   for (const item of res.output ?? []) {
-    if (item.type === "web_search_call") searchCalls++;
+    if (item.type === "web_search_call") {
+      searchCalls++;
+      for (const r of item.results ?? []) {
+        if (!r.url || !/^https?:\/\//.test(r.url) || seenResults.has(r.url)) continue;
+        seenResults.add(r.url);
+        searchResults.push({ kind: "search_result", url: r.url, title: r.title?.slice(0, 500), excerpt: r.snippet?.slice(0, 2000), retrievedAt: now });
+      }
+    }
+    if (item.type === "function_call" && item.call_id && item.name) {
+      functionCalls.push({ callId: item.call_id, name: item.name, arguments: item.arguments ?? "{}" });
+    }
     if (item.type !== "message") continue;
     for (const part of item.content ?? []) {
       if (part.type === "output_text" && !res.output_text && part.text) text += part.text;
@@ -96,6 +154,8 @@ function extract(res: ResponsesResult): Omit<LlmTextResult, "model"> {
   return {
     text,
     citations,
+    searchResults,
+    functionCalls,
     searchCalls,
     responseId: res.id,
     usage: {
@@ -111,38 +171,54 @@ function modelId(p: Platform, role: ModelRole = "spark") {
   return role === "wonder" ? p.cfg.META_MODEL_WONDER : p.cfg.META_MODEL_SPARK;
 }
 
-async function callResponses(p: Platform, call: LlmCall, format?: { name: string; schema: Record<string, unknown> }): Promise<LlmTextResult> {
+async function callResponses(p: Platform, call: RespondCall, format?: { name: string; schema: Record<string, unknown> }): Promise<RespondResult> {
   const client = metaClient(p);
   const model = modelId(p, call.model);
   const maxOut = call.maxOutputTokens ?? 8000;
-  const inputText = typeof call.input === "string" ? call.input : call.input.map((x) => (x.type === "input_text" ? x.text : "")).join("\n");
-  const imageCount = typeof call.input === "string" ? 0 : call.input.filter((x) => x.type === "input_image").length;
+  const items: ResponseInputItem[] = typeof call.input === "string" ? [{ role: "user", content: [{ type: "input_text", text: call.input }] }] : call.input;
+  let inputText = "";
+  let imageCount = 0;
+  for (const it of items) {
+    if ("role" in it) {
+      for (const part of it.content) {
+        if (part.type === "input_text") inputText += `${part.text}\n`;
+        else imageCount++;
+      }
+    } else inputText += `${it.output}\n`;
+  }
   const ws = call.webSearch ? (typeof call.webSearch === "object" ? call.webSearch : {}) : undefined;
+  const tools: Record<string, unknown>[] = [
+    ...(ws ? [{ type: "web_search", search_context_size: ws.contextSize ?? "medium", ...(ws.country ? { user_location: { type: "approximate", country: ws.country } } : {}) }] : []),
+    ...(call.tools ?? []).map((t) => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters })),
+  ];
   const request: Record<string, unknown> = {
     model,
     instructions: `${call.instructions}\n\n${UNTRUSTED_GUARD}`,
-    input: [{ role: "user", content: typeof call.input === "string" ? [{ type: "input_text", text: call.input }] : call.input }],
+    input: items,
     max_output_tokens: maxOut,
+    ...(call.previousResponseId ? { previous_response_id: call.previousResponseId } : {}),
     ...(call.reasoningEffort ? { reasoning: { effort: call.reasoningEffort } } : {}),
     ...(call.temperature !== undefined ? { temperature: call.temperature } : {}),
     ...(format ? { text: { format: { type: "json_schema", name: format.name, schema: format.schema, strict: false } } } : {}),
-    ...(ws
-      ? {
-          tools: [{ type: "web_search", search_context_size: ws.contextSize ?? "medium", ...(ws.country ? { user_location: { type: "approximate", country: ws.country } } : {}) }],
-          include: ["web_search_call.results"],
-        }
-      : {}),
+    ...(tools.length ? { tools } : {}),
+    ...(call.tools?.length && call.parallelToolCalls !== undefined ? { parallel_tool_calls: call.parallelToolCalls } : {}),
+    ...(ws ? { include: ["web_search_call.results"] } : {}),
+    ...(call.cacheKey ? { prompt_cache_key: call.cacheKey } : {}),
   };
-  const estimatedUsd = estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000, maxOut) + (ws ? 5 * PRICES.metaWebSearchPerQuery : 0);
+  // With previous_response_id the server replays earlier turns; budget a conservative history allowance.
+  const historyAllowance = call.previousResponseId ? 20_000 : 0;
+  const estimatedUsd =
+    estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000 + historyAllowance, maxOut) + (ws ? 5 * PRICES.metaWebSearchPerQuery : 0);
   return client.metered(call.ctx, { model, operation: "responses", estimatedUsd }, async () => {
     const res = (await client.openai.responses.create(request as never, { signal: call.ctx.signal })) as unknown as ResponsesResult;
     if (res.status === "incomplete") {
       throw new AppError("PROVIDER_ERROR", `Response incomplete: ${res.incomplete_details?.reason ?? "unknown"}`, { retryable: res.incomplete_details?.reason !== "max_output_tokens" });
     }
+    if (res.status === "failed") throw new AppError("PROVIDER_ERROR", "Response failed", { retryable: true });
     const out = extract(res);
     const cost = tokenCost(model, out.usage) + out.searchCalls * PRICES.metaWebSearchPerQuery;
     return {
-      value: { ...out, model: res.model ?? model },
+      value: { ...out, model: res.model ?? model, costUsd: cost },
       usage: {
         provider: "meta",
         model,
@@ -161,9 +237,23 @@ async function callResponses(p: Platform, call: LlmCall, format?: { name: string
   });
 }
 
-/** Free-text generation (optionally search-grounded with citations). */
-export async function generateText(p: Platform, call: LlmCall): Promise<LlmTextResult> {
+/**
+ * One Responses turn with function tools (agent loops). Returns any `function_call`s; the caller
+ * executes them, then sends `function_call_output` items with `previousResponseId`.
+ */
+export async function respond(p: Platform, call: RespondCall): Promise<RespondResult> {
   return callResponses(p, call);
+}
+
+/** Free-text generation (optionally search-grounded with citations). */
+/** LlmCall (string or parts) → Responses input items. */
+function asRespond(call: LlmCall): RespondCall {
+  return { ...call, input: typeof call.input === "string" ? call.input : [{ role: "user", content: call.input }] };
+}
+
+export async function generateText(p: Platform, call: LlmCall): Promise<LlmTextResult> {
+  const { functionCalls: _f, ...rest } = await callResponses(p, asRespond(call));
+  return rest;
 }
 
 /**
@@ -175,17 +265,23 @@ export async function generateJson<S extends z.ZodTypeAny>(
   call: LlmCall & { schema: S; schemaName: string },
 ): Promise<LlmTextResult & { data: z.infer<S> }> {
   const format = { name: call.schemaName.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64), schema: toJsonSchema(call.schema) };
-  const first = await callResponses(p, call, format);
+  const { functionCalls: _f1, ...first } = await callResponses(p, asRespond(call), format);
   const parsed = parseJson(first.text, call.schema);
   if (parsed.ok) return { ...first, data: parsed.data };
   const repairInput = `${typeof call.input === "string" ? call.input : "(see previous request)"}\n\nYour previous JSON did not match the schema. Errors:\n${parsed.error}\n\nPrevious output:\n${first.text.slice(0, 20_000)}\n\nReturn corrected JSON only.`;
-  const second = await callResponses(p, { ...call, input: typeof call.input === "string" ? repairInput : [...call.input, { type: "input_text", text: repairInput }], ctx: { ...call.ctx, task: `${call.ctx.task}.repair` } }, format);
+  const { functionCalls: _f2, ...second } = await callResponses(
+    p,
+    { ...call, input: typeof call.input === "string" ? repairInput : [{ role: "user", content: [...call.input, { type: "input_text", text: repairInput }] }], ctx: { ...call.ctx, task: `${call.ctx.task}.repair` } },
+    format,
+  );
   const reparsed = parseJson(second.text, call.schema);
   if (!reparsed.ok) throw new AppError("PROVIDER_ERROR", `Model output failed schema ${call.schemaName}: ${reparsed.error}`, { retryable: true });
   return {
     ...second,
-    citations: [...first.citations, ...second.citations],
+    citations: [...first.citations, ...second.citations.filter((c) => !first.citations.some((f) => f.url === c.url))],
+    searchResults: [...first.searchResults, ...second.searchResults],
     searchCalls: first.searchCalls + second.searchCalls,
+    costUsd: first.costUsd + second.costUsd,
     usage: {
       inputTokens: first.usage.inputTokens + second.usage.inputTokens,
       outputTokens: first.usage.outputTokens + second.usage.outputTokens,
@@ -210,8 +306,20 @@ function parseJson<S extends z.ZodTypeAny>(text: string, schema: S): { ok: true;
 }
 
 /** Build an input_image part from a signed/public URL or raw bytes. */
-export function imagePart(source: { url: string } | { bytes: Buffer; mimeType: string } | { fileId: string }, detail: "low" | "high" | "auto" = "auto"): InputPart {
-  if ("fileId" in source) return { type: "input_image", file_id: source.fileId, detail };
-  if ("url" in source) return { type: "input_image", image_url: source.url, detail };
-  return { type: "input_image", image_url: `data:${source.mimeType};base64,${source.bytes.toString("base64")}`, detail };
+export function imagePart(source: { url: string } | { bytes: Buffer; mimeType: string } | { fileId: string }, detail?: "low" | "high" | "auto"): InputPart {
+  // `detail` is not documented by Meta for input_image; only send it when explicitly requested.
+  const d = detail ? { detail } : {};
+  if ("fileId" in source) return { type: "input_image", file_id: source.fileId, ...d };
+  if ("url" in source) return { type: "input_image", image_url: source.url, ...d };
+  return { type: "input_image", image_url: `data:${source.mimeType};base64,${source.bytes.toString("base64")}`, ...d };
+}
+
+/** Parse function-call arguments with a Zod schema; returns an error string for the model on failure. */
+export function parseToolArgs<S extends z.ZodTypeAny>(raw: string, schema: S): { ok: true; data: z.infer<S> } | { ok: false; error: string } {
+  return parseJson(raw || "{}", schema);
+}
+
+/** JSON Schema for a function tool's `parameters` from a Zod object schema. */
+export function toolParameters(schema: z.ZodTypeAny): Record<string, unknown> {
+  return toJsonSchema(schema);
 }

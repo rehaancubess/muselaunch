@@ -2,7 +2,7 @@ import { createTestPlatform } from "@muselaunch/platform";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { installMetaClient, MetaClient } from "./client";
-import { generateJson, untrusted } from "./llm";
+import { generateJson, respond, untrusted } from "./llm";
 
 /** Fake Responses API following the documented shape (fixtures, not live output). */
 function fakeFetch(bodies: unknown[]) {
@@ -70,5 +70,39 @@ describe("generateJson", () => {
   it("fails with PROVIDER_NOT_CONFIGURED when no key is set", async () => {
     const p = createTestPlatform();
     await expect(generateJson(p, { ctx: { workspaceId: "ws1", task: "t" }, instructions: "x", input: "y", schema: z.object({}), schemaName: "S" })).rejects.toMatchObject({ code: "PROVIDER_NOT_CONFIGURED" });
+  });
+
+  it("respond(): sends function tools + previous_response_id, returns function calls, search results and cost", async () => {
+    const p = createTestPlatform({ META_API_KEY: "test-key" });
+    const body = {
+      id: "resp_fixture_tools",
+      model: "muse-wonder-1.0",
+      status: "completed",
+      output: [
+        { type: "web_search_call", id: "ws_1", status: "completed", results: [{ type: "text_result", title: "R", url: "https://example.org/r", snippet: "snip" }] },
+        { type: "function_call", id: "fc_1", call_id: "call_abc", name: "save_finding", arguments: '{"statement":"x"}', status: "completed" },
+      ],
+      usage: { input_tokens: 1000, output_tokens: 100 },
+    };
+    const { f, requests } = fakeFetch([body]);
+    installMetaClient(p, new MetaClient(p, { fetch: f, apiKey: "test-key" }));
+    const out = await respond(p, {
+      ctx: { workspaceId: "ws1", task: "t.loop" },
+      model: "wonder",
+      instructions: "Plan",
+      input: [{ type: "function_call_output", call_id: "call_prev", output: "{}" }],
+      previousResponseId: "resp_prev",
+      tools: [{ name: "save_finding", description: "d", parameters: { type: "object", properties: {} } }],
+      webSearch: true,
+    });
+    expect(out.functionCalls).toEqual([{ callId: "call_abc", name: "save_finding", arguments: '{"statement":"x"}' }]);
+    expect(out.searchResults[0]).toMatchObject({ url: "https://example.org/r", excerpt: "snip" });
+    expect(out.costUsd).toBeGreaterThan(0);
+    const req = requests[0] as Record<string, any>;
+    expect(req.model).toBe("muse-wonder-1.0");
+    expect(req.previous_response_id).toBe("resp_prev");
+    expect(req.tools.map((t: { type: string }) => t.type)).toEqual(["web_search", "function"]);
+    expect(req.tools[1]).toMatchObject({ type: "function", name: "save_finding" });
+    expect(req.input[0]).toMatchObject({ type: "function_call_output", call_id: "call_prev" });
   });
 });

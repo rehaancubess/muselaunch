@@ -62,6 +62,8 @@ export const Campaign = BaseEntity.extend({
   briefId: Id.optional(),
   selectedVariantIds: z.array(Id).default([]),
   opportunityIds: z.array(Id).default([]),
+  /** Deliverables the user asked for (copied into the brief by concept generation). */
+  deliverables: z.array(Deliverable).default([]),
   experimentId: Id.optional(),
   creditCap: z.number().int().positive().optional(),
   strategyRunId: Id.optional(),

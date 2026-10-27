@@ -59,6 +59,17 @@ export const PlanTask = z.object({
   dependsOn: z.array(Id).default([]),
   status: z.enum(["pending", "running", "done", "failed", "skipped"]).default("pending"),
   outputRef: EntityRef.optional(),
+  /**
+   * A follow-up job the strategist proposes (spend-related). Never executed until a human
+   * approves the run's pending Approval; then it is enqueued with its own credit reservation.
+   */
+  proposedAction: z
+    .object({
+      type: z.enum(["research.run", "campaign.generate_concepts"]),
+      params: z.record(z.string(), z.unknown()).default({}),
+      estimatedCredits: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 /** Wonder's saved plan: goals, hypotheses, deliverables, measurement (spec 4.4). */

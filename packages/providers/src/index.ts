@@ -2,6 +2,8 @@ export * from "./pricing";
 export * from "./meta/client";
 export * from "./status";
 export * from "./meta/llm";
+// Module B (intelligence): self-hosted Muse Glimmer
+export * from "./glimmer/client";
 // Module D (multimodal media) adapters
 export * from "./sam";
 export * from "./voice";
