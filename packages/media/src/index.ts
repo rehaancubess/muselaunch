@@ -1,4 +1,5 @@
 import type { HandlerRegistry } from "@muselaunch/platform";
+import { analyzeClipHandler } from "./clip";
 import { imageGenerateHandler } from "./images";
 import { probeHandler } from "./probe";
 import { segmentHandler } from "./segment";
@@ -12,6 +13,7 @@ export const handlers: HandlerRegistry = {
   "media.transcribe": transcribeHandler,
   "media.image_generate": imageGenerateHandler,
   "media.tts": ttsHandler,
+  "media.analyze_clip": analyzeClipHandler,
 };
 
 export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "./captions";
@@ -22,3 +24,7 @@ export { modeForPurpose, MAX_TRANSCRIBE_SECONDS, toWav } from "./transcribe";
 export { needsVideoNormalisation, MAX_LONG_EDGE } from "./probe";
 export { requestSegmentation, correctSegmentation, requestTranscript, waitForTranscript, importStock, ensureConsent, PERSON_PROMPT } from "./service";
 export { installMediaDeps, mediaDeps, type MediaDeps } from "./util";
+export { loadTracks, buildTracks, presenceRanges, meanBbox, trackQuality } from "./tracks";
+export { requestClipAnalysis, estimateClipAnalysis, DEFAULT_CLIP_PROMPTS } from "./clip";
+export { findOrCreateSegmentation, findOrCreateTranscript, lookupSegmentation, lookupTranscript } from "./service";
+export { MAX_OBJECT_OUTPUTS } from "./segment";

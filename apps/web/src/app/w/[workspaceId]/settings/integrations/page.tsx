@@ -1,17 +1,16 @@
 "use client";
-import { ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, useToast, type Provenance } from "@muselaunch/ui";
+import { ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, type Provenance } from "@muselaunch/ui";
 import { BarChart3, Bot, Brain, Film, Globe, Image as ImageIcon, Mic, ScanFace, Sparkles, Volume2 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { readLastApp } from "@/components/shell/app-shell";
-import { ConnectionsPanel } from "@/features/publishing";
 import { errorMessage } from "@/lib/api";
 import type { ProviderState, ProviderStatusResponse } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useRuntime } from "@/lib/runtime";
 import { useWorkspace } from "@/lib/workspace";
+import { ConnectionsPanel } from "@/features/publishing/connections";
 
 const STATE_BADGE: Record<ProviderState, { kind: Provenance; label: string }> = {
   live: { kind: "live_ai", label: "Live" },
@@ -42,22 +41,6 @@ function regionName(code: string | null) {
   }
 }
 
-/** Toast the result of an OAuth round trip (the callback redirects here with ?connections=1&status=…). */
-function OAuthReturnToast() {
-  const params = useSearchParams();
-  const router = useRouter();
-  const toast = useToast();
-  useEffect(() => {
-    if (params.get("connections") !== "1") return;
-    const provider = params.get("provider") ?? "Account";
-    const st = params.get("status");
-    if (st === "connected") toast.success(`${provider} connected`, params.get("message") ?? undefined);
-    else if (st) toast.error(`${provider} wasn’t connected`, params.get("message") ?? undefined);
-    router.replace(window.location.pathname);
-  }, [params, router, toast]);
-  return null;
-}
-
 export default function IntegrationsPage() {
   const { workspaceId, apps } = useWorkspace();
   const runtime = useRuntime();
@@ -68,9 +51,6 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-12">
-      <Suspense>
-        <OAuthReturnToast />
-      </Suspense>
       <PageHeader title="Integrations" description="What’s live on this deployment, what isn’t, and what MuseLaunch uses instead. Nothing unavailable is simulated." className="pb-0" />
       {fixture ? <Notice tone="warning" title="Fixture mode">Providers marked “Fixture” answer from labelled test fixtures on this local server. Nothing here reflects a live model.</Notice> : null}
 
@@ -133,7 +113,8 @@ export default function IntegrationsPage() {
         ) : null}
       </Section>
 
-      <Section title="Publishing & outreach accounts" description="Accounts you authorise for posting and creator outreach. Every post and message still waits for an approval.">
+      <Section title="Connected accounts" description="Publishing, analytics and outreach accounts you’ve authorised. Posting and sending always ask for approval first.">
+        {/* Module E: connect/disconnect + finishing OAuth returns (pending connections are bound to the user who started them). */}
         <ConnectionsPanel />
       </Section>
 

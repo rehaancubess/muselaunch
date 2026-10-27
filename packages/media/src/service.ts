@@ -58,58 +58,75 @@ export async function requestSegmentation(
   if (!prompt) throw new AppError("BAD_REQUEST", "Empty prompt", { userMessage: "Describe what to select, e.g. “person” or “phone”." });
   if (PERSON_ROLES.has(asset.role) || PERSON_PROMPT.test(prompt)) asset = await ensureConsent(p, wid, asset, input.consent, input.actor, "segmenting a person");
 
-  const repo = p.db.ws(wid).collection("segmentations");
-  const model = p.cfg.META_MODEL_SAM;
-  const mediaType = asset.kind as "image" | "video";
-  const fresh = (s: Segmentation) => s.prompt === prompt && s.model === model && !s.corrections.length && !s.selectedObjectIds.length;
-
-  // 1) Same asset + prompt: return the existing result (or the in-flight job).
-  const mine = (await repo.list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items.filter((s) => fresh(s) && s.status !== "failed");
-  const hit = mine.find((s) => s.status === "succeeded") ?? mine[0];
-  if (hit) {
+  const found = await findOrCreateSegmentation(p, wid, asset, prompt, input.actor);
+  if (found.kind === "existing") {
+    const hit = found.seg;
     const job = hit.status === "succeeded" ? null : await segmentJob(p, wid, hit, asset, input.actor, `seg:${hit.id}:0`, true);
     return { segmentation: hit, job, reused: hit.status === "succeeded" };
   }
+  if (found.kind === "copied") return { segmentation: found.seg, job: null, reused: true };
+  const job = await segmentJob(p, wid, found.seg, asset, input.actor, `seg:${found.seg.id}:0`, true);
+  return { segmentation: found.seg, job, reused: false };
+}
 
-  // 2) Identical content (same sha256) + prompt in this workspace: copy the result, no new SAM call or charge.
-  if (asset.sha256) {
-    const same = (await repo.list({ where: [["sourceSha256", "==", asset.sha256], ["prompt", "==", prompt]], limit: 20 })).items.find((s) => s.status === "succeeded" && fresh(s) && s.mediaType === mediaType);
-    if (same) {
-      const copy = await repo.create(
-        {
-          appId: asset.appId,
-          sourceAssetId: asset.id,
-          sourceSha256: asset.sha256,
-          prompt,
-          model,
-          status: "succeeded",
-          mediaType,
-          objects: same.objects,
-          maskAssetId: same.maskAssetId,
-          cutoutAssetId: same.cutoutAssetId,
-          previewAssetId: same.previewAssetId,
-          outputAssetId: same.outputAssetId,
-          frameCount: same.frameCount,
-          fps: same.fps,
-          trackingQuality: same.trackingQuality,
-          corrections: [],
-          selectedObjectIds: [],
-          usageEventIds: [],
-          reusedFromSegmentationId: same.id,
-        },
-        { actor: input.actor },
-      );
-      return { segmentation: copy, job: null, reused: true };
-    }
+/** Prior results usable for (asset, prompt): this asset's own, or a succeeded one for identical content. */
+export async function lookupSegmentation(p: Platform, wid: string, asset: MediaAsset, prompt: string): Promise<{ mine?: Segmentation; same?: Segmentation }> {
+  const repo = p.db.ws(wid).collection("segmentations");
+  const model = p.cfg.META_MODEL_SAM;
+  // Same SAM request (prompt, model, no geometry corrections). An object selection only changes the
+  // combined cutout; the SAM output, tracks and per-object outputs are the same, so it stays reusable.
+  const fresh = (s: Segmentation) => s.prompt === prompt && s.model === model && !s.corrections.length;
+  const mineAll = (await repo.list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items.filter((s) => fresh(s) && s.status !== "failed");
+  const mine = mineAll.find((s) => s.status === "succeeded") ?? mineAll[0];
+  if (mine || !asset.sha256) return { mine };
+  const same = (await repo.list({ where: [["sourceSha256", "==", asset.sha256], ["prompt", "==", prompt]], limit: 20 })).items.find((s) => s.status === "succeeded" && fresh(s) && s.mediaType === asset.kind);
+  return { same };
+}
+
+/**
+ * Reuse-first segmentation lookup (never across workspaces):
+ * existing (same asset + prompt) → copy of an identical-content result (no SAM call) → new `queued` one.
+ */
+export async function findOrCreateSegmentation(p: Platform, wid: string, asset: MediaAsset, prompt: string, actor: string): Promise<{ seg: Segmentation; kind: "existing" | "copied" | "created" }> {
+  const repo = p.db.ws(wid).collection("segmentations");
+  const model = p.cfg.META_MODEL_SAM;
+  const mediaType = asset.kind as "image" | "video";
+  const { mine, same } = await lookupSegmentation(p, wid, asset, prompt);
+  if (mine) return { seg: mine, kind: "existing" };
+  if (same) {
+    const copy = await repo.create(
+      {
+        appId: asset.appId,
+        sourceAssetId: asset.id,
+        sourceSha256: asset.sha256,
+        prompt,
+        model,
+        status: "succeeded",
+        mediaType,
+        objects: same.objects,
+        maskAssetId: same.maskAssetId,
+        cutoutAssetId: same.cutoutAssetId,
+        previewAssetId: same.previewAssetId,
+        outputAssetId: same.outputAssetId,
+        tracksAssetId: same.tracksAssetId,
+        objectOutputs: same.objectOutputs,
+        frameCount: same.frameCount,
+        fps: same.fps,
+        trackingQuality: same.trackingQuality,
+        corrections: [],
+        selectedObjectIds: same.selectedObjectIds,
+        usageEventIds: [],
+        reusedFromSegmentationId: same.id,
+      },
+      { actor },
+    );
+    return { seg: copy, kind: "copied" };
   }
-
-  // 3) New segmentation.
   const seg = await repo.create(
     { appId: asset.appId, sourceAssetId: asset.id, sourceSha256: asset.sha256, prompt, model, status: "queued", mediaType, objects: [], corrections: [], selectedObjectIds: [], usageEventIds: [] },
-    { actor: input.actor },
+    { actor },
   );
-  const job = await segmentJob(p, wid, seg, asset, input.actor, `seg:${seg.id}:0`, true);
-  return { segmentation: seg, job, reused: false };
+  return { seg, kind: "created" };
 }
 
 function segmentJob(p: Platform, wid: string, seg: Segmentation, asset: MediaAsset, actor: string, key: string, charge: boolean) {
@@ -185,32 +202,46 @@ export async function requestTranscript(
   if ((asset.durationSec ?? 0) > MAX_TRANSCRIBE_SECONDS) throw new AppError("BAD_REQUEST", "Audio longer than 60 minutes", { userMessage: "Recordings up to 60 minutes can be transcribed." });
   // Voice commands are the signed-in user's own instruction (never used in content); everything else is a recording of a person.
   if (input.purpose !== "voice_command") asset = await ensureConsent(p, wid, asset, input.consent, input.actor, "transcribing a recording of a person");
+  const found = await findOrCreateTranscript(p, wid, asset, input.purpose, input.actor);
+  if (found.kind === "created" || found.seg.status !== "succeeded") {
+    const job = await transcribeJob(p, wid, found.seg, asset, input);
+    return { transcript: found.seg, job, reused: false };
+  }
+  return { transcript: found.seg, job: null, reused: true };
+}
+
+/** Prior transcripts usable for (asset, purpose): exact one for this asset, or one covering the same audio. */
+export async function lookupTranscript(p: Platform, wid: string, asset: MediaAsset, purpose: Transcript["purpose"]): Promise<{ exact?: Transcript; prior?: Transcript }> {
   const repo = p.db.ws(wid).collection("transcripts");
   const model = p.cfg.META_MODEL_VOICE;
-  const mode = modeForPurpose(input.purpose);
+  const mode = modeForPurpose(purpose);
   const covers = (t: Transcript) => t.status === "succeeded" && t.model === model && (t.mode === mode || t.mode === "DIARIZATION");
-
   const mine = (await repo.list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
-  const exact = mine.find((t) => t.purpose === input.purpose && t.mode === mode && t.status !== "failed");
-  if (exact) {
-    const job = exact.status === "succeeded" ? null : await transcribeJob(p, wid, exact, asset, input);
-    return { transcript: exact, job, reused: exact.status === "succeeded" };
-  }
+  const exact = mine.find((t) => t.purpose === purpose && t.mode === mode && t.status !== "failed");
+  if (exact) return { exact };
   const prior = mine.find(covers) ?? (asset.sha256 ? (await repo.list({ where: [["sourceSha256", "==", asset.sha256]], limit: 20 })).items.find(covers) : undefined);
+  return { prior };
+}
+
+/** Reuse-first transcript lookup: existing → copy of identical audio (no provider call) → new `queued` one. */
+export async function findOrCreateTranscript(p: Platform, wid: string, asset: MediaAsset, purpose: Transcript["purpose"], actor: string): Promise<{ seg: Transcript; kind: "existing" | "copied" | "created" }> {
+  const repo = p.db.ws(wid).collection("transcripts");
+  const model = p.cfg.META_MODEL_VOICE;
+  const { exact, prior } = await lookupTranscript(p, wid, asset, purpose);
+  if (exact) return { seg: exact, kind: "existing" };
   if (prior) {
     const copy = await repo.create(
-      { appId: asset.appId ?? prior.appId, sourceAssetId: asset.id, sourceSha256: asset.sha256, model, purpose: input.purpose, status: "succeeded", language: prior.language, text: prior.text, turns: prior.turns, durationSec: prior.durationSec, mode: prior.mode, usageEventIds: [], reusedFromTranscriptId: prior.id },
-      { actor: input.actor },
+      { appId: asset.appId ?? prior.appId, sourceAssetId: asset.id, sourceSha256: asset.sha256, model, purpose, status: "succeeded", language: prior.language, text: prior.text, turns: prior.turns, durationSec: prior.durationSec, mode: prior.mode, usageEventIds: [], reusedFromTranscriptId: prior.id },
+      { actor },
     );
-    if (copy.purpose === "founder_brief" && copy.appId && copy.text) await storeFounderEvidence(p.db.ws(wid), input.actor, copy, asset);
-    return { transcript: copy, job: null, reused: true };
+    if (copy.purpose === "founder_brief" && copy.appId && copy.text) await storeFounderEvidence(p.db.ws(wid), actor, copy, asset);
+    return { seg: copy, kind: "copied" };
   }
   const t = await repo.create(
-    { appId: asset.appId, sourceAssetId: asset.id, sourceSha256: asset.sha256, model, purpose: input.purpose, status: "queued", mode, text: "", turns: [], usageEventIds: [] },
-    { actor: input.actor },
+    { appId: asset.appId, sourceAssetId: asset.id, sourceSha256: asset.sha256, model, purpose, status: "queued", mode: modeForPurpose(purpose), text: "", turns: [], usageEventIds: [] },
+    { actor },
   );
-  const job = await transcribeJob(p, wid, t, asset, input);
-  return { transcript: t, job, reused: false };
+  return { seg: t, kind: "created" };
 }
 
 function transcribeJob(p: Platform, wid: string, t: Transcript, asset: MediaAsset, input: { languageBias?: string[]; keywords?: string[]; actor: string }) {

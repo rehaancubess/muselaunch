@@ -9,6 +9,7 @@
  */
 import { ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BrandGuardianPanel, useBrandReviews } from "@/features/guardian";
 import { emitAiEdit, useAiEditCommand } from "@/lib/commands";
 import { useCurrentApp } from "@/lib/workspace";
 import { AiPanel } from "./ai-panel";
@@ -68,10 +69,10 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
     [],
   );
   const selectLayer = useCallback(
-    (sid: string, lid: string | null) => {
+    (sid: string, lid: string | null, opts?: { keepTab?: boolean }) => {
       setSceneId(sid);
       setLayerId(lid);
-      setRightTab("edit");
+      if (!opts?.keepTab) setRightTab("edit");
       if (doc && lid) {
         const i = doc.scenes.findIndex((s) => s.id === sid);
         const l = doc.scenes[i]?.layers.find((x) => x.id === lid);
@@ -82,6 +83,26 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
       }
     },
     [doc, seek],
+  );
+  // Brand Guardian (module G): the review of the current version highlights affected scenes/layers
+  // on the timeline + inspector, and "Show" on a finding selects it without leaving the Brand tab.
+  const brand = useBrandReviews(workspaceId, { entity: "compositions", id: compositionId }, data?.composition.currentVersion);
+  const brandOpen = useMemo(() => (brand.latest?.findings ?? []).filter((f) => !f.resolution && f.severity !== "info"), [brand.latest]);
+  const lint = useMemo<LintIssue[]>(
+    () => [...(data?.lint ?? []), ...brandOpen.filter((f) => f.location?.sceneId).map((f) => ({ level: f.severity === "block" ? ("error" as const) : ("warning" as const), sceneId: f.location!.sceneId, layerId: f.location!.layerId, message: `Brand: ${f.message}` }))],
+    [data?.lint, brandOpen],
+  );
+  const focusFinding = useCallback(
+    (loc: { sceneId?: string; layerId?: string }) => {
+      if (!doc || !loc.sceneId) return;
+      if (loc.layerId) selectLayer(loc.sceneId, loc.layerId, { keepTab: true });
+      else {
+        selectScene(loc.sceneId);
+        const i = doc.scenes.findIndex((s) => s.id === loc.sceneId);
+        if (i >= 0) seek((sceneStarts(doc)[i] ?? 0) + Math.min(0.5, doc.scenes[i]!.durationSec / 2));
+      }
+    },
+    [doc, selectLayer, selectScene, seek],
   );
   const selectIssue = useCallback(
     (i: LintIssue) => {
@@ -181,12 +202,15 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             <TabsList label="Edit panel" className="px-3">
               <TabsTrigger value="edit">Inspector</TabsTrigger>
               <TabsTrigger value="ai">Ask Muse</TabsTrigger>
+              <TabsTrigger value="brand" count={brandOpen.length || undefined}>
+                Brand
+              </TabsTrigger>
               <TabsTrigger value="media" className="xl:hidden">
                 Media
               </TabsTrigger>
             </TabsList>
             <TabsContent value="edit" className="min-h-0 flex-1 overflow-y-auto">
-              <Inspector doc={doc} scene={activeScene} layer={layer} lint={data.lint} onPatch={onPatch} onSelectLayer={selectLayer} disabled={disabled} />
+              <Inspector doc={doc} scene={activeScene} layer={layer} lint={lint} onPatch={onPatch} onSelectLayer={selectLayer} disabled={disabled} />
             </TabsContent>
             <TabsContent value="ai" className="min-h-0 flex-1">
               <AiPanel
@@ -201,6 +225,15 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
                 disabled={disabled}
               />
             </TabsContent>
+            <TabsContent value="brand" className="min-h-0 flex-1">
+              <BrandGuardianPanel
+                className="h-full"
+                subject={{ entity: "compositions", id: compositionId }}
+                version={data.composition.currentVersion}
+                onApplied={(r) => studio.applyCommit({ composition: r.composition, version: r.version })}
+                onFocus={focusFinding}
+              />
+            </TabsContent>
             <TabsContent value="media" className="min-h-0 flex-1 xl:hidden">
               {mediaPanel}
             </TabsContent>
@@ -213,7 +246,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
           time={time}
           selectedSceneId={activeScene?.id ?? null}
           selectedLayerId={layer?.id ?? null}
-          lint={data.lint}
+          lint={lint}
           onSelectScene={selectScene}
           onSelectLayer={selectLayer}
           onSeek={seek}

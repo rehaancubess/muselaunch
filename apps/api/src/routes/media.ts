@@ -1,6 +1,6 @@
-import { ImageGenerateRequest, SegmentCorrectionRequest, SegmentRequest, StockImportRequest, StockSearchQuery, TranscribeRequest, TtsRequest, type ImageProviderInfo } from "@muselaunch/contracts";
-import { correctSegmentation, importStock, mediaDeps, requestSegmentation, requestTranscript, transcriptToCaptionCues, waitForTranscript } from "@muselaunch/media";
-import { AppError } from "@muselaunch/platform";
+import { AnalyzeClipRequest, ImageGenerateRequest, SegmentCorrectionRequest, SegmentRequest, StockImportRequest, StockSearchQuery, TranscribeRequest, TtsRequest, type ImageProviderInfo } from "@muselaunch/contracts";
+import { correctSegmentation, DEFAULT_CLIP_PROMPTS, estimateClipAnalysis, importStock, mediaDeps, requestClipAnalysis, requestSegmentation, requestTranscript, transcriptToCaptionCues, waitForTranscript } from "@muselaunch/media";
+import { AppError, assertKeyInWorkspace } from "@muselaunch/platform";
 import { assertBuiltinVoice, chooseImageProvider, guardImagePrompt, searchStock, stockProviderStates, TTS_DISCLOSURE } from "@muselaunch/providers";
 import { Hono } from "hono";
 import { actorOf, body, idempotencyKey, query, requireCap, type AppEnv } from "../context";
@@ -150,4 +150,66 @@ mediaRoutes.post("/tts", requireCap("content.write"), rateLimit({ perMinute: 20,
   if (input.appId) await p.db.ws(wid).collection("apps").getOrThrow(input.appId);
   const job = await p.jobs.create(wid, "media.tts", { ...input, voice }, { actor: actorOf(c), appId: input.appId, idempotencyKey: idempotencyKey(c), credits: { operation: "media.tts", params: { text: input.text } } });
   return c.json({ job, provider: { id: "openai", label: "OpenAI TTS (external)", model: p.cfg.OPENAI_TTS_MODEL, voice }, sourceLabel: "external_tts", disclosure: TTS_DISCLOSURE }, 202);
+});
+
+// ---------------------------------------------------------------------------
+// Clip analysis (object-aware editing): SAM tracks per prompt + per-object cutouts + transcript
+// ---------------------------------------------------------------------------
+
+/** Analyse a real clip. 202 `{job, analysis}`; 200 `{job: null, analysis}` when an identical analysis is reused. */
+mediaRoutes.post("/assets/:assetId/analyze-clip", requireCap("content.write"), async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const input = await body(c, AnalyzeClipRequest);
+  const asset = await p.db.ws(wid).collection("mediaAssets").getOrThrow(c.req.param("assetId"));
+  const { analysis, job } = await requestClipAnalysis(p, wid, { asset, prompts: input.prompts, transcribe: input.transcribe, consent: input.consent, actor: actorOf(c), idempotencyKey: idempotencyKey(c) });
+  return c.json({ job, analysis }, job ? 202 : 200);
+});
+
+/** Credits a clip analysis would reserve (cached prompts/transcripts are free). */
+mediaRoutes.post("/assets/:assetId/analyze-clip/estimate", requireCap("content.write"), async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const input = await body(c, AnalyzeClipRequest);
+  const asset = await p.db.ws(wid).collection("mediaAssets").getOrThrow(c.req.param("assetId"));
+  const est = await estimateClipAnalysis(p, wid, asset, input.prompts.length ? input.prompts : DEFAULT_CLIP_PROMPTS, input.transcribe);
+  const balance = await p.credits.balance(wid);
+  return c.json({ ...est, available: balance.available });
+});
+
+mediaRoutes.get("/assets/:assetId/clip-analyses", async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const asset = await p.db.ws(wid).collection("mediaAssets").getOrThrow(c.req.param("assetId"));
+  const page = await p.db.ws(wid).collection("clipAnalyses").list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 });
+  return c.json({ items: page.items });
+});
+
+/**
+ * Analysis + its segmentations + signed URLs (1 h) for the source clip, combined and per-object
+ * cutouts/mattes/previews, and each segmentation's tracks JSON.
+ */
+mediaRoutes.get("/clip-analyses/:id", async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const ws = p.db.ws(wid);
+  const analysis = await ws.collection("clipAnalyses").getOrThrow(c.req.param("id"));
+  const segmentations = await ws.collection("segmentations").getMany(Object.values(analysis.segmentationIds));
+  const assetIds = new Set<string>([analysis.sourceAssetId]);
+  for (const s of segmentations) {
+    for (const id of [s.maskAssetId, s.cutoutAssetId, s.previewAssetId, s.tracksAssetId]) if (id) assetIds.add(id);
+    for (const o of Object.values(s.objectOutputs ?? {})) for (const id of [o.cutoutAssetId, o.matteAssetId]) if (id) assetIds.add(id);
+  }
+  const found = (await ws.collection("mediaAssets").getMany([...assetIds])).filter((a) => a.status === "ready");
+  const signed = await Promise.all(
+    found.map(async (a) => {
+      assertKeyInWorkspace(wid, a.storagePath);
+      const { url } = await p.storage.signedDownloadUrl(a.storagePath, { expiresSec: 3600 });
+      return [a.id, { url, kind: a.kind, role: a.role, mimeType: a.mimeType }] as const;
+    }),
+  );
+  const assets = Object.fromEntries(signed);
+  const tracksUrls = Object.fromEntries(segmentations.filter((s) => s.tracksAssetId && assets[s.tracksAssetId]).map((s) => [s.id, assets[s.tracksAssetId!]!.url]));
+  const transcript = analysis.transcriptId ? await ws.collection("transcripts").get(analysis.transcriptId) : null;
+  return c.json({ analysis, segmentations, assets, tracksUrls, transcript });
 });

@@ -3,6 +3,7 @@ import { Badge, Button, Checkbox, Field, Input, JobProgress, Notice, ProvenanceB
 import { CheckCircle2, Copy, Download, ExternalLink, Package, Send, Undo2, X } from "lucide-react";
 import { useState } from "react";
 import { QueryState } from "@/components/states";
+import { BrandGuardianBadge, GuardedApprovalButton } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useJob } from "@/lib/jobs";
 import { CHANNEL_LABEL } from "@/lib/labels";
@@ -126,15 +127,15 @@ function PostBody({ view }: { view: PostView }) {
         </Notice>
       ) : null}
 
+      {!terminal && ["draft", "failed", "awaiting_approval"].includes(post.status) ? <BrandGuardianBadge subject={{ entity: "scheduledPosts", id: post.id }} /> : null}
       {approval ? <ApprovalCard approval={approval} currentHash={view.snapshotHash} onDecided={() => void refresh()} /> : null}
       {jobId ? <JobProgress job={job.job} title="Publishing" onRetry={undefined} /> : null}
 
       {!terminal ? (
         <div className="flex flex-wrap gap-2">
           {["draft", "failed"].includes(post.status) || (post.status === "awaiting_approval" && approval?.status !== "pending") ? (
-            <Button onClick={() => act("request", () => api.post(P("/request-approval")), "Approval requested")} loading={busy === "request"} disabled={preflight.errors.length > 0}>
-              Request approval
-            </Button>
+            // Brand Guardian (module G) gates approval requests; a blocked review asks for an override reason.
+            <GuardedApprovalButton path={P("/request-approval")} onDone={refresh} disabled={preflight.errors.length > 0} />
           ) : null}
           {post.mode === "api" && post.status === "scheduled" ? (
             <Button

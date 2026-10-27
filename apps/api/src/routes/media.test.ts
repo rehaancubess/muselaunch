@@ -108,6 +108,50 @@ describe("media API", () => {
     await p.inline!.drain();
   });
 
+  it("analyses a clip: 202 {job, analysis}, detail with signed URLs + tracks, identical repeat → 200 reuse, tenancy", async () => {
+    // A second upload of the same clip (no consent recorded yet): SAM results are reused by content hash.
+    const videoId = await upload(wsA, join(dir, "clip.mp4"), "video/mp4", "app_recording");
+    const needConsent = await alice.post(`/v1/workspaces/${wsA}/assets/${videoId}/analyze-clip`, { prompts: ["red box"] });
+    expect(needConsent.status).toBe(400);
+    expect(needConsent.json.error.details).toEqual({ consentRequired: true });
+    const est = await alice.post(`/v1/workspaces/${wsA}/assets/${videoId}/analyze-clip/estimate`, { prompts: ["red box"] });
+    expect(est.json).toMatchObject({ credits: 1, breakdown: [{ label: "Track “red box” (reused)", credits: 0 }, { label: "Transcript", credits: 1 }] });
+
+    const res = await alice.post(`/v1/workspaces/${wsA}/assets/${videoId}/analyze-clip`, { prompts: ["red box"], consent: { scope: "My own demo clip" } });
+    expect(res.status).toBe(202);
+    expect(res.json.job).toMatchObject({ type: "media.analyze_clip" });
+    expect(res.json.analysis).toMatchObject({ status: "queued", prompts: ["red box"], transcribe: true });
+    await p.inline!.drain();
+
+    const got = await alice.get(`/v1/workspaces/${wsA}/clip-analyses/${res.json.analysis.id}`);
+    expect(got.status).toBe(200);
+    const { analysis, segmentations, assets, tracksUrls } = got.json;
+    expect(analysis.status).toBe("succeeded");
+    expect(analysis.objects.map((o: Json) => o.key)).toEqual(["red box:0", "red box:1"]);
+    expect(segmentations).toHaveLength(1);
+    const seg = segmentations[0];
+    expect(Object.keys(seg.objectOutputs).sort()).toEqual(["0", "1"]);
+    expect(assets[videoId]).toMatchObject({ kind: "video", role: "app_recording" });
+    expect(assets[seg.objectOutputs["0"].cutoutAssetId]).toMatchObject({ kind: "video", role: "other", mimeType: "video/webm" });
+    expect(assets[seg.objectOutputs["1"].matteAssetId]).toMatchObject({ kind: "mask" });
+    expect(tracksUrls[seg.id]).toMatch(/\/v1\/storage\/local\//);
+    const tracks = (await (await app.request(new URL(tracksUrls[seg.id]).pathname)).json()) as Json;
+    expect(tracks).toMatchObject({ fps: 10, frameCount: 20, width: 160, height: 120 });
+    expect(tracks.tracks[0].frames[3].centroid.x).toBeCloseTo((10 + 9 + 20) / 160, 2);
+    expect(got.json.transcript).toMatchObject({ status: "succeeded", purpose: "captions" });
+
+    const again = await alice.post(`/v1/workspaces/${wsA}/assets/${videoId}/analyze-clip`, { prompts: ["red box"] });
+    expect(again.status).toBe(200);
+    expect(again.json).toMatchObject({ job: null, analysis: { id: analysis.id } });
+    const list = await alice.get(`/v1/workspaces/${wsA}/assets/${videoId}/clip-analyses`);
+    expect(list.json.items.map((a: Json) => a.id)).toContain(analysis.id);
+
+    expect((await bob.get(`/v1/workspaces/${wsB}/clip-analyses/${analysis.id}`)).status).toBe(404);
+    expect((await bob.get(`/v1/workspaces/${wsA}/clip-analyses/${analysis.id}`)).status).toBe(404);
+    expect((await bob.post(`/v1/workspaces/${wsB}/assets/${videoId}/analyze-clip`, {})).status).toBe(404);
+    expect((await bob.get(`/v1/workspaces/${wsB}/assets/${videoId}/clip-analyses`)).status).toBe(404);
+  });
+
   it("returns a voice command's text in the same request", async () => {
     const wav = join(dir, "cmd.wav");
     await makeTestAudio(wav, 2);

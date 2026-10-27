@@ -4,10 +4,11 @@ import type { AppEnv } from "../context";
 
 /**
  * Owner: module F (Analytics) — PUBLIC tracked-link redirects, mounted at /r.
- * GET /r/:slug → 302 to the app's own store page/website (with UTMs), increments click counters.
- * User-confirmed EXTERNAL destinations never get a 302 (no open redirect): they get a minimal
- * interstitial ("You're leaving to <host> — Continue") with a strict CSP. The click is counted once,
- * on the interstitial view; "Continue" links straight to the destination, not back through /r.
+ * GET /r/:slug → 302 only to App Store / Google Play pages (apps.apple.com, itunes.apple.com,
+ * play.google.com). Every other destination (the app's own, user-entered website, or a
+ * user-confirmed outside site) gets a minimal interstitial with a strict CSP ("Continue to <host>" /
+ * "You're leaving to <host>") — `/r/*` is never an open redirector. The click is counted once, on
+ * the GET that serves the redirect or interstitial; "Continue" links straight to the destination.
  * Must be cheap, never leak workspace data, and only send people to stored destinations.
  * No IPs or raw user agents are stored: the client address is only hashed in memory to
  * throttle rapid repeats, and only a coarse user-agent class is counted.
@@ -26,8 +27,8 @@ publicLinkRoutes.on(["GET", "HEAD"], "/:slug", async (c) => {
   c.header("cache-control", "no-store");
   c.header("x-robots-tag", "noindex, nofollow");
   if (!out) return c.text("This link doesn't exist or is no longer active.", 404);
-  if (!out.external) return c.redirect(out.redirectUrl, 302);
-  const page = renderInterstitial(out.redirectUrl);
+  if (out.mode === "redirect") return c.redirect(out.redirectUrl, 302);
+  const page = renderInterstitial(out.redirectUrl, out.mode);
   if (!page) return c.text("This link doesn't exist or is no longer active.", 404);
   c.header("content-security-policy", INTERSTITIAL_CSP);
   c.header("referrer-policy", "no-referrer");
