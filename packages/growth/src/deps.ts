@@ -82,7 +82,8 @@ export function growthDeps(p: Platform): GrowthDeps {
 }
 
 export function configureGrowth(p: Platform, o: Partial<Omit<GrowthDeps, "settings">> & { settings?: Partial<GrowthSettings> }): void {
-  overrides.set(p, { ...overrides.get(p), ...o } as Partial<GrowthDeps>);
+  const prev = overrides.get(p) ?? {};
+  overrides.set(p, { ...prev, ...o, settings: { ...prev.settings, ...o.settings } } as Partial<GrowthDeps>);
   cache.delete(p);
 }
 
