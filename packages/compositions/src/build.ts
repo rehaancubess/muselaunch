@@ -1135,14 +1135,18 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
   const chipText = (parts[1] ?? featureNames[0])?.slice(0, 40);
   const darkBg: Scene["background"] = { kind: "solid", color: "#000000", angle: 180, dim: 0 };
   const shade = (z: number, strength = 1) => shape(`${sceneId}_shade`, "rect", box(0, 0, 1, 1, z), `#000000${Math.round(0x18 * strength).toString(16).padStart(2, "0")}`, { gradientTo: `#000000${Math.round(0x99 * strength).toString(16).padStart(2, "0")}` });
+  /** Top scrim so white headlines stay legible over bright footage. */
+  const scrim = (z: number) => ({ ...shape(`${sceneId}_scrim`, "rect", box(0, 0, 1, f.portrait ? 0.34 : 0.42, z), "#000000A6", { gradientTo: "#00000000" }), name: "Headline scrim" }) as Layer;
 
   if (t === "presenter-depth") {
     if (!co.usable(co.person)) return null;
     const base = baseClip(ctx, co.clip);
     const demo = ctx.picker.product(ctx.sb, "app_recording");
-    const layers: Layer[] = [base, { ...shade(2, 0.9), name: "Depth shade" } as Layer];
+    const layers: Layer[] = [base, { ...shade(2, 0.9), name: "Depth shade" } as Layer, scrim(2)];
     const mean = co.person!.meanBbox ?? { x: 0.3, y: 0.2, w: 0.4, h: 0.8 };
-    const personLeft = mean.x + mean.w / 2 < 0.5;
+    // Put the demo on the side away from the phone in hand (else away from the presenter's mass).
+    const phoneMean = co.phone?.meanBbox;
+    const personLeft = phoneMean ? phoneMean.x + phoneMean.w / 2 < 0.5 === false : mean.x + mean.w / 2 < 0.5;
     if (co.cutoutReady(co.person)) {
       // Big word behind the presenter: reads as depth when the cutout sits in front of it.
       const word = (app.name || head).toUpperCase().slice(0, 14);
@@ -1162,12 +1166,16 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
       layers[layers.length - 1]!.name = "Word behind presenter";
     }
     if (demo) {
-      const cx = personLeft ? (f.landscape ? 0.72 : 0.74) : f.landscape ? 0.28 : 0.26;
-      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.38 : 0.2, f.portrait ? 0.46 : 0.66, 0.44);
-      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: personLeft ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: personLeft ? -6 : 6 }));
+      // The phone is on the right when personLeft === false (we keep the demo away from it).
+      const demoRight = phoneMean ? phoneMean.x + phoneMean.w / 2 < 0.5 : personLeft;
+      const cx = demoRight ? (f.landscape ? 0.76 : 0.8) : f.landscape ? 0.24 : 0.2;
+      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.24 : 0.16, f.portrait ? 0.52 : 0.72, 0.5);
+      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: demoRight ? 6 : -6 }));
       layers[layers.length - 1]!.name = "App demo (behind presenter)";
     }
     if (co.cutoutReady(co.person)) layers.push(cutoutLayer(`${sceneId}_presenter`, "Presenter (cutout, in front)", base, co.person!, 6));
+    // The phone in hand is foreground too (a person mask has a hole where the phone occludes them).
+    if (co.cutoutReady(co.phone)) layers.push(cutoutLayer(`${sceneId}_phone`, "Phone in hand (cutout, in front)", base, co.phone!, 7));
     layers.push(topHeadline(ctx, head, 8, 84));
     return { template: t, layers, background: darkBg };
   }
@@ -1193,6 +1201,7 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
   const base = baseClip(ctx, co.clip);
   const layers: Layer[] = [
     base,
+    scrim(2),
     effect(`${sceneId}_screen`, "App on the phone (real recording)", "screen-insert", co.phone!, 3, { assetId: demo.id, intensity: 1, enter: { preset: "fade", durationSec: 0.4, delaySec: 0.15 } }),
   ];
   const over = co.cutoutReady(co.hand) ? co.hand : co.cutoutReady(co.person) ? co.person : undefined;

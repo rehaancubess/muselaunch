@@ -220,6 +220,7 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
       segmentations: Object.fromEntries(segs.map((s) => [s.id, s])),
       tracks,
       assetKinds: Object.fromEntries(assets.map((a) => [a.id, a.kind])),
+      assetHasAudio: Object.fromEntries(assets.filter((a) => a.hasAudio !== undefined).map((a) => [a.id, a.hasAudio!])),
       still,
       sceneSlotSec: still ? 0.2 : undefined,
     });
@@ -407,7 +408,34 @@ async function saveStills(
 // ---------------------------------------------------------------------------
 
 export function variantId(compositionId: string, target: string, mode: "aspect" | "audience" | "hooks"): string {
-  return mode === "aspect" ? `${compositionId}_${target.replace(":", "x")}`.slice(0, 120) : `${compositionId}_aud_${shortHash(target.toLowerCase().trim(), 10)}`.slice(0, 120);
+  if (mode === "aspect") return `${compositionId}_${target.replace(":", "x")}`.slice(0, 120);
+  return `${compositionId}_${mode === "hooks" ? "hook" : "aud"}_${shortHash(target.toLowerCase().trim(), 10)}`.slice(0, 120);
+}
+
+/** Distinct opening strategies used when the user asks for "N hooks" without writing briefs. */
+export const DEFAULT_HOOK_BRIEFS = [
+  "Lead with the outcome: show the finished result in the first second, then reveal how.",
+  "Open with a sharp question the audience is already asking themselves.",
+  "Pattern interrupt: an unexpected line or visual that stops the scroll, then pay it off.",
+  "Name the frustration in the audience's own words, then show the app solving it.",
+  "Make a direct, specific promise of what they'll get in the next few seconds (verified claims only).",
+];
+
+export function hookBriefs(targets: string[]): string[] {
+  if (targets.length === 1 && /^[1-5]$/.test(targets[0]!.trim())) return DEFAULT_HOOK_BRIEFS.slice(0, Number(targets[0]));
+  return targets.map((t) => t.trim()).filter(Boolean);
+}
+
+/** Latest usable clip analyses for the clips a doc shows (object-aware context for Spark). */
+async function clipAnalysesForDoc(ws: WorkspaceDb, doc: CompositionDoc): Promise<string[]> {
+  const ids: string[] = [];
+  const clipIds = [...new Set(doc.scenes.flatMap((s) => s.layers.flatMap((l) => (l.type === "video" ? [l.assetId] : []))))];
+  for (const id of clipIds.slice(0, 4)) {
+    const page = await ws.collection("clipAnalyses").list({ where: [["sourceAssetId", "==", id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 5 });
+    const a = page.items.find((x) => x.status === "succeeded" || x.status === "partial");
+    if (a) ids.push(a.id);
+  }
+  return ids.slice(0, 4);
 }
 
 async function compositionVariants(ctx: JobContext<"composition.variants">) {
@@ -417,6 +445,7 @@ async function compositionVariants(ctx: JobContext<"composition.variants">) {
   const ver = await getVersion(ctx.ws, compositionId, comp.currentVersion);
   const refs: { entity: string; id: string }[] = [];
   const jobs: string[] = [];
+  if (mode === "hooks") return hookVariants(ctx, comp, ver);
   for (const [i, target] of targets.entries()) {
     ctx.throwIfCancelled();
     await ctx.progress(10 + (i / targets.length) * 80, mode === "aspect" ? `re-laying out ${target}` : `adapting for audience ${i + 1}`);
@@ -455,6 +484,47 @@ async function compositionVariants(ctx: JobContext<"composition.variants">) {
     refs.push({ entity: "compositions", id });
   }
   return { refs, data: { jobIds: jobs } };
+}
+
+/**
+ * N hook variants: each is a copy of the composition whose OPENING scene module B's composition.edit
+ * rewrites with Spark (autoApply), with the clip analyses as object-aware context. Other scenes stay
+ * byte-identical, so the variants are a clean A/B/C test of the hook.
+ */
+async function hookVariants(ctx: JobContext<"composition.variants">, comp: Composition, ver: CompositionVersion) {
+  const { appId, compositionId } = ctx.payload;
+  const briefs = hookBriefs(ctx.payload.targets);
+  if (!briefs.length) throw new AppError("BAD_REQUEST", "No hook briefs given");
+  const opening = ver.doc.scenes[0]!;
+  const clipAnalysisIds = await clipAnalysesForDoc(ctx.ws, ver.doc);
+  const refs: { entity: string; id: string }[] = [];
+  const hooks: { compositionId: string; brief: string; patchId: string; jobId: string }[] = [];
+  for (const [i, brief] of briefs.entries()) {
+    ctx.throwIfCancelled();
+    await ctx.progress(10 + (i / briefs.length) * 80, `hook ${i + 1} of ${briefs.length}`);
+    const id = variantId(compositionId, brief, "hooks");
+    const doc = { ...ver.doc, title: `${ver.doc.title} — Hook ${i + 1}`.slice(0, 200) };
+    await createComposition(ctx.ws, { id, appId, campaignId: comp.campaignId, variantId: comp.variantId, storyboardId: comp.storyboardId, title: `${comp.title} — Hook ${i + 1}`.slice(0, 200), doc, derivedFromCompositionId: compositionId }, ctx.actor);
+    const patchId = `pch_${shortHash(`${id}:hook:${brief}`, 20)}`;
+    const instruction = [
+      `Rewrite ONLY the opening scene ("${opening.name}") as a new hook that grabs viewers in the first 1.5 seconds.`,
+      `Hook brief: ${brief}`,
+      "You may change that scene's on-screen text, its timing and motion, and object-aware effects on the presenter clip (spotlight, glow, anchored callouts, app behind the presenter).",
+      "Keep every other scene, all media and the brand look unchanged. Use only verified claims.",
+    ].join("\n");
+    await ctx.ws.collection("compositionPatches").createIfAbsent(
+      { id: patchId, compositionId: id, baseVersion: 1, ops: [], summary: `Hook ${i + 1}: ${brief}`.slice(0, 1000), source: "ai", instruction, affectedSceneIds: [opening.id], status: "proposed", validationErrors: [], memoryRefs: [] },
+      { actor: ctx.actor },
+    );
+    const job = await ctx.enqueue(
+      "composition.edit",
+      { appId, compositionId: id, baseVersion: 1, instruction: instruction.slice(0, 2000), sceneIds: [opening.id], patchId, autoApply: true, clipAnalysisIds },
+      { idempotencyKey: `composition.edit:${patchId}` },
+    );
+    hooks.push({ compositionId: id, brief, patchId, jobId: job.id });
+    refs.push({ entity: "compositions", id }, { entity: "compositionPatches", id: patchId });
+  }
+  return { refs, data: { hooks, jobIds: hooks.map((h) => h.jobId), openingSceneId: opening.id, clipAnalysisIds } };
 }
 
 // ---------------------------------------------------------------------------

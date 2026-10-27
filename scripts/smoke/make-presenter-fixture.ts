@@ -63,11 +63,12 @@ ${show("bg") ? `<div id="room" class="a"></div><div id="window" class="a"></div>
 <div class="a bok" style="left:520px;top:420px;width:120px;height:120px;background:rgba(255,214,150,.55)"></div>
 <div class="a bok" style="left:40px;top:640px;width:90px;height:90px;background:rgba(255,236,200,.5)"></div>
 <div class="a bok" style="left:610px;top:900px;width:140px;height:140px;background:rgba(255,190,120,.35)"></div>` : ""}
-${show("person") ? `<div id="torso" class="a"></div><div id="neck" class="a"></div><div id="collar" class="a"></div><div id="ear" class="a"></div><div id="head" class="a"><div class="a brow" style="left:28px;top:52px"></div><div class="a brow" style="left:78px;top:50px"></div><div class="a eye" style="left:34px;top:70px"></div><div class="a eye" style="left:84px;top:69px"></div><div id="mouth" class="a" style="left:48px;top:112px"></div></div><div id="hair" class="a"></div>` : ""}
+${show("person") ? `<div id="body" class="a" style="left:0;top:0;width:720px;height:1280px"><div id="torso" class="a"></div><div id="neck" class="a"></div><div id="collar" class="a"></div><div id="ear" class="a"></div><div id="head" class="a"><div class="a brow" style="left:28px;top:52px"></div><div class="a brow" style="left:78px;top:50px"></div><div class="a eye" style="left:34px;top:70px"></div><div class="a eye" style="left:84px;top:69px"></div><div id="mouth" class="a" style="left:48px;top:112px"></div></div><div id="hair" class="a"></div></div>` : ""}
 ${show("phone") ? `<div id="phone" class="a"><div id="screen" class="a"><div class="a bar" style="top:44px;width:60%"></div><div class="a bar" style="top:74px;height:60px;background:#c7c7f5"></div><div class="a bar" style="top:146px"></div><div class="a bar" style="top:170px"></div><div class="a bar" style="top:194px"></div><div class="a bar" style="top:218px;width:50%"></div></div><div id="island" class="a"></div></div>` : ""}
 ${show("person") ? `<div id="arm" class="a"></div><div id="hand" class="a"></div><div id="f1" class="a finger"></div><div id="f2" class="a finger"></div><div id="f3" class="a finger"></div><div id="thumb" class="a"></div>` : ""}
 </div>
 <script>
+const MODE = ${JSON.stringify(mode)};
 ${motionSrc}
 const $ = (id) => document.getElementById(id);
 const set = (id, s) => { const el = $(id); if (el) Object.assign(el.style, s); };
@@ -81,6 +82,13 @@ function draw(t) {
   set("ear", { left: px(p.head.cx - p.head.rx - 12), top: px(p.head.cy - 10) });
   set("hair", { left: px(p.head.cx - p.head.rx - 6), top: px(p.head.cy - p.head.ry - 18), width: px(p.head.rx * 2 + 12), height: px(p.head.ry * 0.95) });
   set("phone", { left: px(p.phone.x), top: px(p.phone.y), width: px(p.phone.w), height: px(p.phone.h), borderRadius: px(p.phone.r) });
+  // Person-only pass: the body is occluded by the phone (a real SAM person mask has this hole);
+  // the fingers/hand are drawn after and stay in the mask.
+  if (MODE === "person") {
+    const ph = p.phone;
+    const hole = "M0 0H720V1280H0Z M" + (ph.x + ph.r) + " " + ph.y + "H" + (ph.x + ph.w - ph.r) + "Q" + (ph.x + ph.w) + " " + ph.y + " " + (ph.x + ph.w) + " " + (ph.y + ph.r) + "V" + (ph.y + ph.h - ph.r) + "Q" + (ph.x + ph.w) + " " + (ph.y + ph.h) + " " + (ph.x + ph.w - ph.r) + " " + (ph.y + ph.h) + "H" + (ph.x + ph.r) + "Q" + ph.x + " " + (ph.y + ph.h) + " " + ph.x + " " + (ph.y + ph.h - ph.r) + "V" + (ph.y + ph.r) + "Q" + ph.x + " " + ph.y + " " + (ph.x + ph.r) + " " + ph.y + "Z";
+    set("body", { clipPath: "path(evenodd, '" + hole + "')" });
+  }
   const dx = p.grip.x - p.elbow.x, dy = p.grip.y - p.elbow.y;
   const len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx) * 180 / Math.PI;
   set("arm", { left: px(p.elbow.x), top: px(p.elbow.y - 48), width: px(len), transform: "rotate(" + ang.toFixed(2) + "deg)" });

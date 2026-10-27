@@ -1,9 +1,9 @@
-import { AiEditRequest, ApplyPatchRequest, AspectRatio, RenderRequest, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
+import { AiEditRequest, ApplyPatchRequest, AspectRatio, RenderRequest, TracksFile, type ClipAnalysis, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
 import { applyPatch, collectAssetRefs, compileToHtml, docHash, lintDoc, PatchError, totalDuration } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { commitVersion, getVersion, redo, revertTo, undo } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, type Platform } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, type ObjectStorage, type Platform } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, body, idempotencyKey, query, requireCap, type AppEnv, type Ctx } from "../context";
@@ -27,22 +27,46 @@ function patchFailure(err: unknown): never {
   throw err;
 }
 
-async function docMedia(db: WorkspaceDb, doc: Parameters<typeof collectAssetRefs>[0]) {
+/** Everything a doc references, resolved ONLY through this workspace (ids never cross tenants). */
+async function docMedia(db: WorkspaceDb, doc: Parameters<typeof collectAssetRefs>[0], storage?: ObjectStorage) {
   const refs = collectAssetRefs(doc);
   const segs = (await db.collection("segmentations").getMany(refs.segmentationIds)) as Segmentation[];
-  const cutouts = segs.map((s) => s.cutoutAssetId).filter((x): x is string => !!x);
+  const cutouts = new Set<string>();
+  for (const s of segs) {
+    if (s.cutoutAssetId) cutouts.add(s.cutoutAssetId);
+    for (const o of Object.values(s.objectOutputs ?? {})) if (o.cutoutAssetId) cutouts.add(o.cutoutAssetId);
+  }
   const assets = (await db.collection("mediaAssets").getMany([...new Set([...refs.assetIds, ...cutouts])])) as MediaAsset[];
-  return { refs, segs, assets };
+  const tracks = storage ? await loadTracks(db, storage, segs) : {};
+  return { refs, segs, assets, tracks };
 }
 
-async function lintFor(db: WorkspaceDb, doc: Parameters<typeof collectAssetRefs>[0]) {
-  const { assets, segs } = await docMedia(db, doc);
+async function loadTracks(db: WorkspaceDb, storage: ObjectStorage, segs: Segmentation[]): Promise<Record<string, TracksFile>> {
+  const out: Record<string, TracksFile> = {};
+  for (const s of segs) {
+    if (!s.tracksAssetId) continue;
+    const a = await db.collection("mediaAssets").get(s.tracksAssetId);
+    if (!a || a.status !== "ready") continue;
+    assertKeyInWorkspace(db.workspaceId, a.storagePath);
+    try {
+      const parsed = TracksFile.safeParse(JSON.parse((await storage.get(a.storagePath)).toString("utf8")));
+      if (parsed.success) out[s.id] = parsed.data;
+    } catch {
+      /* unreadable tracks: effects fall back */
+    }
+  }
+  return out;
+}
+
+async function lintFor(db: WorkspaceDb, doc: Parameters<typeof collectAssetRefs>[0], storage?: ObjectStorage) {
+  const { assets, segs, tracks } = await docMedia(db, doc, storage);
   const claimIds = [...new Set(doc.scenes.flatMap((s) => s.layers.flatMap((l) => (l.type === "text" ? l.claimIds : []))))];
   const claims = claimIds.length ? await db.collection("claims").getMany(claimIds) : [];
   return lintDoc(doc, {
     assets: Object.fromEntries(assets.map((a) => [a.id, a])),
     claims: Object.fromEntries(claims.map((x) => [x.id, x])),
     segmentations: Object.fromEntries(segs.map((s) => [s.id, s])),
+    tracks: storage ? tracks : undefined,
   });
 }
 
@@ -81,8 +105,58 @@ compositionRoutes.get("/compositions", async (c) => {
 compositionRoutes.get("/compositions/:id", async (c) => {
   const comp = await loadComposition(c);
   const version = await getVersion(ws(c), comp.id, comp.currentVersion);
-  const lint = await lintFor(ws(c), version.doc);
+  const lint = await lintFor(ws(c), version.doc, c.get("platform").storage);
   return c.json({ composition: comp, version, lint, lastRender: await lastRenderInfo(c, comp), durationSec: totalDuration(version.doc) });
+});
+
+/** Thin a track to ≤ `hz` samples/s for the editor overlay (renders always use full tracks). */
+function thinTracks(t: TracksFile, hz = 10): TracksFile {
+  const step = Math.max(1, Math.round(t.fps / hz));
+  return { ...t, tracks: t.tracks.map((tr) => ({ ...tr, frames: tr.frames.filter((_, i) => i % step === 0) })) };
+}
+
+/**
+ * Clip intelligence for the Studio: the app's founder clips (and any clip used in this doc), each with
+ * its latest SAM clip analysis, segmentation status and thinned tracks for the preview overlay.
+ */
+compositionRoutes.get("/compositions/:id/clips", async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const db = ws(c);
+  const comp = await loadComposition(c);
+  const ver = await getVersion(db, comp.id, comp.currentVersion);
+  const usedIds = new Set(ver.doc.scenes.flatMap((sc) => sc.layers.flatMap((l) => (l.type === "video" ? [l.assetId] : []))));
+  const founder = (await db.collection("mediaAssets").list({ where: [["appId", "==", comp.appId], ["role", "==", "founder_clip"]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 })).items;
+  const used = (await db.collection("mediaAssets").getMany([...usedIds])) as MediaAsset[];
+  const clips = [...new Map([...used, ...founder].filter((a) => a.kind === "video" && a.status !== "deleted").map((a) => [a.id, a])).values()];
+  const tracks: Record<string, TracksFile> = {};
+  const items = [];
+  for (const asset of clips) {
+    const analyses = (await db.collection("clipAnalyses").list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 5 })).items as ClipAnalysis[];
+    const analysis = analyses.find((a) => a.status === "succeeded" || a.status === "partial") ?? analyses[0] ?? null;
+    const segs = analysis ? ((await db.collection("segmentations").getMany(Object.values(analysis.segmentationIds))) as Segmentation[]) : [];
+    if (analysis && (analysis.status === "succeeded" || analysis.status === "partial")) {
+      for (const [id, t] of Object.entries(await loadTracks(db, p.storage, segs))) tracks[id] = thinTracks(t);
+    }
+    const signedClip = await signed(p, wid, asset.status === "ready" || asset.status === "uploaded" ? { ...asset, status: "ready" } : asset);
+    const poster = asset.posterAssetId ? await signed(p, wid, await db.collection("mediaAssets").get(asset.posterAssetId)) : null;
+    items.push({
+      asset,
+      url: signedClip?.url ?? null,
+      posterUrl: poster?.url ?? null,
+      usedInDoc: usedIds.has(asset.id),
+      analysis,
+      segmentations: segs.map((s) => ({
+        id: s.id,
+        prompt: s.prompt,
+        status: s.status,
+        trackingQuality: s.trackingQuality ?? null,
+        hasCutout: !!(s.cutoutAssetId || Object.values(s.objectOutputs ?? {}).some((o) => o.cutoutAssetId)),
+        hasTracks: !!s.tracksAssetId,
+      })),
+    });
+  }
+  return c.json({ items, tracks });
 });
 
 const ListVersions = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().optional() });
@@ -143,6 +217,8 @@ compositionRoutes.post("/compositions/:id/ai-edit", requireCap("content.write"),
   const known = new Set(base.doc.scenes.map((s) => s.id));
   const unknown = input.sceneIds.filter((id) => !known.has(id));
   if (unknown.length) throw new AppError("BAD_REQUEST", `Unknown scene(s): ${unknown.join(", ")}`);
+  const clips = input.clipAnalysisIds.length ? await db.collection("clipAnalyses").getMany(input.clipAnalysisIds) : [];
+  if (clips.length !== input.clipAnalysisIds.length) throw new AppError("NOT_FOUND", "Clip analysis not found");
   const patch = await db.collection("compositionPatches").create(
     {
       compositionId: comp.id,
@@ -161,7 +237,7 @@ compositionRoutes.post("/compositions/:id/ai-edit", requireCap("content.write"),
   const job = await p.jobs.create(
     wid,
     "composition.edit",
-    { appId: comp.appId, compositionId: comp.id, baseVersion: input.baseVersion, instruction: input.instruction, sceneIds: input.sceneIds, patchId: patch.id, autoApply: input.autoApply },
+    { appId: comp.appId, compositionId: comp.id, baseVersion: input.baseVersion, instruction: input.instruction, sceneIds: input.sceneIds, patchId: patch.id, autoApply: input.autoApply, clipAnalysisIds: input.clipAnalysisIds },
     { actor, appId: comp.appId, idempotencyKey: idempotencyKey(c, `ai-edit:${patch.id}`), credits: { operation: "composition.edit" } },
   );
   return c.json({ job, patch }, 202);
@@ -309,7 +385,7 @@ compositionRoutes.get("/compositions/:id/preview", async (c) => {
   const comp = await loadComposition(c);
   const q = query(c, PreviewQuery);
   const ver = await getVersion(ws(c), comp.id, q.version ?? comp.currentVersion);
-  const { assets, segs } = await docMedia(ws(c), ver.doc);
+  const { assets, segs, tracks } = await docMedia(ws(c), ver.doc, p.storage);
   const urls: Record<string, string> = {};
   for (const a of assets) {
     if (a.status !== "ready" && a.status !== "uploaded") continue;
@@ -323,7 +399,9 @@ compositionRoutes.get("/compositions/:id/preview", async (c) => {
     mode: "preview",
     gsapSource: "inline",
     segmentations: Object.fromEntries(segs.map((s) => [s.id, s])),
+    tracks,
     assetKinds: Object.fromEntries(assets.map((a) => [a.id, a.kind])),
+    assetHasAudio: Object.fromEntries(assets.filter((a) => a.hasAudio !== undefined).map((a) => [a.id, a.hasAudio!])),
   });
   return c.json({ html, durationSec, version: ver.version, scenes, missingAssetIds: missing, width: ver.doc.width, height: ver.doc.height, expiresInSec: SIGNED_URL_TTL });
 });
@@ -332,8 +410,15 @@ compositionRoutes.get("/compositions/:id/preview", async (c) => {
 // Variants & export
 // ---------------------------------------------------------------------------
 
+/** "3" (a count) → that many directed hooks; otherwise one variant per brief. */
+function hookCount(mode: string, targets: string[]): number {
+  if (mode === "hooks" && targets.length === 1 && /^[1-5]$/.test(targets[0]!.trim())) return Number(targets[0]);
+  return targets.length;
+}
+
 const VariantsRequest = z.object({
-  mode: z.enum(["aspect", "audience"]),
+  mode: z.enum(["aspect", "audience", "hooks"]),
+  /** aspect: ratios; audience: audience descriptions; hooks: hook briefs, or ["3"] for N directed hooks. */
   targets: z.array(z.string().min(1).max(200)).min(1).max(5),
 });
 
@@ -351,8 +436,8 @@ compositionRoutes.post("/compositions/:id/variants", requireCap("content.write")
       actor: actorOf(c),
       appId: comp.appId,
       idempotencyKey: idempotencyKey(c, `variants:${comp.id}:v${comp.currentVersion}:${input.mode}:${targets.join("|")}`),
-      // Audience variants each run a Spark edit; aspect re-layouts are local.
-      credits: input.mode === "audience" ? { operation: "composition.edit", amount: p.credits.estimate("composition.edit").credits * targets.length } : undefined,
+      // Audience/hook variants each run a Spark edit; aspect re-layouts are local.
+      credits: input.mode !== "aspect" ? { operation: "composition.edit", amount: p.credits.estimate("composition.edit").credits * hookCount(input.mode, targets) } : undefined,
     },
   );
   return c.json({ job }, 202);

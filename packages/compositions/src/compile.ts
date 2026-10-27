@@ -37,6 +37,8 @@ export interface CompileOptions {
   runtimeSrc?: string;
   /** Media kind per asset id, so backgrounds/blur can pick <img> vs <video>. */
   assetKinds?: Record<string, string>;
+  /** Whether each video asset has an audio track (from probe). An unmuted layer on a silent file renders muted. */
+  assetHasAudio?: Record<string, boolean>;
 }
 
 export interface CompileResult {
@@ -305,7 +307,8 @@ function mediaElement(
   const style = o.style ? ` style="${o.style}"` : "";
   const isVideo = o.video !== undefined ? o.video : looksLikeVideo(ctx, assetId);
   if (isVideo) {
-    const audio = o.muted ? "muted" : `data-has-audio="true" data-volume="${n(o.volume ?? 1)}"`;
+    const silent = o.muted || ctx.opts.assetHasAudio?.[assetId] === false;
+    const audio = silent ? "muted" : `data-has-audio="true" data-volume="${n(o.volume ?? 1)}"`;
     return `<video id="${id}" class="${o.cls}"${style} src="${src}" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-media-start="${n(o.trimIn)}"${o.rate !== 1 ? ` data-playback-rate="${n(o.rate)}"` : ""} ${audio} playsinline preload="auto"></video>`;
   }
   return `<img id="${id}" class="${o.cls}"${style} src="${src}" alt="${esc(o.alt ?? "")}" draggable="false" />`;

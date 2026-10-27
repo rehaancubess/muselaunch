@@ -58,6 +58,9 @@ export const PreviewPlayer = forwardRef<
         p.style.display = "block";
         // Self-hosted runtime (copied from @hyperframes/core by `pnpm vendor:runtime`); no CDN dependency.
         p.setAttribute("runtime-src", "/vendor/hyperframe.runtime.iife.js");
+        // SECURITY (N3): run the composition in an opaque origin (no allow-same-origin), so even a
+        // compiler escaping bug can't script the web app. The player talks to it via postMessage.
+        p.setAttribute("sandbox-origin", "");
         p.addEventListener("timeupdate", (e) => {
           const t = (e as CustomEvent<{ currentTime: number }>).detail?.currentTime ?? p.currentTime;
           timeRef.current = t;
