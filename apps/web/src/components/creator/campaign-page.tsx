@@ -211,7 +211,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
   const busyRef = useRef(false);
   const busyNow = active.length > 0 || otherPipelineActive;
   useEffect(() => {
-    if (busyRef.current && !busyNow) void invalidate(path);
+    if (busyRef.current && !busyNow) void invalidate(path, wsPath(workspaceId, `/apps/${appId}/agent-runs`));
     busyRef.current = busyNow;
   }, [busyNow, invalidate, path]);
   const dna = useApiQuery<AppDnaResponse>(wsPath(workspaceId, `/apps/${appId}/dna`), { retry: false });

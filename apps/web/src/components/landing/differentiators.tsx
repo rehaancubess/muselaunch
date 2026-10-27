@@ -5,8 +5,8 @@ import type { ReactNode } from "react";
 
 function DepthDiagram() {
   return (
-    <figure className="relative mx-auto aspect-[4/3] w-full overflow-hidden rounded-[28px] bg-mist" aria-label="Diagram: layers in an object-aware scene">
-      <svg viewBox="0 0 400 300" className="absolute inset-0 size-full" aria-hidden>
+    <figure className="mx-auto w-full overflow-hidden rounded-[28px] bg-mist pb-4" aria-label="Diagram: layers in an object-aware scene">
+      <svg viewBox="0 0 400 300" className="block aspect-[4/3] w-full" aria-hidden>
         {/* frame */}
         <rect x="122" y="22" width="156" height="256" rx="22" fill="#fff" stroke="var(--ml-line-strong)" />
         {/* layer 1: app demo behind */}
@@ -41,7 +41,7 @@ function DepthDiagram() {
           </g>
         ))}
       </svg>
-      <figcaption className="absolute inset-x-4 bottom-3 text-center text-caption text-ink-3">Schematic, not a render</figcaption>
+      <figcaption className="text-center text-caption text-ink-3">Schematic, not a render</figcaption>
     </figure>
   );
 }
