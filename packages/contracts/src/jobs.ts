@@ -27,7 +27,7 @@ export const JobPayloads = {
   "media.image_generate": z.object({ appId: Id.optional(), prompt: z.string().min(1).max(4000), count: z.number().int().min(1).max(4).default(1), size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).default("1024x1536"), parentAssetId: Id.optional(), campaignId: Id.optional() }),
   "media.tts": z.object({ appId: Id.optional(), text: z.string().min(1).max(5000), voice: z.string().max(60).optional(), compositionId: Id.optional() }),
   "discover.refresh": z.object({ appId: Id, trackedCreatorIds: z.array(Id).default([]) }),
-  "outreach.draft": z.object({ appId: Id, prospectIds: z.array(Id).min(1).max(20), campaignId: Id.optional() }),
+  "outreach.draft": z.object({ appId: Id, prospectIds: z.array(Id).min(1).max(20), campaignId: Id.optional(), offer: z.string().max(1000).optional() }),
   "outreach.send": z.object({ draftId: Id, approvalId: Id }),
   "publish.post": z.object({ scheduledPostId: Id, approvalId: Id }),
   "analytics.sync": z.object({ connectionId: Id, appId: Id, since: IsoDateTime.optional() }),

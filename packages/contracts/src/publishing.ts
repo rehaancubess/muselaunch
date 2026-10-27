@@ -53,6 +53,8 @@ export const ConnectedAccount = BaseEntity.extend({
   /** What the integration can actually do with the granted scopes. */
   capabilities: z.array(z.enum(["publish_video", "publish_image", "publish_text", "read_insights", "read_revenue", "send_message"])).default([]),
   secretId: Id.optional(),
+  /** Honest limits of this connection (e.g. "TikTok app not audited: posts are private only"). */
+  limitations: z.array(z.string().max(300)).max(10).default([]),
   connectedBy: Actor,
   lastSyncAt: IsoDateTime.optional(),
   lastError: z.string().max(1000).optional(),
@@ -87,12 +89,25 @@ export const ScheduledPost = BaseEntity.extend({
   tags: z.array(z.string().max(100)).max(50).default([]),
   thumbnailAssetId: Id.optional(),
   trackingLinkId: Id.optional(),
+  /** Copy pack the caption/title were taken from. */
+  copyPackId: Id.optional(),
+  /** Requested audience visibility where the channel supports it. Part of the approved snapshot. */
+  visibility: z.enum(["public", "unlisted", "private"]).default("public"),
+  /** Disclose AI-generated/synthetic media where the channel supports a label (YouTube, TikTok). */
+  containsSyntheticMedia: z.boolean().default(false),
   scheduledAt: IsoDateTime.optional(),
   timezone: z.string().max(64).default("UTC"),
   suggestedTimeReason: z.string().max(500).optional(),
   status: PostStatus,
   approvalId: Id.optional(),
   manualInstructions: z.array(z.string().max(500)).default([]),
+  /** Export package job (module C `package.export`) and its ZIP asset for manual posting. */
+  exportJobId: Id.optional(),
+  packageAssetId: Id.optional(),
+  /** In-app reminder for manual posting. */
+  reminderAt: IsoDateTime.optional(),
+  /** Adapter resume state (upload session / container / publish ids; never tokens). */
+  publishState: z.record(z.string(), z.unknown()).optional(),
   publicationId: Id.optional(),
   attempts: z.number().int().nonnegative().default(0),
   lastError: z.string().max(2000).optional(),
@@ -145,6 +160,17 @@ export const OutreachDraft = BaseEntity.extend({
   body: z.string().max(8000),
   claimIds: z.array(Id).default([]),
   offer: z.string().max(1000).optional(),
+  /** Recipient: one of the prospect's publicly listed contact routes, with its source. */
+  to: z.object({ kind: z.enum(["email", "contact_form", "dm", "website", "business_inquiry"]), value: z.string().max(300), source: SourceRef }).optional(),
+  /** Claim validation over subject + body (Spark validator, or deterministic rules when unavailable). */
+  validation: z
+    .object({
+      ok: z.boolean(),
+      issues: z.array(z.object({ id: z.string().max(60), issue: z.string().max(500) })).default([]),
+      checkedAt: IsoDateTime,
+      validator: z.enum(["spark", "rules"]),
+    })
+    .optional(),
   status: z.enum(["draft", "awaiting_approval", "approved", "sent", "failed", "copied_manual"]),
   approvalId: Id.optional(),
   sentAt: IsoDateTime.optional(),
