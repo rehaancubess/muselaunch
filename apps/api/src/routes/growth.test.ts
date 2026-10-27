@@ -29,6 +29,10 @@ const yt = growthFixture("youtube");
 const gm = growthFixture("gmail");
 const metaFx = growthFixture("meta-responses");
 const VIDEO = Buffer.from("0123456789ABCDEF");
+const VICTIM_TOKEN = { ...yt.token, access_token: "ya29.VICTIM_ACCESS", refresh_token: "1//VICTIM_REFRESH" };
+/** Finish token the consenting browser receives in the callback redirect (`finish=<nonce>.<completion>`). */
+const finishTokenOf = (location: string | null) => new URL(location!).searchParams.get("finish")!;
+const stateNonce = (state: string) => JSON.parse(Buffer.from(state.split(".")[0]!, "base64url").toString("utf8")).n as string;
 
 describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
   const stubbed: string[] = [];
@@ -41,7 +45,7 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
 
   // ---- provider fakes -------------------------------------------------------
   const http = new FakeFetch()
-    .on("POST", "https://oauth2.googleapis.com/token", (r) => ({ json: r.form?.code === "gm-code" ? gm.token : yt.token }))
+    .on("POST", "https://oauth2.googleapis.com/token", (r) => ({ json: r.form?.code === "gm-code" ? gm.token : r.form?.code?.startsWith("victim") ? VICTIM_TOKEN : yt.token }))
     .on("GET", "https://www.googleapis.com/youtube/v3/channels", { json: yt.channels })
     .on("GET", "https://openidconnect.googleapis.com/v1/userinfo", { json: gm.userinfo })
     .on("POST", "https://www.googleapis.com/upload/youtube/v3/videos", { status: 200, headers: { location: yt.sessionLocation } })
@@ -217,8 +221,15 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect((await app.request(`/v1/oauth/gmail/callback?code=yt-code&state=${encodeURIComponent(state)}`)).status).toBe(403); // wrong provider
     const ok = await app.request(`/v1/oauth/youtube/callback?code=yt-code&state=${encodeURIComponent(state)}`);
     expect(ok.status).toBe(302);
-    expect(ok.headers.get("location")).toBe(`https://app.example.com/w/${wsA}/a/${appId}/calendar?connections=1&provider=youtube&status=connected&account=${(await alice.get(`${A}/connections`)).body.items[0].id}`);
+    // The callback only parks a PENDING connection; nothing is attached until the starter finishes it.
+    expect(ok.headers.get("location")).toMatch(new RegExp(`^https://app\\.example\\.com/w/${wsA}/a/${appId}/calendar\\?connections=1&provider=youtube&status=pending&finish=[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$`));
+    expect((await alice.get(`${A}/connections`)).body.items).toEqual([]);
     expect((await app.request(`/v1/oauth/youtube/callback?code=yt-code&state=${encodeURIComponent(state)}`)).status).toBe(403); // replay
+    const finished = await alice.post(`${A}/connections/finish`, { token: finishTokenOf(ok.headers.get("location")) });
+    expect(finished.status).toBe(200);
+    expect(finished.body.account).toMatchObject({ provider: "youtube", status: "connected", connectedBy: "alice" });
+    expect(JSON.stringify(finished.body)).not.toContain("FIXTURE_ACCESS");
+    expect((await alice.post(`${A}/connections/finish`, { token: finishTokenOf(ok.headers.get("location")) })).status).toBe(409); // single use
     const tokenReq = http.calls("POST", "https://oauth2.googleapis.com/token")[0]!;
     expect(tokenReq.form).toMatchObject({ grant_type: "authorization_code", code: "yt-code", redirect_uri: "https://api.example.com/v1/oauth/youtube/callback" });
     expect(tokenReq.form!.code_verifier).toMatch(/^[A-Za-z0-9_-]{43,}$/);
@@ -418,7 +429,9 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     await alice.post(`${A}/approvals/${a2.id}/approve`, { snapshotHash: a2.snapshotHash });
     const start = await alice.post(`${A}/connections/gmail/start`, {});
     const st = new URL(start.body.authorizeUrl).searchParams.get("state")!;
-    expect((await app.request(`/v1/oauth/gmail/callback?code=gm-code&state=${encodeURIComponent(st)}`)).status).toBe(302);
+    const cb = await app.request(`/v1/oauth/gmail/callback?code=gm-code&state=${encodeURIComponent(st)}`);
+    expect(cb.status).toBe(302);
+    expect((await alice.post(`${A}/connections/finish`, { token: finishTokenOf(cb.headers.get("location")) })).status).toBe(200);
     const tooSoon = await alice.post(`${A}/outreach/drafts/${second.id}/send`);
     expect(tooSoon.status).toBe(429); // minimum gap between sends
     configureGrowth(p, { settings: { outreachMinIntervalSec: 0.001 } });
@@ -438,6 +451,75 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect(out.body).toMatchObject({ revokedRemotely: true, account: { status: "revoked" } });
     expect(out.body.account.secretId).toBeUndefined();
     expect(http.calls("POST", "https://oauth2.googleapis.com/revoke")[0]!.form).toEqual({ token: "1//FIXTURE_REFRESH" });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Security review N1: consent must be bound to the user who started the connection.
+  it("N1: an attacker-started authorize link completed by a victim never connects to the attacker's workspace", async () => {
+    const mallory = client(app, "mallory");
+    const wsM = (await mallory.post("/v1/workspaces", { name: "Mallory Growth" })).body.workspace.id;
+    const M = `/v1/workspaces/${wsM}`;
+    const start = await mallory.post(`${M}/connections/youtube/start`, {});
+    const state = new URL(start.body.authorizeUrl).searchParams.get("state")!;
+    // Victim (bob) opens Mallory's link and consents: their browser hits the public callback.
+    const cb = await app.request(`/v1/oauth/youtube/callback?code=victim-code&state=${encodeURIComponent(state)}`);
+    expect(cb.status).toBe(302);
+    expect(cb.headers.get("location")).toContain(`/w/${wsM}/settings/integrations?`);
+    const victimToken = finishTokenOf(cb.headers.get("location"));
+    // Victim's web session tries to finish in a workspace they don't belong to → hidden (404), nothing attached.
+    expect((await bob.post(`${M}/connections/finish`, { token: victimToken })).status).toBe(404);
+    // Mallory knows the nonce (it's in the state) but not the completion secret the victim's browser got.
+    const nonce = stateNonce(state);
+    expect((await mallory.post(`${M}/connections/finish`, { token: `${nonce}.${"A".repeat(32)}` })).status).toBe(403);
+    expect((await mallory.post(`${M}/connections/finish`, { token: nonce })).status).toBe(400);
+    expect((await mallory.get(`${M}/connections`)).body.items).toEqual([]);
+    // Unfinished pending connections expire after 10 minutes; the tick revokes the victim's tokens.
+    const revokesBefore = http.calls("POST", "https://oauth2.googleapis.com/revoke").length;
+    configureGrowth(p, { now: () => Date.now() + 11 * 60_000 });
+    try {
+      await runDueScheduledPosts(p);
+    } finally {
+      configureGrowth(p, { now: () => Date.now() });
+    }
+    const revokes = http.calls("POST", "https://oauth2.googleapis.com/revoke").slice(revokesBefore);
+    expect(revokes.map((r) => r.form?.token)).toEqual(["1//VICTIM_REFRESH"]);
+    expect((await mallory.post(`${M}/connections/finish`, { token: victimToken })).status).toBe(409); // gone
+    expect((await mallory.get(`${M}/connections`)).body.items).toEqual([]);
+  });
+
+  it("N1: a different member finishing someone else's connection discards it and revokes the tokens; editors can't finish", async () => {
+    const dave = client(app, "dave", "dave@example.com");
+    // Second account manager in the same workspace (seeded directly: the free plan's member cap is reached).
+    await p.db.ws(wsA).collection("members").create({ id: "dave", userId: "dave", email: "dave@example.com", role: "admin", canManageAccounts: true, status: "active" }, { actor: "alice" });
+    const before = (await alice.get(`${A}/connections`)).body.items.length;
+
+    // Alice starts; Dave's browser consents and Dave's session finishes → refused, discarded, revoked.
+    const s1 = new URL((await alice.post(`${A}/connections/youtube/start`, {})).body.authorizeUrl).searchParams.get("state")!;
+    const cb1 = await app.request(`/v1/oauth/youtube/callback?code=victim-dave&state=${encodeURIComponent(s1)}`);
+    const t1 = finishTokenOf(cb1.headers.get("location"));
+    const revokesBefore = http.calls("POST", "https://oauth2.googleapis.com/revoke").length;
+    const wrongUser = await dave.post(`${A}/connections/finish`, { token: t1 });
+    expect(wrongUser.status).toBe(403);
+    expect(http.calls("POST", "https://oauth2.googleapis.com/revoke").length).toBe(revokesBefore + 1);
+    expect((await alice.post(`${A}/connections/finish`, { token: t1 })).status).toBe(409); // already discarded
+
+    // An editor (no accounts.manage) finishing a valid token gets 403 and the pending tokens are discarded too.
+    const s2 = new URL((await alice.post(`${A}/connections/youtube/start`, {})).body.authorizeUrl).searchParams.get("state")!;
+    const cb2 = await app.request(`/v1/oauth/youtube/callback?code=victim-carol&state=${encodeURIComponent(s2)}`);
+    const t2 = finishTokenOf(cb2.headers.get("location"));
+    expect((await carol.post(`${A}/connections/finish`, { token: t2 })).status).toBe(403);
+    expect((await alice.post(`${A}/connections/finish`, { token: t2 })).status).toBe(409);
+
+    // Expired pending connection: the starter can no longer finish it.
+    const s3 = new URL((await alice.post(`${A}/connections/youtube/start`, {})).body.authorizeUrl).searchParams.get("state")!;
+    const cb3 = await app.request(`/v1/oauth/youtube/callback?code=victim-late&state=${encodeURIComponent(s3)}`);
+    configureGrowth(p, { now: () => Date.now() + 11 * 60_000 });
+    try {
+      expect((await alice.post(`${A}/connections/finish`, { token: finishTokenOf(cb3.headers.get("location")) })).status).toBe(409);
+    } finally {
+      configureGrowth(p, { now: () => Date.now() });
+    }
+    expect((await alice.get(`${A}/connections`)).body.items.length).toBe(before);
   });
 
   it("tenancy: another workspace can't read or act on any of it", async () => {

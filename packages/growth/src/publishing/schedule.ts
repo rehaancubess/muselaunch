@@ -3,6 +3,7 @@ import type { WorkspaceDb } from "@muselaunch/db";
 import { AppError, toAppError, type Platform } from "@muselaunch/platform";
 import { z } from "zod";
 import { DAY_MS } from "../util";
+import { purgeExpiredPendingConnections } from "../connections";
 import { enqueuePublish, statusLabel } from "./posts";
 
 // ---------------------------------------------------------------------------
@@ -207,6 +208,8 @@ export async function runDueScheduledPosts(p: Platform, now = Date.now()): Promi
     const page = await p.db.top("workspaces").list({ limit: 100, cursor });
     for (const w of page.items) {
       workspaces++;
+      // Expired pending OAuth connections (never finished by the user who started them) are revoked + deleted.
+      await purgeExpiredPendingConnections(p, w.id).catch((err) => p.log.warn({ workspaceId: w.id, err: toAppError(err).code }, "pending connection cleanup failed"));
       const due = await p.db.ws(w.id).collection("scheduledPosts").list({ where: [["status", "==", "scheduled"], ["scheduledAt", "<=", cutoff]], orderBy: { field: "scheduledAt", dir: "asc" }, limit: 50 });
       for (const post of due.items) {
         if (post.mode !== "api") continue;
