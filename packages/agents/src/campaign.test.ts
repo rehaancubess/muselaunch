@@ -207,9 +207,14 @@ describe("composition.edit", () => {
     const edit = fixtureJson<{ first: unknown; repaired: unknown }>("spark-edit.json");
     const s = await setup([seqRoute("CompositionEdit", [edit.repaired])]);
     const { composition } = await createComposition(s.ws, { appId: s.seed.appId, title: "One tap", doc: testDoc(s.seed.screenshotIds[0]!) }, "u1");
+    // Module C's ai-edit route creates the proposed patch with empty ops before enqueueing the job.
+    await s.ws.collection("compositionPatches").create({ id: "pch_test_2", compositionId: composition.id, baseVersion: 1, ops: [], summary: "Generating edit…", source: "ai", instruction: "Punchier opening", affectedSceneIds: ["sc_hook"], status: "proposed" }, { actor: "u1" });
     await s.p.jobs.create(s.wid, "composition.edit", { appId: s.seed.appId, compositionId: composition.id, baseVersion: 1, instruction: "Punchier opening", sceneIds: ["sc_hook"], patchId: "pch_test_2" }, { actor: "u1" });
     await s.p.inline!.drain();
-    expect((await s.ws.collection("compositionPatches").getOrThrow("pch_test_2")).status).toBe("proposed");
+    const proposed = await s.ws.collection("compositionPatches").getOrThrow("pch_test_2");
+    expect(proposed).toMatchObject({ status: "proposed", affectedSceneIds: ["sc_hook"] });
+    expect(proposed.ops).toHaveLength(1);
+    expect(proposed.agentRunId).toMatch(/^run_/);
     expect((await s.ws.collection("compositions").getOrThrow(composition.id)).currentVersion).toBe(1);
 
     const bad = await setup([seqRoute("CompositionEdit", [edit.first, edit.first])]);
