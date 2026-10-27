@@ -55,6 +55,7 @@ localStorageRoutes.put("/:token", async (c) => {
   if (grant.ct && ct !== grant.ct) throw new AppError("BAD_REQUEST", "Content-Type does not match the signed upload");
   const raw = c.req.raw.body;
   if (!raw) throw new AppError("BAD_REQUEST", "Empty upload");
-  const bytes = await storage.writeStream(grant.k, Readable.fromWeb(raw as import("node:stream/web").ReadableStream), grant.ct ?? "application/octet-stream", grant.mx);
+  // Create-only: a signed upload URL can't overwrite an object (e.g. after it was probed and approved).
+  const bytes = await storage.writeStream(grant.k, Readable.fromWeb(raw as import("node:stream/web").ReadableStream), grant.ct ?? "application/octet-stream", grant.mx, { exclusive: true });
   return c.json({ ok: true, bytes });
 });

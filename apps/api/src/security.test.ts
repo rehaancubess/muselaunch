@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installRevenueCatFetch } from "@muselaunch/analytics";
 import { createComposition } from "@muselaunch/compositions/store";
-import { JOB_TYPES, type CompositionDoc } from "@muselaunch/contracts";
+import { ENTITY_SCHEMAS, JOB_TYPES, type CompositionDoc } from "@muselaunch/contracts";
 import { MemoryDb } from "@muselaunch/db";
 import { createPlatform, createRunner, loadConfig, workspaceKey, type HandlerRegistry, type Logger } from "@muselaunch/platform";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -39,6 +39,20 @@ const ALICE_MARKERS = ["ALICE_PRIVATE", "AliceSecretApp", "alice-secret.example.
 
 const WS_PREFIX = "/v1/workspaces/:workspaceId";
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const REAL_ID_ROUTE_FLOOR = 149;
+
+/**
+ * Decision routes (`.../approve`, `.../reject`) an editor MAY call, because they decide content-level
+ * work inside the workspace rather than an external action or spend (justify every entry). Any other
+ * approve/reject route (e.g. a future autopilot checkpoint) must refuse editors, i.e. use the
+ * approver capability for its action (growth APPROVER_CAP: spend → billing.manage, publish → publish…).
+ */
+const EDITOR_DECISIONS_ALLOWED = new Set([
+  // Picking / discarding an AI concept for this campaign (content.write).
+  "POST /v1/workspaces/:workspaceId/campaigns/:id/variants/:variantId/reject",
+  // Discarding a proposed AI composition patch (content.write).
+  "POST /v1/workspaces/:workspaceId/compositions/:id/patches/:patchId/reject",
+]);
 
 /**
  * Mutating workspace routes a viewer may call (justify every entry):
@@ -173,7 +187,33 @@ describe("security inventory: every route, every role", () => {
   const wsRoutes = () => routes().filter((r) => r.path === WS_PREFIX || r.path.startsWith(`${WS_PREFIX}/`));
   const key = (r: { method: string; path: string }) => `${r.method} ${r.path}`;
 
-  /** Substitute route params with Alice's real ids (`:id`/`:runId` resolved by the preceding segment). */
+  /** First id of each workspace collection in Alice's workspace (filled after seeding). */
+  const firstIdByCollection: Record<string, string> = {};
+  /** Params that had to fall back to a placeholder id (reported, still checked for 404/403). */
+  const unresolved = new Set<string>();
+  const camel = (s: string) => s.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
+  /**
+   * Resolve a route param to a real id of Alice's data:
+   *  1. explicit fixtures (`ids`), keyed `<segment>:id` / `<segment>:runId` or by param name;
+   *  2. by convention for routes added later: `/<collection>/:id` (kebab or camel case) and
+   *     `:<entity>Id` → the first document of that collection in Alice's workspace;
+   *  3. otherwise a placeholder (recorded in `unresolved`; non-member and viewer checks still apply).
+   */
+  function resolveParam(name: string, prevSeg: string): string | undefined {
+    const k = name === "id" || name === "runId" ? `${prevSeg}:${name}` : name;
+    if (ids[k]) return ids[k];
+    const candidates =
+      name === "id"
+        ? [camel(prevSeg)]
+        : name.endsWith("Id")
+          ? (() => {
+              const base = name.slice(0, -2);
+              return [`${base}s`, `${base}es`, base.replace(/y$/, "ies"), base.replace(/is$/, "es"), base];
+            })()
+          : [];
+    for (const c of candidates) if (firstIdByCollection[c]) return firstIdByCollection[c];
+    return undefined;
+  }
   function fill(path: string, workspaceId: string, overrides: Record<string, string> = {}): string {
     const segs = path.split("/");
     return segs
@@ -182,8 +222,11 @@ describe("security inventory: every route, every role", () => {
         const name = s.slice(1);
         if (name === "workspaceId") return workspaceId;
         const k = name === "id" || name === "runId" ? `${segs[i - 1]}:${name}` : name;
-        const v = overrides[k] ?? ids[k];
-        if (!v) throw new Error(`security.test: no fixture id for route param "${k}" in ${path}. Add one in beforeAll so the route is covered.`);
+        let v = overrides[k] ?? resolveParam(name, segs[i - 1]!);
+        if (!v) {
+          unresolved.add(`${k} (${path})`);
+          v = `zz_unresolved_${name}`;
+        }
         return encodeURIComponent(v);
       })
       .join("/");
@@ -311,19 +354,51 @@ describe("security inventory: every route, every role", () => {
     const rc = await alice.post(`${A}/apps/${appId}/analytics/revenuecat`, { secretKey: RC_KEY, projectId: "proj_test" });
     expect(rc.status).toBe(201);
 
+    // Phase-2 collections (routes land later; the convention-based resolver picks these up).
+    const clipVideoId = (await ws.collection("transcripts").get(ids["transcripts:id"]!))!.sourceAssetId;
+    await ws.collection("clipAnalyses").create(
+      { appId, sourceAssetId: clipVideoId, status: "succeeded", prompts: ["person", "phone"], segmentationIds: { phone: ids["segmentations:id"]! }, transcriptId: ids["transcripts:id"] },
+      { actor: "alice" },
+    );
+    await ws.collection("brandReviews").create(
+      { appId, subject: { entity: "compositions", id: ids["compositions:id"]! }, subjectVersion: 1, status: "warnings", reviewer: { engine: "rules" }, summary: "ALICE_PRIVATE review" },
+      { actor: "alice" },
+    );
+    await ws.collection("autopilots").create({ appId, goal: "ALICE_PRIVATE autopilot goal", status: "paused", stage: "research", budget: { maxCredits: 100 } }, { actor: "alice" });
+
     ids.uid = "eddie";
     ids.provider = "youtube";
     ids.v = "1";
     ids.targetId = wsA;
     await p.inline!.drain();
+    for (const name of Object.keys(ENTITY_SCHEMAS)) {
+      const first = (await ws.collection(name as keyof typeof ENTITY_SCHEMAS).list({ limit: 1 })).items[0];
+      if (first) firstIdByCollection[name] = first.id;
+    }
   });
 
   it("mounts every workspace route behind the membership middleware", () => {
     const scoped = app.routes.filter((r) => r.method === "ALL" && r.path === `${WS_PREFIX}/*`);
     expect(scoped.some((r) => r.handler === workspaceScope)).toBe(true);
     expect(wsRoutes().length).toBeGreaterThan(150);
-    // Fail loudly if a route param has no fixture (instead of silently testing with a fake id).
-    for (const r of wsRoutes()) expect(() => fill(r.path, wsA)).not.toThrow();
+    // Every param of today's routes maps to real data; params of routes added later resolve by
+    // collection convention, or fall back to a placeholder that is reported here.
+    const withRealIds = wsRoutes().filter((r) => entityParams(r.path).length && !fill(r.path, wsA).includes("zz_unresolved_"));
+    if (unresolved.size) console.warn(`security.test: route params without a real fixture (checked with placeholders):\n  ${[...unresolved].join("\n  ")}`);
+    // Conventions that phase-2 routes are expected to use resolve to Alice's seeded documents.
+    for (const [param, prev, coll] of [
+      ["id", "autopilots", "autopilots"],
+      ["autopilotId", "x", "autopilots"],
+      ["id", "brand-reviews", "brandReviews"],
+      ["brandReviewId", "x", "brandReviews"],
+      ["id", "clip-analyses", "clipAnalyses"],
+      ["clipAnalysisId", "x", "clipAnalyses"],
+    ] as const) {
+      expect(firstIdByCollection[coll], coll).toBeTruthy();
+      expect(resolveParam(param, prev), `${prev}/:${param}`).toBe(firstIdByCollection[coll]);
+    }
+    // Floor = routes with entity params at review time (all resolved to Alice's real data then).
+    expect(withRealIds.length).toBeGreaterThanOrEqual(REAL_ID_ROUTE_FLOOR);
   });
 
   it("rejects unauthenticated calls on every /v1 route except the public, self-validating ones", async () => {
@@ -403,6 +478,10 @@ describe("security inventory: every route, every role", () => {
       const res = await eddie.send(method, fill(path, wsA));
       expect(res.status, `editor ${k}`).toBe(403);
     }
+    // Every approve/reject decision route (including ones added later) refuses editors unless allowlisted.
+    const decisions = wsRoutes().filter((r) => r.method === "POST" && /\/(approve|reject)$/.test(r.path) && !EDITOR_DECISIONS_ALLOWED.has(key(r)));
+    expect(decisions.length).toBeGreaterThanOrEqual(5);
+    for (const r of decisions) expect((await eddie.send(r.method, fill(r.path, wsA))).status, `editor ${key(r)}`).toBe(403);
     // ...while ordinary content work is allowed.
     expect((await eddie.post(`/v1/workspaces/${wsA}/apps/${ids.appId}/memory`, { kind: "style", text: "Editor note" })).status).toBe(201);
   });

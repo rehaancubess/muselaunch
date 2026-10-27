@@ -100,7 +100,7 @@ for (const [q, conc] of [["muselaunch-agents", 20], ["muselaunch-media", 8], ["m
   sh(`gcloud tasks queues update ${q} --location=${REGION} --max-attempts=5 --min-backoff=5s --max-backoff=300s --max-concurrent-dispatches=${conc} --project ${PROJECT}`, { quiet: true });
 }
 const corsFile = join(mkdtempSync(join(tmpdir(), "ml-")), "cors.json");
-writeFileSync(corsFile, JSON.stringify([{ origin: [WEB_URL, "http://localhost:3000"], method: ["GET", "PUT", "HEAD"], responseHeader: ["Content-Type", "Content-Range", "x-goog-content-length-range"], maxAgeSeconds: 3600 }]));
+writeFileSync(corsFile, JSON.stringify([{ origin: [WEB_URL, "http://localhost:3000"], method: ["GET", "PUT", "HEAD"], responseHeader: ["Content-Type", "Content-Range", "x-goog-content-length-range", "x-goog-if-generation-match"], maxAgeSeconds: 3600 }]));
 sh(`gcloud storage buckets update gs://${BUCKET} --cors-file="${corsFile}"`);
 
 // ---- 4. Build images ----

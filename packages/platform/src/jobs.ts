@@ -541,7 +541,10 @@ export class CloudTasksDispatcher implements Dispatcher {
       await this.client.createTask({
         parent,
         task: {
-          name: `${parent}/tasks/${env.jobId}-a${env.attempt ?? 0}`,
+          // Task names are unique per QUEUE (shared by all tenants) while job ids are only unique per
+          // workspace (derived from type + idempotency key), so the workspace is part of the name:
+          // otherwise one tenant's task could dedupe (silently drop) another tenant's job.
+          name: `${parent}/tasks/${env.workspaceId}-${env.jobId}-a${env.attempt ?? 0}`,
           dispatchDeadline: { seconds: pool === "render" ? 1800 : 900 },
           httpRequest: {
             httpMethod: "POST",

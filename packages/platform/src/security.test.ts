@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { assertKeyInWorkspace, workspaceKey } from "./storage";
+import { loadConfig } from "./config";
+import { CloudTasksDispatcher } from "./jobs";
+import { createLogger } from "./logger";
+import { assertKeyInWorkspace, GcsStorage, workspaceKey } from "./storage";
 import { assertSafeUrl, isBlockedAddress } from "./safe-fetch";
 import { redactForTrace } from "./usage";
 
@@ -84,5 +87,32 @@ describe("storage key scoping", () => {
     for (const key of ["workspaces/ws_b/uploads/f.png", "workspaces/ws_ab/uploads/f.png", "workspaces/ws_a/../ws_b/f.png", "workspaces/ws_a//f.png", "system/x.png", "workspaces/ws_a"]) {
       expect(() => assertKeyInWorkspace("ws_a", key)).toThrow();
     }
+  });
+});
+
+describe("job dispatch isolation", () => {
+  it("Cloud Tasks task names include the workspace, so equal job ids in two tenants never dedupe each other", async () => {
+    const cfg = loadConfig({ NODE_ENV: "test", JOB_DISPATCH: "cloudtasks", FIREBASE_PROJECT_ID: "proj" } as NodeJS.ProcessEnv, { fresh: true });
+    const d = new CloudTasksDispatcher(cfg, createLogger({ level: "silent" }));
+    const names: string[] = [];
+    (d as unknown as { client: unknown }).client = {
+      queuePath: (p: string, l: string, q: string) => `projects/${p}/locations/${l}/queues/${q}`,
+      createTask: async ({ task }: { task: { name: string } }) => (names.push(task.name), [task]),
+    };
+    await d.dispatch({ workspaceId: "ws_a", jobId: "job_same", type: "copy.generate", attempt: 0 });
+    await d.dispatch({ workspaceId: "ws_b", jobId: "job_same", type: "copy.generate", attempt: 0 });
+    expect(new Set(names).size).toBe(2);
+    expect(names[0]).toMatch(/\/tasks\/ws_a-job_same-a0$/);
+  });
+});
+
+describe("signed upload URLs are single-use (GCS)", () => {
+  it("signs a create-only precondition and returns it as a header the client must send", async () => {
+    const gcs = new GcsStorage("bucket", "proj");
+    let signed: { extensionHeaders?: Record<string, string> } = {};
+    (gcs as unknown as { bucket: unknown }).bucket = { file: () => ({ getSignedUrl: async (o: typeof signed) => ((signed = o), ["https://storage.googleapis.com/bucket/x?sig"]) }) };
+    const up = await gcs.signedUploadUrl(workspaceKey("ws_a", "uploads", "ast_1", "f.png"), { contentType: "image/png", maxBytes: 10 });
+    expect(signed.extensionHeaders).toMatchObject({ "x-goog-if-generation-match": "0", "x-goog-content-length-range": "0,10" });
+    expect(up.headers).toMatchObject({ "x-goog-if-generation-match": "0" });
   });
 });

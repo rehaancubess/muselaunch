@@ -1,5 +1,6 @@
 import { planSnapshot } from "@muselaunch/agents";
 import { installAnalyticsHooks } from "@muselaunch/analytics";
+import { createComposition } from "@muselaunch/compositions/store";
 import { AgentBudget } from "@muselaunch/contracts";
 import { configureGrowth, handlers as growthHandlers, SEALED_STATE_VALUE } from "@muselaunch/growth";
 import { createTestPlatform, LocalStorage, workspaceKey, type HandlerRegistry } from "@muselaunch/platform";
@@ -138,6 +139,24 @@ describe("F6/F7/F8: URL policy on app edits, signed storage URLs and uploads", (
     expect(url.text).not.toContain("/v1/storage/local/");
     expect((await s.alice.del(`${s.A}/assets/${planted.id}`)).status).toBe(403);
     expect(await s.p.storage.stat(bobKey)).not.toBeNull();
+  });
+
+  it("a signed upload URL is single-use: it can't replace a file after it was probed and approved", async () => {
+    const s = await workspaceWithEditor({ "media.probe": async () => ({}) });
+    const ws = s.p.db.ws(s.wsA);
+    const up = await s.eddie.post(`${s.A}/uploads`, { filename: "shot.png", mimeType: "image/png", bytes: 8, role: "screenshot", appId: s.appId });
+    const putPath = new URL(up.body.upload.url).pathname;
+    expect((await s.app.request(putPath, { method: "PUT", headers: { "content-type": "image/png" }, body: "APPROVED" })).status).toBe(200);
+    expect((await s.eddie.post(`${s.A}/assets/${up.body.asset.id}/complete`)).status).toBe(200);
+    const campaign = await ws.collection("campaigns").create({ appId: s.appId, name: "Launch", goal: "launch" }, { actor: "alice" });
+    const post = (await s.eddie.post(`${s.A}/apps/${s.appId}/posts`, { campaignId: campaign.id, assetIds: [up.body.asset.id], channel: "reddit", caption: "Look" })).body.post;
+    const approval = (await s.eddie.post(`${s.A}/posts/${post.id}/request-approval`)).body.approval;
+    expect((await s.alice.post(`${s.A}/approvals/${approval.id}/approve`, { snapshotHash: approval.snapshotHash })).status).toBe(200);
+    // The uploader replays the (still unexpired) URL with different bytes.
+    const replay = await s.app.request(putPath, { method: "PUT", headers: { "content-type": "image/png" }, body: "SWAPPED!" });
+    expect(replay.status).toBe(409);
+    const asset = (await ws.collection("mediaAssets").get(up.body.asset.id))!;
+    expect((await s.p.storage.get(asset.storagePath)).toString()).toBe("APPROVED");
   });
 
   it("uploads enforce type, size and method-bound, unforgeable, expiring tokens; downloads are sandboxed", async () => {
@@ -287,6 +306,35 @@ describe("F9/F10: invites can't exceed the plan's seats or demote an existing me
     expect(accepted.body.member.role).toBe("owner");
     expect((await s.eddie.del(`${s.A}/members/alice`)).status).toBe(403);
     expect((await s.alice.get(s.A)).body.member).toMatchObject({ role: "owner", canPublish: true, canManageAccounts: true });
+  });
+});
+
+describe("phase 2: object ids in compositions can't carry markup or script", () => {
+  it("rejects an effect layer / anchor whose SAM object id would break out of the compiled HTML", async () => {
+    const s = await workspaceWithEditor();
+    const doc = {
+      schemaVersion: 1,
+      title: "Reel",
+      kind: "video",
+      aspectRatio: "9:16",
+      width: 1080,
+      height: 1920,
+      fps: 30,
+      theme: { mode: "light", background: "#F5F5F7", surface: "#FFFFFF", text: "#1D1D1F", textMuted: "#6E6E73", accent: "#0A84FF" },
+      scenes: [{ id: "sc_hook", name: "Hook", template: "hook-title", purpose: "hook", durationSec: 3, layers: [{ id: "ly_hook", type: "text", role: "headline", text: "Hi", box: { x: 0.1, y: 0.4, w: 0.8, h: 0.2 } }] }],
+    };
+    const { composition } = await createComposition(s.p.db.ws(s.wsA), { appId: s.appId, title: "Reel", doc: doc as never }, "alice");
+    const effect = (objectId: string) => ({ op: "add_layer", sceneId: "sc_hook", layer: { id: "ly_fx", type: "effect", effect: "highlight-ring", target: { segmentationId: "seg_1", objectId }, box: { x: 0, y: 0, w: 1, h: 1 } } });
+    const anchored = (objectId: string) => ({ op: "update_layer", sceneId: "sc_hook", layerId: "ly_hook", set: { anchor: { segmentationId: "seg_1", objectId } } });
+    for (const bad of [`1");fetch("//evil.example");//`, "</script><script>alert(1)</script>", "a'b", "a\\b"]) {
+      for (const op of [effect(bad), anchored(bad)]) {
+        const res = await s.alice.post(`${s.A}/compositions/${composition.id}/patch`, { baseVersion: 1, ops: [op] });
+        expect(res.status, JSON.stringify(op)).toBeGreaterThanOrEqual(400);
+        expect(res.status).toBeLessThan(500);
+      }
+    }
+    const ok = await s.alice.post(`${s.A}/compositions/${composition.id}/patch`, { baseVersion: 1, ops: [effect("1")] });
+    expect(ok.status).toBe(200);
   });
 });
 
