@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAssetUrl } from "@/components/app-icon";
 import { AgentRunsList } from "@/features/agents";
+import { EngineBadge, ReviewStatus, useBrandReviews } from "@/features/guardian";
 import { NewPostDialog } from "@/features/publishing/new-post";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "@/components/page-container";
@@ -353,7 +354,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                 {compositions.length ? (
                   <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
                     {compositions.map((c) => (
-                      <CompositionCard key={c.id} composition={c} workspaceId={workspaceId} onPost={can("content.write") ? (assetId) => setPostFor({ assetId }) : undefined} />
+                      <CompositionCard key={c.id} composition={c} workspaceId={workspaceId} onPost={can("content.write") ? (assetId) => setPostFor({ assetId }) : undefined} badge={<CompositionBrandStatus workspaceId={workspaceId} compositionId={c.id} version={c.currentVersion} />} />
                     ))}
                   </div>
                 ) : (
@@ -395,5 +396,18 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
         }}
       </QueryState>
     </PageContainer>
+  );
+}
+
+/** Brand Guardian (module G) result for the composition's current version; nothing until it's been reviewed. */
+function CompositionBrandStatus({ workspaceId, compositionId, version }: { workspaceId: string; compositionId: string; version: number }) {
+  const { latest } = useBrandReviews(workspaceId, { entity: "compositions", id: compositionId }, version);
+  if (!latest) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-caption text-ink-3">Brand Guardian</span>
+      <ReviewStatus status={latest.status} />
+      <EngineBadge reviewer={latest.reviewer} />
+    </div>
   );
 }
