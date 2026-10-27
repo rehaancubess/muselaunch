@@ -856,6 +856,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
     const fallbackText = sb.onScreenText.trim() || (sb.purpose === "cta" ? "" : app.tagline || app.name);
     const t = kind === "video" ? (requested ?? defaultTemplate(sb)) : "carousel-slide";
     const built = buildScene(ctx, t, fallbackText);
+    for (const l of built.layers) if (!l.name) l.name = layerName(l.id.slice(sceneId.length + 1), l);
     const durationSec = Math.max(0.5, Math.min(60, kind === "video" ? sb.durationSec : Math.max(1, sb.durationSec)));
     scenes.push({
       id: sceneId,
@@ -905,6 +906,15 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   const v = validateDoc(doc);
   if (!v.ok) throw new Error(`buildFromStoryboard produced an invalid doc: ${v.errors.slice(0, 5).join("; ")}`);
   return v.doc;
+}
+
+const NAMES: Record<string, string> = { glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", cta: "Call to action", stores: "Store badges", body: "Body" };
+
+function layerName(suffix: string, l: Layer): string {
+  if (NAMES[suffix]) return NAMES[suffix]!;
+  const m = /^chip(\d+)$/.exec(suffix);
+  if (m) return `Callout ${m[1]}`;
+  return l.type[0]!.toUpperCase() + l.type.slice(1);
 }
 
 function defaultTemplate(sb: StoryboardScene): TemplateId {

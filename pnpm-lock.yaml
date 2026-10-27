@@ -107,6 +107,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
+      '@hyperframes/player':
+        specifier: 0.8.207
+        version: 0.8.207(@types/node@22.20.5)
       '@muselaunch/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -987,6 +990,9 @@ packages:
 
   '@hyperframes/parsers@0.8.207':
     resolution: {integrity: sha512-PH/41s5mFoR21WePnRgKGoSW9IeZzy21Ss9tpaAX32RGrdrfMECaic8W66/P1jO1f1TqRAp+/Adh/zRHh3qTnA==}
+
+  '@hyperframes/player@0.8.207':
+    resolution: {integrity: sha512-Ozzhh+UwWQmoZHPBVwqLNle6M4yuoKMC0hYxeK9MZuEIw9AaCiZ7RicCV94oZjouRqVIpeBE8nkZcGWr/dmy0Q==}
 
   '@hyperframes/producer@0.8.207':
     resolution: {integrity: sha512-Vh0WyA9Qbva4NwfuDN8q3kwrHTqNz4qoY8LIVY2Zv5GeYdd99yrqN8aU4PPXlW2ntop3OfERd1qLv1pc/lWxww==}
@@ -4409,6 +4415,13 @@ snapshots:
       magic-string: 0.30.21
       recast: 0.23.21
     transitivePeerDependencies:
+      - canvas
+
+  '@hyperframes/player@0.8.207(@types/node@22.20.5)':
+    dependencies:
+      '@hyperframes/core': 0.8.207(@types/node@22.20.5)
+    transitivePeerDependencies:
+      - '@types/node'
       - canvas
 
   '@hyperframes/producer@0.8.207(@types/node@22.20.5)':

@@ -113,4 +113,32 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     writeFileSync(join(tmp, "pkg.zip"), Buffer.from(await p.storage.get(asset.storagePath)));
     expect(execFileSync("unzip", ["-l", join(tmp, "pkg.zip")]).toString()).toContain("videos/focusly-mornings-9x16.mp4");
   });
+
+  it("renders a carousel doc to one full-resolution PNG per slide", async () => {
+    const { buildFromStoryboard } = await import("@muselaunch/compositions");
+    const { createComposition } = await import("@muselaunch/compositions/store");
+    const ws = p.db.ws(wid);
+    await seedSample(p, wid); // idempotent; lets this test run on its own (-t carousel)
+    await p.credits.grant(wid, 20, { reason: "test credits", idempotencyKey: "grant:carousel", actor: "system" });
+    const sb = await ws.collection("storyboards").getOrThrow("sbd_sample");
+    const app = await ws.collection("apps").getOrThrow("app_focusly");
+    const brand = await ws.collection("brandProfiles").get("app_focusly");
+    const assets = (await ws.collection("mediaAssets").list({ where: [["appId", "==", "app_focusly"]], limit: 50 })).items;
+    const doc = buildFromStoryboard({ storyboard: sb, app, brand, assets, aspectRatio: "4:5", kind: "carousel" });
+    await createComposition(ws, { id: "cmp_carousel", appId: "app_focusly", campaignId: "cpg_sample", title: "Carousel", doc }, "u1");
+    const job = await p.jobs.create(wid, "render.final", { appId: "app_focusly", compositionId: "cmp_carousel", version: 1, format: "png" }, { actor: "u1", idempotencyKey: "car1", credits: { operation: "render.final", amount: 1 } });
+    await p.inline!.drain();
+    const done = await p.jobs.get(wid, job.id);
+    expect(done?.status).toBe("succeeded");
+    expect(done?.output?.refs).toHaveLength(3);
+    for (const [i, ref] of done!.output!.refs.entries()) {
+      const a = await ws.collection("mediaAssets").getOrThrow(ref.id);
+      expect(a).toMatchObject({ kind: "image", mimeType: "image/png", width: 1080, height: 1350, role: "render" });
+      const file = join(tmp, `slide-${i + 1}.png`);
+      await p.storage.downloadToFile(a.storagePath, file);
+      const info = await probe(file);
+      expect([info.width, info.height]).toEqual([1080, 1350]);
+      if (i === 1) execFileSync("cp", [file, join(FIXTURES_DIR, "samples", "integration-carousel-slide-2.png")]);
+    }
+  });
 });

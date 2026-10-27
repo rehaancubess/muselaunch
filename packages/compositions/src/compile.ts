@@ -771,7 +771,7 @@ function compileCaptions(ctx: Ctx, total: number): string {
     const end = Math.min(cue.endSec, total);
     const id = `c-${cue.id}`;
     out.push(
-      `<div id="${id}" class="cap clip" data-start="${n(cue.startSec)}" data-duration="${n(end - cue.startSec)}" data-track-index="90" style="${posStyle};z-index:1000"><span style="font-family:${fontStack(th, "body")};font-size:${px(size)};line-height:1.25;max-width:${px(W * (1 - sz.left - sz.right))}">${esc(cue.text)}</span></div>`,
+      `<div id="${id}" class="cap clip" data-start="${n(cue.startSec)}" data-duration="${n(end - cue.startSec)}" data-track-index="90" style="${posStyle};z-index:1000"><span style="font-family:${fontStack(th, "body")};font-size:${px(size)};line-height:1.25;max-width:${px(W * (1 - sz.left - sz.right))};${spanStyle}">${esc(cue.text)}</span></div>`,
     );
     if (!ctx.still && c.preset === "word-pop") ctx.tl.push(`tl.fromTo(q("${id}"), {scale:0.82, opacity:0}, {scale:1, opacity:1, duration:0.22, ease:"back.out(2.2)"}, ${n(cue.startSec)});`);
   }
