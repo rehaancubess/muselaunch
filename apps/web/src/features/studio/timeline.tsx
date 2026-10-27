@@ -196,7 +196,7 @@ export function Timeline({
           </div>
 
           {/* Scene track */}
-          <Row label="Scenes" icon={<Video className="size-3.5" aria-hidden />}>
+          <Row label="Scenes" icon={<Video className="size-3.5" aria-hidden />} tall>
             {doc.scenes.map((s, i) => {
               const dur = drag?.kind === "scene-dur" && drag.sceneId === s.id ? Math.max(0.5, drag.value) : s.durationSec;
               const left = starts[i]! * pps;
@@ -229,7 +229,7 @@ export function Timeline({
                     onSeek(starts[i]! + 0.01);
                   }}
                   className={cn(
-                    "group absolute top-1 bottom-1 flex cursor-pointer select-none flex-col justify-center overflow-hidden rounded-md border px-2 text-left transition-colors",
+                    "group absolute top-1.5 bottom-1.5 flex cursor-pointer select-none flex-col justify-center gap-0.5 overflow-hidden rounded-md border px-2 text-left transition-colors",
                     selected ? "border-accent bg-accent-soft" : "border-line-strong bg-mist hover:bg-mist-2",
                     dragScene === s.id && "opacity-50",
                     dropBefore === s.id && dragScene !== s.id && "ring-2 ring-accent",
@@ -237,8 +237,8 @@ export function Timeline({
                   style={{ left: left + 1, width: Math.max(8, dur * pps - 2) }}
                   title={`${s.name} — ${TEMPLATE_LABELS[s.template] ?? s.template} · ${dur}s`}
                 >
-                  <span className="truncate text-footnote font-medium text-ink">{s.name}</span>
-                  <span className="flex items-center gap-1 truncate text-caption text-ink-2">
+                  <span className="truncate text-footnote font-medium leading-4 text-ink">{s.name}</span>
+                  <span className="flex items-center gap-1 truncate text-caption leading-4 text-ink-2">
                     {TEMPLATE_LABELS[s.template] ?? s.template} · {r1(dur)}s
                     {iss?.errors ? <span className="size-1.5 rounded-full bg-danger" aria-label={`${iss.errors} issues`} /> : iss?.warnings ? <span className="size-1.5 rounded-full bg-warning" aria-label={`${iss.warnings} warnings`} /> : null}
                   </span>
@@ -284,7 +284,7 @@ export function Timeline({
                 <div
                   onClick={() => onSelectLayer(activeScene.id, l.id)}
                   className={cn(
-                    "group absolute top-1.5 bottom-1.5 cursor-pointer rounded border",
+                    "group absolute top-1 bottom-1 cursor-pointer rounded border",
                     sel ? "border-accent bg-accent/25" : "border-line-strong bg-mist-2 hover:bg-mist",
                     l.hidden && "opacity-40",
                   )}
@@ -326,9 +326,9 @@ export function Timeline({
   );
 }
 
-function Row({ label, icon, children, selected, onLabelClick, trailing }: { label: string; icon: ReactNode; children: ReactNode; selected?: boolean; onLabelClick?: () => void; trailing?: ReactNode }) {
+function Row({ label, icon, children, selected, onLabelClick, trailing, tall }: { label: string; icon: ReactNode; children: ReactNode; selected?: boolean; onLabelClick?: () => void; trailing?: ReactNode; tall?: boolean }) {
   return (
-    <div className={cn("flex h-9 border-b border-line/70", selected && "bg-accent-soft/40")}>
+    <div className={cn("flex border-b border-line/70", tall ? "h-14" : "h-8", selected && "bg-accent-soft/40")}>
       <div className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-line bg-surface px-2 text-footnote text-ink-2" style={{ width: LABEL_W }}>
         <span className="text-ink-3">{icon}</span>
         <button type="button" onClick={onLabelClick} className={cn("min-w-0 flex-1 truncate text-left", selected && "font-medium text-ink")} disabled={!onLabelClick}>

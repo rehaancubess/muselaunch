@@ -139,6 +139,12 @@ describe("compileToHtml", () => {
     expect(compileToHtml(hidden, { assetUrl: (id) => `a/${id}`, mode: "render", gsapSource: "inline" }).html).not.toContain("v-ly_founder");
   });
 
+  it("renders styled caption cues from the doc", () => {
+    const withCaps = applyPatch(doc, [{ op: "set_captions", captions: { enabled: true, preset: "boxed", position: "bottom", source: "script", cues: [{ id: "c1", startSec: 0.5, endSec: 2, text: "Mornings are chaos" }] } }]).doc;
+    const { html } = compileToHtml(withCaps, { assetUrl: (id) => id, mode: "render", gsapSource: "inline" });
+    expect(html).toMatch(/<div id="c-c1" class="cap clip" data-start="0\.5" data-duration="1\.5"[^>]*><span style="[^"]*background:rgba\(0,0,0,\.72\);color:#fff[^"]*">Mornings are chaos<\/span>/);
+  });
+
   it("supports still capture with fixed scene slots", () => {
     const r = compileToHtml(doc, { assetUrl: (id) => id, mode: "render", gsapSource: "inline", still: true, sceneSlotSec: 0.25 });
     expect(r.durationSec).toBe(1.25);

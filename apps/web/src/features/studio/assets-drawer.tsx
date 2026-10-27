@@ -81,8 +81,8 @@ export function AssetsDrawer({
           value={filter}
           onChange={setFilter}
           items={[
-            { value: "product", label: "Real screens" },
-            { value: "media", label: "Other media" },
+            { value: "product", label: "Screens" },
+            { value: "media", label: "Media" },
             { value: "all", label: "All" },
           ]}
         />

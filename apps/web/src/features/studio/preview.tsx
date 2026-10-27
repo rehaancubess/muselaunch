@@ -103,7 +103,7 @@ export const PreviewPlayer = forwardRef<
     <div className={cn("flex h-full min-h-0 flex-col items-center justify-center gap-3", className)}>
       <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
         <div
-          className="relative max-h-full max-w-full overflow-hidden rounded-xl bg-ink shadow-float"
+          className="relative max-h-full max-w-full overflow-hidden rounded-xl bg-surface shadow-float"
           style={{ aspectRatio: ratio, height: width >= height ? undefined : "100%", width: width >= height ? "100%" : undefined }}
         >
           <div ref={host} className="absolute inset-0" />
