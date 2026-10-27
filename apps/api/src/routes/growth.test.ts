@@ -216,7 +216,7 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect((await app.request(`/v1/oauth/gmail/callback?code=yt-code&state=${encodeURIComponent(state)}`)).status).toBe(403); // wrong provider
     const ok = await app.request(`/v1/oauth/youtube/callback?code=yt-code&state=${encodeURIComponent(state)}`);
     expect(ok.status).toBe(302);
-    expect(ok.headers.get("location")).toMatch(/^https:\/\/app\.example\.com\/settings\/connections\?provider=youtube&status=connected/);
+    expect(ok.headers.get("location")).toBe(`https://app.example.com/w/${wsA}/a/${appId}/calendar?connections=1&provider=youtube&status=connected&account=${(await alice.get(`${A}/connections`)).body.items[0].id}`);
     expect((await app.request(`/v1/oauth/youtube/callback?code=yt-code&state=${encodeURIComponent(state)}`)).status).toBe(403); // replay
     const tokenReq = http.calls("POST", "https://oauth2.googleapis.com/token")[0]!;
     expect(tokenReq.form).toMatchObject({ grant_type: "authorization_code", code: "yt-code", redirect_uri: "https://api.example.com/v1/oauth/youtube/callback" });

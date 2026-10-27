@@ -122,11 +122,13 @@ export async function startConnection(p: Platform, wid: string, uid: string, pro
  */
 export async function completeConnection(p: Platform, provider: string, q: { code?: string; state?: string; error?: string; error_description?: string }): Promise<{ ok: boolean; redirect: string; account?: ConnectedAccount; error?: string }> {
   const web = p.cfg.PUBLIC_WEB_URL.replace(/\/$/, "");
-  const back = (params: Record<string, string>) => `${web}/settings/connections?${new URLSearchParams(params).toString()}`;
   const a = adapterOrThrow(provider);
   const { settings, now, fetch } = growthDeps(p);
   if (!q.state) throw new AppError("FORBIDDEN", "Missing OAuth state");
   const st = verifyState(settings.oauthStateKey, q.state, now());
+  // Back to the app's calendar (connections panel) when started there, else workspace integrations.
+  const back = (params: Record<string, string>) =>
+    `${web}/w/${encodeURIComponent(st.w)}${st.a ? `/a/${encodeURIComponent(st.a)}/calendar` : "/settings/integrations"}?${new URLSearchParams({ connections: "1", ...params }).toString()}`;
   if (st.p !== a.provider) throw new AppError("FORBIDDEN", "OAuth state was issued for a different provider");
   const nonce = await readSecret<z.infer<typeof NonceRecord>>(p, st.w, nonceSecretId(st.n));
   const rec = nonce ? NonceRecord.safeParse(nonce) : null;
