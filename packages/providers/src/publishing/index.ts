@@ -7,7 +7,7 @@ import type { ProviderAdapter } from "./types";
 import { xAdapter } from "./x";
 
 export * from "./types";
-export * from "./http";
+export { HttpClient, providerMessage, uncertainOutcome, httpError as publishingHttpError, type FetchLike, type HttpRequest, type HttpResponse } from "./http";
 export { buildRawEmail, gmailAdapter, youtubeAdapter, youtubeMetadata, GMAIL_SEND_URL, YOUTUBE_UPLOAD_URL, YOUTUBE_CHANNELS_URL, GOOGLE_TOKEN_URL, GOOGLE_AUTHORIZE_URL } from "./google";
 export { facebookAdapter, instagramAdapter, IG_GRAPH } from "./meta-social";
 export { linkedinAdapter, linkedinCommentary, LINKEDIN_REST } from "./linkedin";

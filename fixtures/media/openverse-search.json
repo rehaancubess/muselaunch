@@ -1,0 +1,51 @@
+{
+  "fixture": true,
+  "label": "Constructed in the documented Openverse /v1/images/ response shape (https://api.openverse.org/v1/). Values are illustrative, not a live response.",
+  "response": {
+    "result_count": 2,
+    "page_count": 1,
+    "page_size": 20,
+    "page": 1,
+    "results": [
+      {
+        "id": "4bc43a04-ef46-4544-a0c1-63c63f56e276",
+        "title": "Phone on desk",
+        "indexed_on": "2024-01-01T00:00:00Z",
+        "foreign_landing_url": "https://www.flickr.com/photos/example/123",
+        "url": "https://live.staticflickr.com/65535/123_abc_b.jpg",
+        "creator": "Example Creator",
+        "creator_url": "https://www.flickr.com/photos/example",
+        "license": "by",
+        "license_version": "2.0",
+        "license_url": "https://creativecommons.org/licenses/by/2.0/",
+        "provider": "flickr",
+        "source": "flickr",
+        "filetype": "jpg",
+        "attribution": "\"Phone on desk\" by Example Creator is licensed under CC BY 2.0. To view a copy of this license, visit https://creativecommons.org/licenses/by/2.0/.",
+        "mature": false,
+        "height": 768,
+        "width": 1024,
+        "thumbnail": "https://api.openverse.org/v1/images/4bc43a04-ef46-4544-a0c1-63c63f56e276/thumb/"
+      },
+      {
+        "id": "9d1e2f3a-0000-4000-8000-000000000002",
+        "title": "Workspace",
+        "foreign_landing_url": "https://commons.wikimedia.org/w/index.php?curid=1",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Workspace.jpg",
+        "creator": "Someone",
+        "creator_url": null,
+        "license": "by-sa",
+        "license_version": "4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        "provider": "wikimedia",
+        "source": "wikimedia",
+        "filetype": "jpg",
+        "attribution": "\"Workspace\" by Someone is licensed under CC BY-SA 4.0.",
+        "mature": false,
+        "height": 600,
+        "width": 800,
+        "thumbnail": "https://api.openverse.org/v1/images/9d1e2f3a-0000-4000-8000-000000000002/thumb/"
+      }
+    ]
+  }
+}

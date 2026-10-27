@@ -41,3 +41,4 @@ export { Spinner, Skeleton, SkeletonText, EmptyState, ErrorState, Notice, Progre
 export { JobProgress, jobLabel, PipelineSteps, PIPELINE_STEPS, type JobProgressProps, type PipelineStep, type StepState, type PipelineStepsProps } from "./components/job";
 export { Avatar, initialsOf, StoryRingRow, SourceChip, domainOf, formatShortDate, type StoryItem } from "./components/identity";
 export { CostEstimate, CostEstimateView, type EstimateResult, type CostEstimateProps } from "./components/cost";
+export { TagInput, type TagInputProps } from "./components/tag-input";

@@ -9,9 +9,10 @@ RUN corepack enable && apt-get update && apt-get install -y --no-install-recomme
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
-# Puppeteer downloads its pinned Chrome during install (allowed in Cloud Build).
-RUN pnpm install --frozen-lockfile
-ENV NODE_ENV=production
+RUN PUPPETEER_SKIP_DOWNLOAD=1 pnpm install --frozen-lockfile \
+ && npx -y @puppeteer/browsers install chrome-headless-shell@stable --path /opt/chrome \
+ && ln -s "$(find /opt/chrome -type f -name chrome-headless-shell | head -1)" /usr/local/bin/chrome-headless-shell
+ENV NODE_ENV=production RENDER_CHROME_PATH=/usr/local/bin/chrome-headless-shell RENDER_CONCURRENCY=1
 ENV SERVICE=worker WORKER_POOLS=render
 EXPOSE 8080
 CMD ["node", "--import", "tsx", "apps/worker/src/server.ts"]

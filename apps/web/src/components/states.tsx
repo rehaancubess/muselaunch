@@ -11,7 +11,7 @@ export function UnavailableState({ feature, description, className }: { feature:
       className={className}
       icon={<Construction aria-hidden />}
       title="Not available in this build yet"
-      description={description ?? `${feature} will appear here once its service is deployed. Nothing is simulated in the meantime.`}
+      description={description ?? `The service behind ${feature} hasn’t been deployed yet. Nothing is simulated in the meantime.`}
     />
   );
 }
