@@ -1,0 +1,66 @@
+{
+ "_fixture": "Documented RevenueCat API v2 chart shape with invented test values. Not live data.",
+ "response": {
+  "object": "chart_data",
+  "category": "customers",
+  "display_name": "New Customers",
+  "description": "Number of new customers.",
+  "resolution": "day",
+  "values": [
+   {
+    "cohort": 1792454400,
+    "measure": 0,
+    "value": 30,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792540800,
+    "measure": 0,
+    "value": 35,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792627200,
+    "measure": 0,
+    "value": 28,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792713600,
+    "measure": 0,
+    "value": 40,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792800000,
+    "measure": 0,
+    "value": 44,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792886400,
+    "measure": 0,
+    "value": 33,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792972800,
+    "measure": 0,
+    "value": 37,
+    "incomplete": false
+   },
+   {
+    "cohort": 1793059200,
+    "measure": 0,
+    "value": 6,
+    "incomplete": true
+   }
+  ],
+  "measures": [
+   {
+    "display_name": "New Customers",
+    "unit": "#"
+   }
+  ]
+ }
+}

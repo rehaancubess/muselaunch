@@ -8,3 +8,5 @@ export * from "./voice";
 export * from "./images";
 export * from "./stock";
 export * from "./tts";
+// Module F (analytics) adapters
+export * from "./analytics";
