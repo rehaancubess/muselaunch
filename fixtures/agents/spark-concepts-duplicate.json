@@ -1,0 +1,103 @@
+{
+  "_fixture": "Muse Spark CampaignConcepts content with two concepts sharing an angle (to exercise the distinctness repair). NOT live output.",
+  "brief": {
+    "audienceDescription": "Students and remote workers who lose focus to their phones.",
+    "segmentIds": [],
+    "angle": "Calm focus beats willpower: show the real timer and blocking in action.",
+    "usp": "A calm Pomodoro timer that blocks distracting apps.",
+    "cta": "Start your first focus session",
+    "visualDirection": "Soft gradients, real iPhone screens, slow confident motion.",
+    "successMetric": {
+      "metric": "saves",
+      "target": "above account median",
+      "measurement": "Instagram Insights saves per Reel"
+    },
+    "approvedClaimIds": [
+      "$ID:clm:0"
+    ]
+  },
+  "variants": [
+    {
+      "title": "The 3 a.m. scroll",
+      "angleType": "emotional_problem",
+      "hook": "It's 1 a.m. and you've opened Instagram 14 times since you sat down to study.",
+      "audience": "Students during exam season",
+      "keyMessage": "Your phone isn't the problem; the lack of a calm boundary is.",
+      "rationale": "Problem-first hooks match the study-with-me finding.",
+      "findingIds": [],
+      "claimIds": [
+        "$ID:clm:0"
+      ],
+      "scriptOutline": [
+        "Hook: late-night scroll",
+        "Problem: lost hours",
+        "Demo: start a 25-minute session",
+        "Blocking kicks in",
+        "CTA"
+      ],
+      "channels": [
+        "instagram",
+        "tiktok"
+      ],
+      "hypothesis": "A problem-first hook earns more saves than a demo-first hook among students.",
+      "successMetric": {
+        "metric": "saves"
+      },
+      "memoryIdsUsed": []
+    },
+    {
+      "title": "One tap to deep work",
+      "angleType": "practical_demo",
+      "hook": "Watch this: one tap and every distracting app is gone for 25 minutes.",
+      "audience": "Remote workers",
+      "keyMessage": "Tidy Timer turns focus into a single tap.",
+      "rationale": "Shows the real product immediately.",
+      "findingIds": [],
+      "claimIds": [
+        "$ID:clm:0"
+      ],
+      "scriptOutline": [
+        "Tap start",
+        "Blocked app attempt",
+        "Timer completes",
+        "Weekly report",
+        "CTA"
+      ],
+      "channels": [
+        "instagram"
+      ],
+      "hypothesis": "Demo-first videos drive more profile taps.",
+      "successMetric": {
+        "metric": "profile taps"
+      },
+      "memoryIdsUsed": []
+    },
+    {
+      "title": "Tap and focus",
+      "angleType": "practical_demo",
+      "hook": "Watch this: one tap and every distracting app is gone for 25 minutes.",
+      "audience": "Remote workers",
+      "keyMessage": "Tidy Timer turns focus into a single tap.",
+      "rationale": "Shows the real product immediately.",
+      "findingIds": [],
+      "claimIds": [
+        "$ID:clm:0"
+      ],
+      "scriptOutline": [
+        "Tap start",
+        "Blocked app attempt",
+        "Timer completes",
+        "Weekly report",
+        "CTA"
+      ],
+      "channels": [
+        "instagram"
+      ],
+      "hypothesis": "Demo-first videos drive more profile taps.",
+      "successMetric": {
+        "metric": "profile taps"
+      },
+      "memoryIdsUsed": []
+    }
+  ]
+}

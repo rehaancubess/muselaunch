@@ -1,0 +1,11 @@
+{
+  "_fixture": "Scripted Muse Wonder function_call turns for strategy.run. NOT live output.",
+  "turns": [
+    [
+      { "name": "set_strategy", "args": { "goal": "Reach 1,000 installs from students before exams", "audience": "University students", "hypotheses": ["Study-with-me Reels using the real timer drive installs from students"], "deliverables": ["3 Reels", "Product Hunt launch copy"], "timeline": "Two weeks", "measurement": ["Reel saves", "App Store installs from tracked links"], "tasks": [ { "title": "Research student communities", "role": "research", "objective": "Find where students discuss focus" } ] } },
+      { "name": "propose_research", "args": { "kinds": ["audience", "trends"], "focus": "Students during exam season", "why": "Need fresh evidence for hooks" } },
+      { "name": "propose_concepts", "args": { "name": "Exam season focus", "goal": "installs", "request": "Three Reels for students in exam season using the real timer", "channels": ["instagram", "tiktok"], "why": "Test the hypothesis" } }
+    ],
+    [ { "name": "finish", "args": { "summary": "Plan: research students, then three exam-season Reels; proposals await approval." } } ]
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "_fixture": "Muse Spark structured-output content for schema Storyboard. $ID:ast:0 resolves to the first asset id in the request; $ID:clm:0 to the first claim id. NOT live output.",
+  "title": "One tap to deep work",
+  "scenes": [
+    { "purpose": "hook", "durationSec": 2.5, "onScreenText": "One tap. No distractions.", "narration": "", "visual": "Bold headline on a soft violet gradient", "template": "hook-title", "assets": [], "claimIds": [] },
+    { "purpose": "demo", "durationSec": 5, "onScreenText": "Start a 25-minute session", "narration": "", "visual": "Real timer screen in an iPhone frame, gentle float", "template": "device-demo", "assets": [{ "kind": "screenshot", "assetId": "$ID:ast:0", "featureId": "feat_timer" }], "claimIds": [] },
+    { "purpose": "feature", "durationSec": 4, "onScreenText": "Distracting apps stay blocked", "narration": "", "visual": "Feature callout pointing at the blocking state", "template": "feature-callout", "assets": [{ "kind": "generated_image", "query": "screenshot of the app interface with a lock icon" }], "claimIds": ["$ID:clm:0"] },
+    { "purpose": "cta", "durationSec": 2.5, "onScreenText": "Start your first focus session", "narration": "", "visual": "Logo, CTA and App Store badge", "template": "cta-endcard", "assets": [{ "kind": "logo", "assetId": "ast_invented_logo" }], "claimIds": [] }
+  ],
+  "voiceover": { "source": "none" },
+  "music": { "mood": "calm lo-fi" }
+}
