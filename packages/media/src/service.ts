@@ -89,6 +89,8 @@ export async function requestSegmentation(
           cutoutAssetId: same.cutoutAssetId,
           previewAssetId: same.previewAssetId,
           outputAssetId: same.outputAssetId,
+          tracksAssetId: same.tracksAssetId,
+          objectOutputs: same.objectOutputs,
           frameCount: same.frameCount,
           fps: same.fps,
           trackingQuality: same.trackingQuality,

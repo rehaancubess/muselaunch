@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { MediaAsset, Segmentation } from "@muselaunch/contracts";
+import type { EntityRef, MediaAsset, Segmentation } from "@muselaunch/contracts";
 import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { deleteMetaFile, parseSamOutput, runSam, uploadMetaFile, type BuildObjectPromptOptions, type SamPrompt, type SamResult } from "@muselaunch/providers";
-import { countVideoFrames, probeMedia } from "./ffmpeg";
+import { countVideoFrames, probeMedia, type MediaProbe } from "./ffmpeg";
 import { samFrameSize, selectDetections, trackingQuality, writeImageCutout, writeImageMatte, writePreview, writeVideoCutout, writeVideoMatte, type FrameSize } from "./masks";
+import { buildTracks } from "./tracks";
 import { callCtx, derivedId, EXT_BY_MIME, inheritFrom, usageEventIdsForJob, withWorkdir } from "./util";
 
 /** SAM 3.1 video limit per request (≈10 min). */
@@ -115,35 +116,69 @@ export async function segmentHandler(ctx: JobContext<"media.segment">) {
   if (seg.status === "succeeded") return { refs: refs(seg), data: { alreadyDone: true }, creditsUsed: 0 };
   const source = await ctx.ws.collection("mediaAssets").getOrThrow(seg.sourceAssetId);
   if (source.status !== "ready") throw new AppError("CONFLICT", `Source asset is ${source.status}`, { retryable: false, userMessage: "The video is still processing. Try again in a moment." });
+  const r = await withWorkdir((dir) => runSegmentationSafely(ctx, seg, source, dir, { progress: (pct, stage, msg) => ctx.progress(pct, stage, msg), usageBefore: new Set() }));
+  await ctx.progress(100, "done");
+  // Re-selecting objects from stored SAM output costs nothing.
+  return { refs: r.refs, data: r.data, creditsUsed: r.usedSam ? undefined : 0 };
+}
+
+export interface SegRunOptions {
+  /** Progress reporter (callers map it into their own range). */
+  progress: (pct: number, stage: string, message?: string) => Promise<void> | void;
+  /** Usage events already on this job before this run (excluded from the segmentation's usageEventIds). */
+  usageBefore: Set<string>;
+  /** Already-downloaded source + probe (clip analysis shares one download across prompts). */
+  local?: { file: string; info: MediaProbe };
+  /** Objects that get their own cutout + matte (largest presence first). */
+  maxObjectOutputs?: number;
+}
+
+export interface SegRunResult {
+  seg: Segmentation;
+  usedSam: boolean;
+  refs: EntityRef[];
+  data: Record<string, unknown>;
+}
+
+/** Run + record failure on the segmentation (status `failed` with the error) before rethrowing. */
+export async function runSegmentationSafely(ctx: JobContext, seg: Segmentation, source: MediaAsset, dir: string, opts: SegRunOptions): Promise<SegRunResult> {
+  const segRepo = ctx.ws.collection("segmentations");
   await segRepo.update(seg.id, { status: "running", error: undefined }, { actor: ctx.actor });
   try {
-    return await withWorkdir((dir) => runSegmentation(ctx, seg, source, dir));
+    return await runSegmentation(ctx, seg, source, dir, opts);
   } catch (err) {
     const e = err instanceof AppError ? err : new AppError("INTERNAL", (err as Error).message, { retryable: false, cause: err });
     if (!e.retryable || e.code === "CANCELLED") {
-      const usageEventIds = await usageEventIdsForJob(ctx).catch(() => []);
-      await segRepo.update(seg.id, { status: "failed", error: e.message.slice(0, 1000), usageEventIds: [...new Set([...seg.usageEventIds, ...usageEventIds])].slice(-200) }, { actor: ctx.actor }).catch(() => {});
+      const ids = (await usageEventIdsForJob(ctx).catch(() => [] as string[])).filter((id) => !opts.usageBefore.has(id));
+      await segRepo.update(seg.id, { status: "failed", error: e.message.slice(0, 1000), usageEventIds: [...new Set([...seg.usageEventIds, ...ids])].slice(-200) }, { actor: ctx.actor }).catch(() => {});
     }
     throw e;
   }
 }
 
-async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentation, source: MediaAsset, dir: string) {
+export const MAX_OBJECT_OUTPUTS = 6;
+
+async function runSegmentation(ctx: JobContext, seg: Segmentation, source: MediaAsset, dir: string, opts: SegRunOptions): Promise<SegRunResult> {
   const p = ctx.platform;
   const assets = ctx.ws.collection("mediaAssets");
   const segRepo = ctx.ws.collection("segmentations");
   const isVideo = seg.mediaType === "video";
-  const src = join(dir, `source.${EXT_BY_MIME[source.mimeType] ?? "bin"}`);
-  await ctx.progress(3, "preparing");
-  await p.storage.downloadToFile(source.storagePath, src);
-  const info = await probeMedia(src, { signal: ctx.signal });
+  const progress = opts.progress;
+  let src = opts.local?.file;
+  let info = opts.local?.info;
+  if (!src || !info) {
+    src = join(dir, `source.${EXT_BY_MIME[source.mimeType] ?? "bin"}`);
+    await progress(3, "preparing");
+    await p.storage.downloadToFile(source.storagePath, src);
+    info = await probeMedia(src, { signal: ctx.signal });
+  }
   const size: FrameSize = { width: info.displayWidth ?? source.width ?? 0, height: info.displayHeight ?? source.height ?? 0 };
   if (!size.width || !size.height) throw new AppError("BAD_REQUEST", "Could not read media dimensions", { retryable: false });
   const fps = isVideo ? (info.fps ?? source.fps ?? 30) : undefined;
   const frameCount = isVideo ? (info.frameCount ?? (await countVideoFrames(src, { signal: ctx.signal })) ?? Math.round((info.durationSec ?? 0) * fps!)) : 1;
   if (isVideo && frameCount > SAM_MAX_FRAMES) throw new AppError("BAD_REQUEST", `Video has ${frameCount} frames; SAM accepts up to ${SAM_MAX_FRAMES}`, { retryable: false, userMessage: "That clip is too long to track (max ~10 minutes). Trim it first." });
 
-  // 1) SAM output: reuse the stored raw output (object re-selection, retries) or call SAM once.
+  // 1) SAM output: reuse the stored raw output (object re-selection, retries, clip analysis) or call SAM once.
   let stored: StoredSamOutput | undefined;
   let usedSam = false;
   if (seg.outputAssetId) {
@@ -153,7 +188,7 @@ async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentati
   let outputAssetId = seg.outputAssetId;
   if (!stored) {
     const prompt = samPromptFor(seg, size);
-    await ctx.progress(8, isVideo ? "uploading to SAM" : "segmenting");
+    await progress(8, isVideo ? "uploading to SAM" : "segmenting");
     const cc = callCtx(ctx, "media.segment");
     let fileId: string | undefined;
     try {
@@ -161,12 +196,12 @@ async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentati
         ? { kind: "video" as const, fileId: (fileId = (await uploadMetaFile(p, cc, { localPath: src, filename: "source.mp4", mimeType: "video/mp4", expiresAfterSec: 6 * 3600 })).id) }
         : { kind: "image" as const, imageUrl: `data:${source.mimeType};base64,${(await readFile(src)).toString("base64")}` };
       ctx.throwIfCancelled();
-      await ctx.progress(12, "segmenting");
+      await progress(12, "segmenting");
       const result = await runSam(p, cc, {
         media,
         prompt,
         frameCount,
-        onFrames: (n) => void ctx.progress(12 + Math.min(48, (48 * n) / Math.max(1, frameCount)), "tracking", `${n}/${frameCount} frames`),
+        onFrames: (n) => void progress(12 + Math.min(43, (43 * n) / Math.max(1, frameCount)), "tracking", `${n}/${frameCount} frames`),
       });
       stored = { model: result.model, media: seg.mediaType, prompt: prompt.kind === "text" ? { text: prompt.text } : prompt.options, width: size.width, height: size.height, fps, frameCount, rawOutput: result.rawOutput, createdAt: new Date().toISOString() };
       usedSam = true;
@@ -189,77 +224,132 @@ async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentati
   const objects = objectsFromResult(result, seg.corrections.some((c) => c.kind === "box" || c.kind === "point") ? `${seg.prompt} (refined)` : seg.prompt, size);
   const dets = selectDetections(result, seg.selectedObjectIds);
   const sam = samFrameSize(stored.rawOutput);
-  const usageEventIds = [...new Set([...seg.usageEventIds, ...(await usageEventIdsForJob(ctx))])].slice(-200);
-  const previous = [seg.maskAssetId, seg.cutoutAssetId, seg.previewAssetId].filter((x): x is string => Boolean(x));
-
-  if (!dets.length) {
-    const updated = await segRepo.update(
-      seg.id,
-      { status: "succeeded", objects, maskAssetId: undefined, cutoutAssetId: undefined, previewAssetId: undefined, frameCount: isVideo ? frameCount : undefined, fps, trackingQuality: 0, usageEventIds, outputAssetId, error: undefined },
-      { actor: ctx.actor },
-    );
-    await retire(ctx, seg.id, previous);
-    await ctx.log_event(`No “${seg.prompt}” found`);
-    return { refs: [{ entity: "segmentations", id: updated.id }], data: { matches: 0, usedSam }, creditsUsed: usedSam ? undefined : 0 };
-  }
-
-  // 2) Matte → cutout → preview.
-  const ids = { matte: derivedId("ast", seg.id, ctx.job.id, "matte"), cutout: derivedId("ast", seg.id, ctx.job.id, "cutout"), preview: derivedId("ast", seg.id, ctx.job.id, "preview") };
-  const files = isVideo
-    ? { matte: join(dir, "matte.mp4"), cutout: join(dir, "cutout.webm"), preview: join(dir, "preview.mp4") }
-    : { matte: join(dir, "matte.png"), cutout: join(dir, "cutout.png"), preview: join(dir, "preview.jpg") };
-  let coverage: number[];
-  if (isVideo) {
-    await ctx.progress(62, "building matte");
-    ({ coverage } = await writeVideoMatte(files.matte, size, fps!, frameCount, dets, { sam, signal: ctx.signal, onFrame: (i) => void ctx.progress(62 + (18 * i) / frameCount, "building matte") }));
-    await ctx.progress(82, "rendering cutout");
-    await writeVideoCutout(src, files.matte, files.cutout, { hasAudio: info.hasAudio, signal: ctx.signal, fast: p.cfg.NODE_ENV === "test" });
-  } else {
-    ({ coverage } = await writeImageMatte(files.matte, size, dets, sam, ctx.signal));
-    await writeImageCutout(src, files.matte, files.cutout, ctx.signal);
-  }
-  await ctx.progress(92, "rendering preview");
-  await writePreview(src, files.matte, files.preview, size, isVideo ? "video" : "image", ctx.signal);
-
-  const scores = dets.map((d) => d.confidence).filter((c): c is number => typeof c === "number");
-  const quality = isVideo ? trackingQuality(coverage) : scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 1000) / 1000 : 1;
+  const usageEventIds = [...new Set([...seg.usageEventIds, ...(await usageEventIdsForJob(ctx)).filter((id) => !opts.usageBefore.has(id))])].slice(-200);
+  const previous = new Set([seg.maskAssetId, seg.cutoutAssetId, seg.previewAssetId, seg.tracksAssetId, ...Object.values(seg.objectOutputs ?? {}).flatMap((o) => [o.cutoutAssetId, o.matteAssetId])].filter((x): x is string => Boolean(x)));
+  const keep = new Set<string>();
   const common = { ...inheritFrom(source), origin: "derived" as const, status: "ready" as const, width: size.width, height: size.height, durationSec: isVideo ? source.durationSec : undefined, fps };
   const put = async (id: string, file: string, name: string, contentType: string) => {
     const key = workspaceKey(ctx.workspaceId, "media", source.id, "seg", seg.id, `${id}-${name}`);
     const { bytes } = await p.storage.uploadFile(file, key, { contentType });
     return { key, bytes };
   };
+  const title = `“${seg.prompt}”`.slice(0, 100);
+
+  // 2) Tracks for every detected object (geometry only; regenerated only when the SAM output changed).
+  let tracksAssetId = seg.tracksAssetId;
+  const sameOutput = !usedSam && seg.tracksAssetId && (await assets.get(seg.tracksAssetId))?.status === "ready";
+  if (!sameOutput) {
+    const tracks = buildTracks(result, { width: size.width, height: size.height, fps, frameCount }, Object.fromEntries(objects.map((o) => [o.objectId, o.label])), sam);
+    tracksAssetId = derivedId("ast", seg.id, ctx.job.id, "tracks");
+    const key = workspaceKey(ctx.workspaceId, "media", source.id, "seg", seg.id, `${tracksAssetId}-tracks.json`);
+    const { bytes, sha256 } = await p.storage.put(key, JSON.stringify(tracks), { contentType: "application/json" });
+    await assets.createIfAbsent(
+      { id: tracksAssetId, ...inheritFrom(source), kind: "json", role: "mask", origin: "derived", storagePath: key, mimeType: "application/json", bytes, sha256, status: "ready", labels: ["sam_tracks", `segmentation:${seg.id}`], sourceLabel: "sam_tracks", isProductTruth: false, title: `Tracks ${title}` },
+      { actor: ctx.actor },
+    );
+  }
+  if (tracksAssetId) keep.add(tracksAssetId);
+
+  if (!dets.length) {
+    const updated = await segRepo.update(
+      seg.id,
+      { status: "succeeded", objects, maskAssetId: undefined, cutoutAssetId: undefined, previewAssetId: undefined, objectOutputs: {}, tracksAssetId, frameCount: isVideo ? frameCount : undefined, fps, trackingQuality: 0, usageEventIds, outputAssetId, error: undefined },
+      { actor: ctx.actor },
+    );
+    await retire(ctx, seg.id, [...previous].filter((id) => !keep.has(id)));
+    await ctx.log_event(`No “${seg.prompt}” found`);
+    return { seg: updated, usedSam, refs: [{ entity: "segmentations", id: updated.id }], data: { matches: 0, usedSam } };
+  }
+
+  // 3) Combined matte → cutout → preview (respects the object selection).
+  const ids = { matte: derivedId("ast", seg.id, ctx.job.id, "matte"), cutout: derivedId("ast", seg.id, ctx.job.id, "cutout"), preview: derivedId("ast", seg.id, ctx.job.id, "preview") };
+  const files = isVideo
+    ? { matte: join(dir, `${seg.id}-matte.mp4`), cutout: join(dir, `${seg.id}-cutout.webm`), preview: join(dir, `${seg.id}-preview.mp4`) }
+    : { matte: join(dir, `${seg.id}-matte.png`), cutout: join(dir, `${seg.id}-cutout.png`), preview: join(dir, `${seg.id}-preview.jpg`) };
+  const fast = p.cfg.NODE_ENV === "test";
+  let coverage: number[];
+  if (isVideo) {
+    await progress(56, "building matte");
+    ({ coverage } = await writeVideoMatte(files.matte, size, fps!, frameCount, dets, { sam, signal: ctx.signal, onFrame: (i) => void progress(56 + (12 * i) / frameCount, "building matte") }));
+    await progress(70, "rendering cutout");
+    await writeVideoCutout(src, files.matte, files.cutout, { hasAudio: info.hasAudio, signal: ctx.signal, fast });
+  } else {
+    ({ coverage } = await writeImageMatte(files.matte, size, dets, sam, ctx.signal));
+    await writeImageCutout(src, files.matte, files.cutout, ctx.signal);
+  }
+  await progress(78, "rendering preview");
+  await writePreview(src, files.matte, files.preview, size, isVideo ? "video" : "image", ctx.signal);
   const matte = await put(ids.matte, files.matte, isVideo ? "matte.mp4" : "matte.png", isVideo ? "video/mp4" : "image/png");
   const cutout = await put(ids.cutout, files.cutout, isVideo ? "cutout.webm" : "cutout.png", isVideo ? "video/webm" : "image/png");
   const preview = await put(ids.preview, files.preview, isVideo ? "preview.mp4" : "preview.jpg", isVideo ? "video/mp4" : "image/jpeg");
-  const title = `“${seg.prompt}”`.slice(0, 120);
-  await assets.createIfAbsent(
-    { id: ids.matte, ...common, kind: "mask", role: "mask", storagePath: matte.key, mimeType: isVideo ? "video/mp4" : "image/png", bytes: matte.bytes, hasAudio: false, labels: ["sam_matte", `segmentation:${seg.id}`], sourceLabel: "sam_matte", isProductTruth: false, title: `Matte ${title}` },
-    { actor: ctx.actor },
-  );
-  await assets.createIfAbsent(
-    {
-      id: ids.cutout,
-      ...common,
-      kind: isVideo ? "video" : "image",
-      role: "other",
-      storagePath: cutout.key,
-      mimeType: isVideo ? "video/webm" : "image/png",
-      bytes: cutout.bytes,
-      hasAudio: isVideo ? info.hasAudio : undefined,
-      labels: ["sam_cutout", "alpha", `segmentation:${seg.id}`],
-      sourceLabel: "sam_cutout",
-      // Same real pixels as the source, only masked: keeps the source's product-truth status.
-      isProductTruth: source.isProductTruth,
-      title: `Cutout ${title}`,
-      posterAssetId: source.posterAssetId,
-    },
-    { actor: ctx.actor },
-  );
+  const matteAsset = (id: string, f: { key: string; bytes: number }, label: string) =>
+    assets.createIfAbsent(
+      { id, ...common, kind: "mask", role: "mask", storagePath: f.key, mimeType: isVideo ? "video/mp4" : "image/png", bytes: f.bytes, hasAudio: false, labels: ["sam_matte", `segmentation:${seg.id}`], sourceLabel: "sam_matte", isProductTruth: false, title: `Matte ${label}`.slice(0, 200) },
+      { actor: ctx.actor },
+    );
+  const cutoutAsset = (id: string, f: { key: string; bytes: number }, label: string) =>
+    assets.createIfAbsent(
+      {
+        id,
+        ...common,
+        kind: isVideo ? "video" : "image",
+        role: "other",
+        storagePath: f.key,
+        mimeType: isVideo ? "video/webm" : "image/png",
+        bytes: f.bytes,
+        hasAudio: isVideo ? info!.hasAudio : undefined,
+        labels: ["sam_cutout", "alpha", `segmentation:${seg.id}`],
+        sourceLabel: "sam_cutout",
+        // Same real pixels as the source, only masked: keeps the source's product-truth status.
+        isProductTruth: source.isProductTruth,
+        title: `Cutout ${label}`.slice(0, 200),
+        posterAssetId: source.posterAssetId,
+      },
+      { actor: ctx.actor },
+    );
+  await matteAsset(ids.matte, matte, title);
+  await cutoutAsset(ids.cutout, cutout, title);
   await assets.createIfAbsent(
     { id: ids.preview, ...common, kind: isVideo ? "video" : "image", role: "preview", storagePath: preview.key, mimeType: isVideo ? "video/mp4" : "image/jpeg", bytes: preview.bytes, hasAudio: false, width: undefined, height: undefined, labels: ["sam_preview", `segmentation:${seg.id}`], sourceLabel: "sam_preview", isProductTruth: false, title: `Selection preview ${title}` },
     { actor: ctx.actor },
   );
+  Object.values(ids).forEach((id) => keep.add(id));
+
+  // 4) Per-object cutout + matte so effects can target one object (regenerated only when SAM output changed).
+  let objectOutputs: Segmentation["objectOutputs"] = { ...(seg.objectOutputs ?? {}) };
+  const haveAll = objects.slice(0, opts.maxObjectOutputs ?? MAX_OBJECT_OUTPUTS).every((o) => objectOutputs[o.objectId]?.cutoutAssetId);
+  if (usedSam || !haveAll || !sameOutput) {
+    objectOutputs = {};
+    const ranked = [...objects].sort((a, b) => (b.framesTracked ?? 0) - (a.framesTracked ?? 0)).slice(0, opts.maxObjectOutputs ?? MAX_OBJECT_OUTPUTS);
+    const allSelected = !seg.selectedObjectIds.length || seg.selectedObjectIds.length === objects.length;
+    for (const [i, o] of ranked.entries()) {
+      ctx.throwIfCancelled();
+      if (objects.length === 1 && allSelected) {
+        objectOutputs[o.objectId] = { cutoutAssetId: ids.cutout, matteAssetId: ids.matte };
+        continue;
+      }
+      await progress(80 + (18 * i) / ranked.length, "object cutouts", o.label);
+      const oDets = result.detections.filter((d) => d.objectId === o.objectId);
+      const oid = { matte: derivedId("ast", seg.id, ctx.job.id, "obj", o.objectId, "matte"), cutout: derivedId("ast", seg.id, ctx.job.id, "obj", o.objectId, "cutout") };
+      const of = isVideo ? { matte: join(dir, `${oid.matte}.mp4`), cutout: join(dir, `${oid.cutout}.webm`) } : { matte: join(dir, `${oid.matte}.png`), cutout: join(dir, `${oid.cutout}.png`) };
+      if (isVideo) {
+        await writeVideoMatte(of.matte, size, fps!, frameCount, oDets, { sam, signal: ctx.signal });
+        await writeVideoCutout(src, of.matte, of.cutout, { hasAudio: info.hasAudio, signal: ctx.signal, fast });
+      } else {
+        await writeImageMatte(of.matte, size, oDets, sam, ctx.signal);
+        await writeImageCutout(src, of.matte, of.cutout, ctx.signal);
+      }
+      const om = await put(oid.matte, of.matte, isVideo ? "matte.mp4" : "matte.png", isVideo ? "video/mp4" : "image/png");
+      const oc = await put(oid.cutout, of.cutout, isVideo ? "cutout.webm" : "cutout.png", isVideo ? "video/webm" : "image/png");
+      await matteAsset(oid.matte, om, o.label);
+      await cutoutAsset(oid.cutout, oc, o.label);
+      objectOutputs[o.objectId] = { cutoutAssetId: oid.cutout, matteAssetId: oid.matte };
+    }
+  }
+  for (const o of Object.values(objectOutputs)) for (const id of [o.cutoutAssetId, o.matteAssetId]) if (id) keep.add(id);
+
+  const scores = dets.map((d) => d.confidence).filter((c): c is number => typeof c === "number");
+  const quality = isVideo ? trackingQuality(coverage) : scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 1000) / 1000 : 1;
   const updated = await segRepo.update(
     seg.id,
     {
@@ -268,6 +358,8 @@ async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentati
       maskAssetId: ids.matte,
       cutoutAssetId: ids.cutout,
       previewAssetId: ids.preview,
+      tracksAssetId,
+      objectOutputs,
       frameCount: isVideo ? frameCount : undefined,
       fps,
       trackingQuality: quality,
@@ -277,18 +369,17 @@ async function runSegmentation(ctx: JobContext<"media.segment">, seg: Segmentati
     },
     { actor: ctx.actor },
   );
-  await retire(ctx, seg.id, previous.filter((id) => !Object.values(ids).includes(id)));
-  await ctx.progress(100, "done");
+  await retire(ctx, seg.id, [...previous].filter((id) => !keep.has(id)));
   return {
-    refs: [{ entity: "segmentations", id: seg.id }, ...Object.values(ids).map((id) => ({ entity: "mediaAssets", id }))],
+    seg: updated,
+    usedSam,
+    refs: [{ entity: "segmentations", id: seg.id }, ...[...keep].map((id) => ({ entity: "mediaAssets", id }))],
     data: { trackingQuality: quality, lowQuality: quality < LOW_QUALITY_THRESHOLD, objects: updated.objects.length, framesWithMask: coverage.filter((c) => c > 0).length, frameCount, usedSam },
-    // Re-selecting objects from stored SAM output costs nothing.
-    creditsUsed: usedSam ? undefined : 0,
   };
 }
 
 /**
- * Remove superseded matte/cutout/preview objects (a newer run replaced them). Only assets this
+ * Remove superseded matte/cutout/preview/track objects (a newer run replaced them). Only assets this
  * segmentation created are removed: reused results share the original segmentation's assets.
  */
 async function retire(ctx: JobContext, segId: string, assetIds: string[]) {
