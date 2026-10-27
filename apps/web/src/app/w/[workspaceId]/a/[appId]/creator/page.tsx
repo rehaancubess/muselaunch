@@ -90,12 +90,7 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
             </span>
           }
           title={c.name}
-          subtitle={
-            <>
-              {GOAL_LABEL[c.goal]}
-              {c.channels.length ? ` · ${c.channels.map((ch) => CHANNEL_LABEL[ch]).join(", ")}` : ""} · {relativeTime(c.createdAt)}
-            </>
-          }
+          subtitle={`${GOAL_LABEL[c.goal]}${c.channels.length ? ` for ${c.channels.map((ch) => CHANNEL_LABEL[ch]).join(", ")}` : ""}, started ${relativeTime(c.createdAt)}`}
           trailing={<StatusPill status={statusKindOf(c.status)}>{humanizeStatus(c.status)}</StatusPill>}
         />
       ))}

@@ -1,6 +1,6 @@
 "use client";
-import { PageContainer } from "@/components/page-container";
+import { LibraryPage } from "@/components/library/library-page";
 
-export default function Page() {
-  return <PageContainer>Coming next.</PageContainer>;
+export default function LibraryRoute() {
+  return <LibraryPage />;
 }
