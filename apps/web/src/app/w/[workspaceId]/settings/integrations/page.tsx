@@ -1,15 +1,16 @@
 "use client";
-import type { ConnectedAccount } from "@muselaunch/contracts";
-import { Badge, ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, StatusPill, humanizeStatus, statusKindOf, type Provenance } from "@muselaunch/ui";
-import { Bot, Clapperboard, Globe, Image as ImageIcon, Mic, Brain, ScanFace, Sparkles, Volume2, Film, Link2 } from "lucide-react";
+import { ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, useToast, type Provenance } from "@muselaunch/ui";
+import { BarChart3, Bot, Brain, Film, Globe, Image as ImageIcon, Mic, ScanFace, Sparkles, Volume2 } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { QueryState } from "@/components/states";
-import { errorMessage, wsPath } from "@/lib/api";
-import type { Page, ProviderState, ProviderStatusResponse } from "@/lib/api-types";
-import { relativeTime } from "@/lib/labels";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, type ReactNode } from "react";
+import { readLastApp } from "@/components/shell/app-shell";
+import { ConnectionsPanel } from "@/features/publishing";
+import { errorMessage } from "@/lib/api";
+import type { ProviderState, ProviderStatusResponse } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
+import { useRuntime } from "@/lib/runtime";
 import { useWorkspace } from "@/lib/workspace";
 
 const STATE_BADGE: Record<ProviderState, { kind: Provenance; label: string }> = {
@@ -41,13 +42,36 @@ function regionName(code: string | null) {
   }
 }
 
+/** Toast the result of an OAuth round trip (the callback redirects here with ?connections=1&status=…). */
+function OAuthReturnToast() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const toast = useToast();
+  useEffect(() => {
+    if (params.get("connections") !== "1") return;
+    const provider = params.get("provider") ?? "Account";
+    const st = params.get("status");
+    if (st === "connected") toast.success(`${provider} connected`, params.get("message") ?? undefined);
+    else if (st) toast.error(`${provider} wasn’t connected`, params.get("message") ?? undefined);
+    router.replace(window.location.pathname);
+  }, [params, router, toast]);
+  return null;
+}
+
 export default function IntegrationsPage() {
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, apps } = useWorkspace();
+  const runtime = useRuntime();
+  const fixture = runtime.data?.fixtureMode === true;
   const status = useApiQuery<ProviderStatusResponse>("/v1/status/providers", { staleTime: 60_000 });
-  const connections = useApiQuery<Page<ConnectedAccount>>(wsPath(workspaceId, "/connections"), { retry: false });
+  const last = typeof window !== "undefined" ? readLastApp(workspaceId) : null;
+  const appId = apps.find((a) => a.id === last)?.id ?? apps[0]?.id;
 
   return (
     <div className="space-y-12">
+      <Suspense>
+        <OAuthReturnToast />
+      </Suspense>
+      {fixture ? <Notice tone="warning" title="Fixture mode">Providers marked “Fixture” answer from labelled test fixtures on this local server. Nothing here reflects a live model.</Notice> : null}
       <PageHeader title="Integrations" description="What’s live on this deployment, what isn’t, and what MuseLaunch uses instead. Nothing unavailable is simulated." className="pb-0" />
 
       <Section title="AI models & media providers">
@@ -68,7 +92,13 @@ export default function IntegrationsPage() {
                   leading={<span className="flex size-9 items-center justify-center rounded-lg bg-mist text-ink-2 [&_svg]:size-[18px]">{ICONS[p.id] ?? <Globe aria-hidden />}</span>}
                   title={p.label}
                   subtitle={p.role}
-                  trailing={<ProvenanceBadge kind={STATE_BADGE[p.state].kind} label={STATE_BADGE[p.state].label} detail={p.detail} />}
+                  trailing={
+                    fixture && p.state === "live" ? (
+                      <ProvenanceBadge kind="restricted" label="Fixture" detail="Fixture mode: answered from labelled test fixtures, not a live model" />
+                    ) : (
+                      <ProvenanceBadge kind={STATE_BADGE[p.state].kind} label={STATE_BADGE[p.state].label} detail={p.detail} />
+                    )
+                  }
                 >
                   <p className="mt-0.5 truncate text-caption text-ink-3" title={p.detail}>
                     {p.detail}
@@ -99,43 +129,22 @@ export default function IntegrationsPage() {
         ) : null}
       </Section>
 
-      <Section title="Connected accounts" description="Publishing, analytics and outreach accounts you’ve authorised. Posting always asks for approval first.">
-        <QueryState
-          query={connections}
-          feature="Account connections"
-          unavailable={
-            <Notice icon={<Link2 aria-hidden />} title="Account connections aren’t available in this build yet">
-              Until they are, export packages and manual posting checklists cover publishing, and CSV imports cover analytics, each labelled as imported.
-            </Notice>
-          }
-        >
-          {(data) =>
-            data.items.length ? (
-              <List label="Connected accounts">
-                {data.items.map((a) => (
-                  <ListRow
-                    key={a.id}
-                    leading={<span className="flex size-9 items-center justify-center rounded-lg bg-mist text-ink-2"><Clapperboard className="size-[18px]" aria-hidden /></span>}
-                    title={`${humanizeStatus(a.provider)}: ${a.displayName}`}
-                    subtitle={`${a.purposes.map(humanizeStatus).join(", ")}${a.lastSyncAt ? `, synced ${relativeTime(a.lastSyncAt)}` : ""}`}
-                    trailing={
-                      <>
-                        {a.capabilities.slice(0, 2).map((c) => (
-                          <Badge key={c} tone="outline" className="hidden sm:inline-flex">
-                            {humanizeStatus(c)}
-                          </Badge>
-                        ))}
-                        <StatusPill status={statusKindOf(a.status)}>{humanizeStatus(a.status)}</StatusPill>
-                      </>
-                    }
-                  />
-                ))}
-              </List>
-            ) : (
-              <Notice>No accounts connected. Connect publishing accounts from the Calendar and analytics sources from Insights.</Notice>
-            )
-          }
-        </QueryState>
+      <Section title="Publishing & outreach accounts" description="Accounts you authorise for posting and creator outreach. Every post and message still waits for an approval.">
+        <ConnectionsPanel />
+      </Section>
+
+      <Section title="Analytics sources">
+        <Notice icon={<BarChart3 aria-hidden />}>
+          Connect RevenueCat or import App Store, Play Console and social CSVs from each app’s{" "}
+          {appId ? (
+            <Link href={routes.app(workspaceId, appId).insights} className="font-medium text-accent hover:underline">
+              Insights › Data sources
+            </Link>
+          ) : (
+            "Insights › Data sources"
+          )}
+          . Imported numbers stay labelled as imported.
+        </Notice>
       </Section>
 
       {status.data ? (

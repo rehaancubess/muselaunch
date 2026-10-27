@@ -1,6 +1,7 @@
 "use client";
-import { Badge, Button, Field, Input, Select, SegmentedControl, Switch, Textarea, cn } from "@muselaunch/ui";
-import { AlignCenter, AlignLeft, AlignRight, Lock, Trash2, Type } from "lucide-react";
+import { Badge, Button, Dialog, Field, Input, Select, SegmentedControl, Switch, Textarea, cn } from "@muselaunch/ui";
+import { AlignCenter, AlignLeft, AlignRight, Lock, Scissors, Trash2, Type } from "lucide-react";
+import MaskSelector from "@/features/media/mask-selector";
 import { useEffect, useState, type ReactNode } from "react";
 import { TEMPLATE_LABELS, textLayer } from "./ops";
 import { layerLabel } from "./timeline";
@@ -14,6 +15,43 @@ const TRANSITIONS = ["cut", "fade", "slide-left", "slide-up", "zoom", "blur", "f
 const COLOR_TOKENS = ["theme.text", "theme.textMuted", "theme.accent", "theme.accent2", "theme.background", "theme.surface"];
 const opts = (xs: string[]) => xs.map((x) => ({ value: x, label: x.replace(/^theme\./, "").replace(/-/g, " ") }));
 const HEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/;
+
+/**
+ * SAM 3.1 cutout for a video layer (module D's MaskSelector). The selected segmentation becomes the
+ * layer's `mask`; the compiler swaps in the cutout and falls back to the original footage when
+ * tracking quality is low.
+ */
+function CutoutControl({ layer, disabled, onSet }: { layer: Extract<Layer, { type: "video" }>; disabled?: boolean; onSet: (s: Record<string, unknown>, summary: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2 rounded-lg bg-mist/70 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-footnote font-medium text-ink">{layer.mask ? "Subject cut out" : "Background"}</span>
+        <div className="flex gap-1">
+          {layer.mask ? (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onSet({ mask: null }, "Restore background")}>
+              Restore
+            </Button>
+          ) : null}
+          <Button size="sm" variant="secondary" icon={<Scissors className="size-3.5" aria-hidden />} disabled={disabled} onClick={() => setOpen(true)}>
+            {layer.mask ? "Change" : "Cut out subject"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-caption text-ink-3">{layer.mask ? "Background removed with SAM 3.1. Falls back to the original footage if the mask is missing or low quality." : "Remove the background around a person or object with SAM 3.1 so the layers behind show through."}</p>
+      <Dialog open={open} onOpenChange={setOpen} size="lg" title="Cut out subject" description="Select what to keep. The cutout is tracked through the whole clip.">
+        <MaskSelector
+          assetId={layer.assetId}
+          initialSegmentationId={layer.mask?.segmentationId}
+          onSegmentation={(segmentationId) => {
+            onSet({ mask: { segmentationId, mode: "cutout", objectIds: [], feather: 1, fallback: "unmasked" } }, "Cut out subject");
+            setOpen(false);
+          }}
+        />
+      </Dialog>
+    </div>
+  );
+}
 
 /** Label + control (ids are wired by the inner control's aria-label). */
 function F({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
@@ -301,7 +339,7 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, disab
                 <span className="text-footnote text-ink-2">Play sound</span>
                 <Switch checked={!layer.muted} onCheckedChange={(v) => set({ muted: !v }, v ? "Unmute clip" : "Mute clip")} disabled={disabled} label="Sound" />
               </div>
-              {layer.mask ? <p className="text-caption text-ink-3">Background removed with SAM (falls back to the original footage if the mask is missing or low quality).</p> : null}
+              <CutoutControl layer={layer} disabled={disabled} onSet={set} />
             </>
           ) : null}
         </Group>

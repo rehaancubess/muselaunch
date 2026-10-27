@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
+import { AgentRunsList } from "@/features/agents";
 import { wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { CHANNEL_LABEL, GOAL_LABEL, relativeTime } from "@/lib/labels";
@@ -187,6 +188,10 @@ export default function CreatorPage() {
             )
           }
         </QueryState>
+      </Section>
+
+      <Section title="Recent AI activity" description="What Muse Wonder and Muse Spark did for this app: plans, sources, tool calls and cost for each run." className="mt-14">
+        <AgentRunsList workspaceId={workspaceId} appId={appId} limit={5} />
       </Section>
     </PageContainer>
   );

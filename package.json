@@ -17,7 +17,8 @@
     "smoke:live": "tsx scripts/smoke-live.ts",
     "doctor": "tsx scripts/doctor.ts",
     "seed:dev": "tsx scripts/seed-dev.ts",
-    "deploy:gcp": "tsx scripts/deploy.ts"
+    "deploy:gcp": "tsx scripts/deploy.ts",
+    "dev:fixture": "pnpm --filter @muselaunch/api dev:fixture"
   },
   "devDependencies": {
     "@muselaunch/agents": "workspace:*",

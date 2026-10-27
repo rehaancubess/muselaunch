@@ -28,6 +28,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { AppIcon } from "@/components/app-icon";
 import { PageContainer } from "@/components/page-container";
 import { UnavailableState } from "@/components/states";
+import VoiceRecorder from "@/features/media/voice-recorder";
 import { api, errorMessage, isRouteMissing, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { AppDnaResponse, JobResponse, Page } from "@/lib/api-types";
 import { fetchEstimate } from "@/lib/estimate";
@@ -43,6 +44,7 @@ import { AssetThumb, EvidencePopover } from "./evidence";
 
 const SECTIONS = [
   { id: "overview", label: "Overview" },
+  { id: "founder", label: "Founder brief" },
   { id: "features", label: "Features" },
   { id: "audiences", label: "Audiences" },
   { id: "claims", label: "Claims" },
@@ -247,7 +249,22 @@ function ReviewAside({ profile, claims, app, workspaceId, appId, canEdit }: { pr
   );
 }
 
-function ProfileView({ data, app, workspaceId, appId, canEdit }: { data: AppDnaResponse & { profile: BrandProfile }; app: App; workspaceId: string; appId: string; canEdit: boolean }) {
+function FounderBrief({ workspaceId, appId }: { workspaceId: string; appId: string }) {
+  const invalidate = useInvalidate();
+  const toast = useToast();
+  return (
+    <VoiceRecorder
+      appId={appId}
+      purpose="founder_brief"
+      onTranscript={() => {
+        void invalidate(wsPath(workspaceId, `/apps/${appId}/dna`));
+        toast.success("Founder brief added", "Its transcript is now evidence in your App DNA. Re-analyse to fold it into features and claims.");
+      }}
+    />
+  );
+}
+
+function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { data: AppDnaResponse & { profile: BrandProfile }; app: App; workspaceId: string; appId: string; canEdit: boolean; canApprove: boolean }) {
   const { profile, evidence, claims } = data;
   const byId = useMemo(() => new Map(evidence.map((e) => [e.id, e])), [evidence]);
   const ev = (ids: string[]) => ids.map((id) => byId.get(id)).filter((x): x is AppEvidence => Boolean(x));
@@ -314,6 +331,12 @@ function ProfileView({ data, app, workspaceId, appId, canEdit }: { data: AppDnaR
           </div>
         </DnaSection>
 
+        {canEdit ? (
+          <DnaSection id="founder" title="Founder brief" description="Explain your app in your own words. Muse Voice Transcribe turns it into evidence you can review here.">
+            <FounderBrief workspaceId={workspaceId} appId={appId} />
+          </DnaSection>
+        ) : null}
+
         <DnaSection id="features" title="Features" description="Each feature links to the real screenshots or recordings that show it. Generated media is never used as proof.">
           {profile.features.length ? (
             <ul className="grid gap-3 sm:grid-cols-2">
@@ -379,7 +402,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit }: { data: AppDnaR
         </DnaSection>
 
         <DnaSection id="claims" title="Claims" description="Only verified claims appear in creative. Rejected ones are never used.">
-          <ClaimsSection claims={claims} evidence={evidence} workspaceId={workspaceId} appId={appId} canEdit={canEdit} />
+          <ClaimsSection claims={claims} evidence={evidence} workspaceId={workspaceId} appId={appId} canEdit={canEdit} canApprove={canApprove} />
         </DnaSection>
 
         <DnaSection id="brand" title="Brand kit">
@@ -509,6 +532,11 @@ export function DnaPage() {
             </Button>
           }
         />
+        {canEdit ? (
+          <div className="mx-auto max-w-xl px-6 pb-10">
+            <FounderBrief workspaceId={workspaceId} appId={appId} />
+          </div>
+        ) : null}
       </div>
     );
   } else {
@@ -520,7 +548,7 @@ export function DnaPage() {
             {dna.data.import.warnings.slice(0, 3).join(" ")}
           </Notice>
         ) : null}
-        <ProfileView data={dna.data as AppDnaResponse & { profile: BrandProfile }} app={app} workspaceId={workspaceId} appId={appId} canEdit={canEdit} />
+        <ProfileView data={dna.data as AppDnaResponse & { profile: BrandProfile }} app={app} workspaceId={workspaceId} appId={appId} canEdit={canEdit} canApprove={can("content.approve")} />
       </div>
     );
   }

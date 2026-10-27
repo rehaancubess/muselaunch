@@ -1,11 +1,11 @@
 "use client";
 import type { BrandPreference, Competitor } from "@muselaunch/contracts";
-import { Avatar, Badge, Button, Dialog, EmptyState, Field, IconButton, Input, Select, Skeleton, SourceChip, Switch, Textarea, Tooltip, useToast } from "@muselaunch/ui";
+import { Avatar, Badge, Button, Checkbox, Dialog, EmptyState, Field, IconButton, Input, ProvenanceBadge, Select, Skeleton, SourceChip, Switch, Textarea, Tooltip, useToast } from "@muselaunch/ui";
 import { Brain, Plus, Swords, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { QueryState } from "@/components/states";
 import { api, errorMessage, wsPath } from "@/lib/api";
-import type { Page } from "@/lib/api-types";
+import type { MemoryResponse, Page } from "@/lib/api-types";
 import { relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 
@@ -164,10 +164,11 @@ const SOURCE_LABEL: Record<BrandPreference["source"]["type"], string> = {
 
 export function MemorySection({ workspaceId, appId, canEdit }: { workspaceId: string; appId: string; canEdit: boolean }) {
   const path = wsPath(workspaceId, `/apps/${appId}/memory`);
-  const q = useApiQuery<Page<BrandPreference>>(path);
+  const q = useApiQuery<MemoryResponse>(path);
   const toast = useToast();
   const invalidate = useInvalidate();
   const [open, setOpen] = useState(false);
+  const [workspaceWide, setWorkspaceWide] = useState(false);
   const [kind, setKind] = useState<BrandPreference["kind"]>("style");
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -181,8 +182,15 @@ export function MemorySection({ workspaceId, appId, canEdit }: { workspaceId: st
     }
   };
 
+  const g = q.data?.glimmer;
   return (
     <div className="space-y-4">
+      {g ? (
+        <div className="flex flex-wrap items-center gap-2 text-footnote text-ink-2">
+          {g.connected ? <ProvenanceBadge kind="live_ai" label="Muse Glimmer connected" detail={`${g.model ?? "muse-glimmer"} (${g.label ?? "self-hosted"})`} /> : <ProvenanceBadge kind="not_connected" label="Muse Glimmer not connected" />}
+          <span>{g.connected ? `Glimmer (${g.label ?? "self-hosted"}) picks which preferences apply to each task.` : "Preferences are still applied, ranked by simple rules until Glimmer is connected."}</span>
+        </div>
+      ) : null}
       <QueryState query={q} feature="Brand memory" skeleton={<ListSkeleton />}>
         {(data) =>
           data.items.length ? (
@@ -253,7 +261,7 @@ export function MemorySection({ workspaceId, appId, canEdit }: { workspaceId: st
               onClick={async () => {
                 setSaving(true);
                 try {
-                  await api.post(path, { kind, text: text.trim() });
+                  await api.post(path, { kind, text: text.trim(), scope: workspaceWide ? "workspace" : "app" });
                   await invalidate(path);
                   setOpen(false);
                   setText("");
@@ -281,6 +289,7 @@ export function MemorySection({ workspaceId, appId, canEdit }: { workspaceId: st
             )}
           </Field>
           <Field label="Preference">{(f) => <Textarea id={f.id} rows={3} value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} autoFocus />}</Field>
+          <Checkbox checked={workspaceWide} onCheckedChange={setWorkspaceWide} label="Apply to every app in this workspace" />
         </div>
       </Dialog>
     </div>
