@@ -56,6 +56,8 @@ export const PreviewPlayer = forwardRef<
         p.style.width = "100%";
         p.style.height = "100%";
         p.style.display = "block";
+        // Self-hosted runtime (copied from @hyperframes/core by `pnpm vendor:runtime`); no CDN dependency.
+        p.setAttribute("runtime-src", "/vendor/hyperframe.runtime.iife.js");
         p.addEventListener("timeupdate", (e) => {
           const t = (e as CustomEvent<{ currentTime: number }>).detail?.currentTime ?? p.currentTime;
           timeRef.current = t;

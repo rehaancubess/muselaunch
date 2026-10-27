@@ -9,6 +9,7 @@ const { Hono } = await import("hono");
 const { JOB_POOLS, TaskEnvelope } = await import("@muselaunch/contracts");
 const { createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
 const { handlers } = await import("./registry");
+const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
 
@@ -47,6 +48,34 @@ app.post("/tasks/execute", async (c) => {
     return c.json({ error: e.code }, 503);
   }
 });
+
+/**
+ * Periodic work. Production: Cloud Scheduler calls these every minute (OIDC, IAM-protected service).
+ * Local dev: an in-process timer calls the same functions.
+ */
+const CRONS: Record<string, () => Promise<unknown>> = {
+  "publish-due": () => runDueScheduledPosts(platform),
+};
+
+app.post("/tasks/cron/:name", async (c) => {
+  if (!authorised(c.req.header("x-worker-secret"))) return c.json({ error: "unauthorised" }, 401);
+  const fn = CRONS[c.req.param("name")];
+  if (!fn) return c.json({ error: "unknown cron" }, 404);
+  try {
+    return c.json({ ok: true, result: await fn() });
+  } catch (err) {
+    const e = toAppError(err);
+    platform.log.error({ err: { code: e.code, message: e.message }, cron: c.req.param("name") }, "cron failed");
+    return c.json({ error: e.code }, 500);
+  }
+});
+
+if (platform.cfg.JOB_DISPATCH !== "cloudtasks" && process.env.LOCAL_CRON !== "0" && pools.has("agents")) {
+  const tick = setInterval(() => {
+    for (const [name, fn] of Object.entries(CRONS)) fn().catch((err) => platform.log.warn({ err, cron: name }, "local cron failed"));
+  }, 60_000);
+  tick.unref();
+}
 
 const port = Number(process.env.PORT ?? platform.cfg.WORKER_PORT);
 serve({ fetch: app.fetch, port }, () => {

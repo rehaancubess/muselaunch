@@ -47,6 +47,10 @@ export function estimateCredits(prices: CreditPrices, operation: string, params:
       const chars = typeof params.text === "string" ? params.text.length : num("chars", 300);
       return line("Voiceover (external TTS)", Math.max(1, Math.ceil(chars / 100)) * (prices["media.tts_per_100_chars"] ?? 1));
     }
+    case "discover.refresh": {
+      const n = Math.max(1, Array.isArray(params.trackedCreatorIds) && params.trackedCreatorIds.length ? params.trackedCreatorIds.length : num("trackers", 1));
+      return line(`Check ${n} tracked account${n === 1 ? "" : "s"}`, n * (prices["discover.refresh_per_tracker"] ?? 2));
+    }
     default: {
       const c = prices[operation] ?? 0;
       return line(operation, c);

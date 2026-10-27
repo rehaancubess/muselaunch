@@ -128,6 +128,8 @@ export const DEFAULT_CREDIT_PRICES = {
   "media.image_edit": 6,
   "media.tts_per_100_chars": 1,
   "experiment.analyze": 8,
+  /** Per tracked account refreshed. */
+  "discover.refresh_per_tracker": 2,
   /** Spark interpretation + Wonder next-experiment proposal. */
   "recommendations.generate": 10,
   /** Analytics ingestion makes no AI calls. */

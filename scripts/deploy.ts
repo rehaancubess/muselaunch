@@ -73,7 +73,7 @@ const TASKS_SA = `muselaunch-tasks@${PROJECT}.iam.gserviceaccount.com`;
 console.log(`Deploying MuseLaunch to ${PROJECT} (${REGION})\n  web ${WEB_URL}\n  api ${API_URL}`);
 
 // ---- 1. APIs, registry, service accounts, IAM ----
-sh(`gcloud services enable run.googleapis.com cloudtasks.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com firestore.googleapis.com storage.googleapis.com iamcredentials.googleapis.com --project ${PROJECT}`);
+sh(`gcloud services enable cloudscheduler.googleapis.com run.googleapis.com cloudtasks.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com cloudbuild.googleapis.com firestore.googleapis.com storage.googleapis.com iamcredentials.googleapis.com --project ${PROJECT}`);
 sh(`gcloud artifacts repositories create muselaunch --repository-format=docker --location=${REGION} --project ${PROJECT}`, { allowFail: true });
 sh(`gcloud iam service-accounts create muselaunch-run --display-name="MuseLaunch runtime" --project ${PROJECT}`, { allowFail: true });
 sh(`gcloud iam service-accounts create muselaunch-tasks --display-name="MuseLaunch Cloud Tasks invoker" --project ${PROJECT}`, { allowFail: true });
@@ -154,6 +154,12 @@ deploy(SVC.worker, "worker", `--no-allow-unauthenticated --cpu=2 --memory=2Gi --
 deploy(SVC.render, "render", `--no-allow-unauthenticated --cpu=4 --memory=8Gi --timeout=1800 --concurrency=1 --min-instances=0 --max-instances=3 --execution-environment=gen2 ${envFlag(["WORKER_POOLS=render", "WORKER_TRUST_IAM=1"])} ${secretFlags}`);
 for (const svc of [SVC.worker, SVC.render]) {
   sh(`gcloud run services add-iam-policy-binding ${svc} --region=${REGION} --member=serviceAccount:${TASKS_SA} --role=roles/run.invoker --project=${PROJECT} --quiet`, { quiet: true });
+}
+// Every-minute cron: publish approved posts whose scheduled time has arrived.
+const cronUri = `${url(SVC.worker)}/tasks/cron/publish-due`;
+const cronFlags = `--schedule="* * * * *" --uri=${cronUri} --http-method=POST --oidc-service-account-email=${TASKS_SA} --oidc-token-audience=${url(SVC.worker)} --location=${REGION} --project=${PROJECT}`;
+if (!sh(`gcloud scheduler jobs update http muselaunch-publish-due ${cronFlags}`, { allowFail: true, quiet: true }) && !DRY) {
+  sh(`gcloud scheduler jobs create http muselaunch-publish-due ${cronFlags}`, { allowFail: true });
 }
 deploy(SVC.api, "api", `--allow-unauthenticated --cpu=1 --memory=1Gi --timeout=3600 --concurrency=80 --min-instances=0 --max-instances=10 ${envFlag()} ${secretFlags}`);
 deploy(SVC.web, "web", `--allow-unauthenticated --cpu=1 --memory=1Gi --concurrency=80 --min-instances=0 --max-instances=10`);

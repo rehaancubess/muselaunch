@@ -42,7 +42,7 @@ export class SecretStore {
 
   async get<T = unknown>(workspaceId: string, id: string): Promise<T | null> {
     const doc = await this.db.ws(workspaceId).state(`secret.${id}`, SecretDoc).get();
-    if (!doc) return null;
+    if (!doc || doc.kind === "deleted" || !doc.data) return null;
     const decipher = createDecipheriv("aes-256-gcm", this.requireKey(), Buffer.from(doc.iv, "base64"));
     decipher.setAAD(Buffer.from(`${workspaceId}:${id}`));
     decipher.setAuthTag(Buffer.from(doc.tag, "base64"));
