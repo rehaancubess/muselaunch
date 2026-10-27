@@ -47,6 +47,8 @@ type Hint = StoryboardOutput["scenes"][number]["assets"][number];
 const PRODUCT_KINDS = new Set(["screenshot", "app_recording"]);
 const DEMO_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after"]);
 const PROOF_TEMPLATES = new Set<TemplateId>(["quote-proof", "stat-card"]);
+/** Object-aware templates need real presenter footage (SAM tracks it); never generated media. */
+const OBJECT_TEMPLATES = new Set<TemplateId>(["presenter-depth", "object-spotlight", "product-in-hand"]);
 const UI_WORDS = /\b(screenshot|app (?:ui|interface|screen)|user interface|\bui\b|dashboard of the app|the app's screen|phone screen showing)\b/i;
 
 export interface StoryboardCheckContext {
@@ -100,8 +102,8 @@ export function checkStoryboard(sb: StoryboardOutput, c: StoryboardCheckContext)
         problems.push(`Scene ${n} (${s.template}) must show the real app, but no screenshot or recording is available; use a template that needs no product media.`);
       }
     }
-    if (s.template === "founder-cutout" && !assets.some((h) => h.kind === "founder_clip")) {
-      problems.push(`Scene ${n}: founder-cutout needs a founder_clip asset from the list (none chosen/available).`);
+    if ((s.template === "founder-cutout" || OBJECT_TEMPLATES.has(s.template)) && !assets.some((h) => h.kind === "founder_clip")) {
+      problems.push(`Scene ${n}: ${s.template} needs a real founder_clip asset from the list (none chosen/available); use another template.`);
     }
     const claimIds = s.claimIds.filter((id) => c.verifiedClaimIds.has(id));
     if (claimIds.length !== s.claimIds.length) fixes.push(`Scene ${n}: removed unverified claim ids`);
