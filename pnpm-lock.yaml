@@ -71,6 +71,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:../../packages/autopilot
       '@muselaunch/compositions':
         specifier: workspace:*
         version: link:../../packages/compositions
@@ -180,6 +183,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:../../packages/autopilot
       '@muselaunch/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

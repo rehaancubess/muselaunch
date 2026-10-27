@@ -1,5 +1,6 @@
 import { handlers as agentHandlers } from "@muselaunch/agents";
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
+import { handlers as autopilotHandlers } from "@muselaunch/autopilot";
 import { handlers as growthHandlers } from "@muselaunch/growth";
 import { handlers as mediaHandlers } from "@muselaunch/media";
 import type { HandlerRegistry } from "@muselaunch/platform";
@@ -29,4 +30,5 @@ export const handlers: HandlerRegistry = merge(
   ["render", renderHandlers],
   ["growth", growthHandlers],
   ["analytics", analyticsHandlers],
+  ["autopilot", autopilotHandlers],
 );

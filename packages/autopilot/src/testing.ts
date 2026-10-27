@@ -71,12 +71,22 @@ export const fixEditRoute = jsonRoute("CompositionEdit", (req) => {
   return { summary: "Replaced the flagged headline", targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: "Focus, one calm session at a time" } }] };
 });
 
+/** Research turns that restart for every new Wonder conversation (no previous_response_id), so several loops can share one platform. */
+function researchRoute(): MetaRoute {
+  const turns = fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-research-turns.json").turns;
+  let route = wonderRoute(turns, (r) => toolNames(r).includes("save_finding"));
+  return (req, index) => {
+    if (String(req.model).startsWith("muse-wonder") && toolNames(req).includes("save_finding") && !req.previous_response_id) route = wonderRoute(turns, (r) => toolNames(r).includes("save_finding"));
+    return route(req, index);
+  };
+}
+
 export function standardRoutes(extra: MetaRoute[] = []): MetaRoute[] {
   const recs = fixtureJson<{ interpretation: unknown; proposal: unknown }>("spark-recommendations.json");
   return [
     ...extra,
     autopilotDecisionRoute(),
-    wonderRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-research-turns.json").turns, (r) => toolNames(r).includes("save_finding")),
+    researchRoute(),
     searchRoute(),
     textRoute("Summarise these research findings", "Sources report study-with-me timer videos recur on short-form platforms. This may mean the timer screen is a natural hook."),
     jsonRoute("CampaignConcepts", (req) => resolvePlaceholders(fixtureJson("spark-concepts.json"), req)),
@@ -89,8 +99,14 @@ export function standardRoutes(extra: MetaRoute[] = []): MetaRoute[] {
   ];
 }
 
-/** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review). */
-export async function autopilotHarness(opts: { reviewPlan?: ReviewPlan; routes?: MetaRoute[]; workspaceId?: string; reviewHandler?: boolean } = {}): Promise<AutopilotHarness> {
+export interface PlatformOptions {
+  reviewPlan?: ReviewPlan;
+  routes?: MetaRoute[];
+  reviewHandler?: boolean;
+}
+
+/** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review), hooks and fake Meta. */
+export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHarness, "wid" | "appId" | "screenshotIds"> {
   const rendered: string[] = [];
   const reviews: string[] = [];
   const reviewPlan: ReviewPlan = opts.reviewPlan ?? (() => ({ status: "passed", findings: [] }));
@@ -142,6 +158,14 @@ export async function autopilotHarness(opts: { reviewPlan?: ReviewPlan; routes?:
   installAutopilotHooks(p);
   const clock = { now: Date.now() };
   setAutopilotClock(p, () => clock.now);
+  installFakeMeta(p, standardRoutes(opts.routes));
+  return { p, clock, rendered, reviews };
+}
+
+/** Platform + a workspace with a seeded app (App DNA, claims, real screenshot files). */
+export async function autopilotHarness(opts: PlatformOptions & { workspaceId?: string } = {}): Promise<AutopilotHarness> {
+  const base = autopilotPlatform(opts);
+  const { p } = base;
   const wid = opts.workspaceId ?? "ws_autopilot";
   const now = new Date().toISOString();
   await p.db.top("workspaces").set(wid, {
@@ -159,6 +183,5 @@ export async function autopilotHarness(opts: { reviewPlan?: ReviewPlan; routes?:
   });
   await p.credits.ensureAccount(wid, { grant: 2000, reason: "test" });
   const seed = await seedApp(p, wid);
-  installFakeMeta(p, standardRoutes(opts.routes));
-  return { p, wid, appId: seed.appId, screenshotIds: seed.screenshotIds, clock, rendered, reviews };
+  return { ...base, wid, appId: seed.appId, screenshotIds: seed.screenshotIds };
 }
