@@ -18,8 +18,8 @@ async function resolveAgentsValidator(): Promise<ClaimValidator | null> {
   return agentsValidator;
 }
 
-const SUPERLATIVES = /\b(#\s?1|number one|best|fastest|only (?:app|tool)|guarantee[ds]?|proven|clinically|award[- ]winning|most popular|top[- ]rated|million(?:s)? of users|10x)\b/gi;
-const NUMBERS = /(?:\d[\d,.]*\s?(?:%|x|k|m|\+|stars?|users|downloads|reviews))|(?:\$\s?\d[\d,.]*)/gi;
+const SUPERLATIVES = /(?:#\s?1\b|\b(?:number one|best|fastest|only (?:app|tool)|guarantee[ds]?|proven|clinically|award[- ]winning|most popular|top[- ]rated|millions? of users|10x)\b)/gi;
+const NUMBERS = /(?:\d[\d,.]*(?:\s?(?:k|m|million|thousand))?\+?\s?(?:%|x\b|users|downloads|reviews|stars?|customers|people|ratings))|(?:\d[\d,.]*\s?(?:k|m)\+?\b)|(?:\$\s?\d[\d,.]*)/gi;
 
 /**
  * Deterministic claim rules (always run; the only validator when module B's isn't available):
