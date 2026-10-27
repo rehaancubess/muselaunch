@@ -72,8 +72,19 @@ agentsT.installFakeWeb(p, [
 
 // ---------------------------------------------------------------- fake Meta (text + SAM + voice)
 type J = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const { responsesBody, jsonRoute, resolvePlaceholders, fixtureJson, requestText, wonderRoute, searchRoute, textRoute, toolNames, schemaName } = agentsT;
+const { responsesBody, jsonRoute, resolvePlaceholders, fixtureJson, requestText, searchRoute, textRoute, toolNames, schemaName } = agentsT;
 const growthFx = JSON.parse(readFileSync(fileURLToPath(new URL("../../../fixtures/growth/meta-responses.json", import.meta.url)), "utf8")) as J;
+/** Scripted Wonder tool loop that restarts at turn 0 for every new loop (no previous_response_id). */
+function loopRoute(turns: { name: string; args: unknown }[][], match: (req: J) => boolean) {
+  let n = 0;
+  return (req: J) => {
+    if (!String(req.model).startsWith("muse-wonder") || !match(req)) return undefined;
+    if (!req.previous_response_id) n = 0;
+    const turn = turns[Math.min(n, turns.length - 1)]!;
+    n += 1;
+    return responsesBody({ model: "muse-wonder-1.0", functionCalls: turn.map((c) => ({ name: c.name, args: resolvePlaceholders(c.args, req) })) });
+  };
+}
 const idsIn = (text: string, prefix: string) => [...new Set([...text.matchAll(new RegExp(`\\b${prefix}_[A-Za-z0-9_-]+`, "g"))].map((m) => m[0]))];
 
 const textRoutes = [
@@ -91,8 +102,8 @@ const textRoutes = [
     if (!sceneId || !layerId) return { summary: "No text layer to change in that scene", targetSceneIds: sceneId ? [sceneId] : [], ops: [] };
     return { summary: "Sharper, question-led opening line", targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: "Where did your focus go today?" } }] };
   }),
-  wonderRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-strategy-turns.json").turns, (r) => toolNames(r).includes("set_strategy")),
-  wonderRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-research-turns.json").turns, (r) => toolNames(r).includes("save_finding")),
+  loopRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-strategy-turns.json").turns, (r) => toolNames(r).includes("set_strategy")),
+  loopRoute(fixtureJson<{ turns: { name: string; args: unknown }[][] }>("wonder-research-turns.json").turns, (r) => toolNames(r).includes("save_finding")),
   searchRoute(),
   textRoute("Summarise these research findings", "Sources report study-with-me timer videos recur on short-form platforms. This may mean the timer screen is a natural hook."),
   // Module E
@@ -172,7 +183,6 @@ const metaFetch = (async (input: string | URL | Request, init: RequestInit = {})
   return media.fetch(input, init);
 }) as typeof fetch;
 installMetaClient(p, new MetaClient(p, { fetch: metaFetch, apiKey: "fixture-mode-no-real-key" }));
-void responsesBody;
 
 // ---------------------------------------------------------------- fake Glimmer (memory ranking)
 agentsT.installFakeGlimmer(p, (messages) => {

@@ -9,6 +9,7 @@
  */
 import { ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { emitAiEdit, useAiEditCommand } from "@/lib/commands";
 import { useCurrentApp } from "@/lib/workspace";
 import { AiPanel } from "./ai-panel";
 import { AssetsDrawer } from "./assets-drawer";
@@ -37,6 +38,17 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [layerId, setLayerId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState("edit");
+  // ⌘K "Edit video" while another tab is open: switch to Ask Muse, then re-deliver once it's mounted.
+  useAiEditCommand(
+    useCallback(
+      (cmd) => {
+        if (cmd.compositionId !== compositionId || rightTab === "ai") return;
+        setRightTab("ai");
+        setTimeout(() => emitAiEdit(cmd), 80);
+      },
+      [compositionId, rightTab],
+    ),
+  );
 
   // Keep selection valid across versions (scenes/layers can be removed by edits or undo).
   const scene = useMemo(() => (doc ? (doc.scenes.find((s) => s.id === sceneId) ?? null) : null), [doc, sceneId]);

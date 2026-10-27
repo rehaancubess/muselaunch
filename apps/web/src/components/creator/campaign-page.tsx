@@ -22,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { useAssetUrl } from "@/components/app-icon";
 import { AgentRunsList } from "@/features/agents";
 import { NewPostDialog } from "@/features/publishing/new-post";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
 import { api, errorMessage, isRouteMissing, newIdempotencyKey, wsPath } from "@/lib/api";
@@ -190,12 +190,30 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
   const [postFor, setPostFor] = useState<{ assetId?: string } | null>(null);
   const { app } = useWorkspace();
   const jobs = useApiQuery<Page<Job>>(wsPath(workspaceId, "/jobs"), { query: { appId, limit: 40 }, refetchInterval: 5000 });
-  const campaignJobs = (jobs.data?.items ?? []).filter((j) => (j.payload as { campaignId?: string })?.campaignId === campaignId);
-  const active = [...startedJobs.filter((s) => !campaignJobs.some((j) => j.id === s.id)), ...campaignJobs.filter(isActive)];
+  // Chained pipeline jobs (composition.build, render.*) carry composition/storyboard ids, not the campaign id.
+  const known = useRef<{ compositions: Set<string>; storyboards: Set<string> }>({ compositions: new Set(), storyboards: new Set() });
+  const PIPELINE = new Set(["storyboard.generate", "composition.build", "composition.variants", "render.preview", "render.final", "package.export", "copy.generate", "campaign.generate_concepts"]);
+  const campaignJobs = (jobs.data?.items ?? []).filter((j) => {
+    const pl = j.payload as { campaignId?: string; compositionId?: string; storyboardId?: string };
+    return pl?.campaignId === campaignId || (pl?.compositionId && known.current.compositions.has(pl.compositionId)) || (pl?.storyboardId && known.current.storyboards.has(pl.storyboardId));
+  });
+  const otherPipelineActive = (jobs.data?.items ?? []).some((j) => isActive(j) && PIPELINE.has(j.type));
+  const active = [...startedJobs.filter((s) => !campaignJobs.some((j) => j.id === s.id) && !(jobs.data?.items ?? []).some((j) => j.id === s.id && !isActive(j))), ...campaignJobs.filter(isActive)];
   const failedRecent = campaignJobs.filter((j) => j.status === "failed" && Date.now() - Date.parse(j.updatedAt) < 30 * 60_000).slice(0, 2);
   const lastExport = campaignJobs.find((j) => j.type === "package.export" && j.status === "succeeded");
   const packageAssetId = (lastExport?.output?.data as { assetId?: string } | undefined)?.assetId;
-  const detail = useApiQuery<CampaignDetailResponse>(path, { refetchInterval: active.length ? 4000 : false });
+  const detail = useApiQuery<CampaignDetailResponse>(path, { refetchInterval: active.length || otherPipelineActive ? 4000 : false });
+  if (detail.data) {
+    for (const c of detail.data.compositions) known.current.compositions.add(c.id);
+    for (const sb of detail.data.storyboards) known.current.storyboards.add(sb.id);
+  }
+  // When the last pipeline job settles, fetch the campaign once more (new compositions, final status).
+  const busyRef = useRef(false);
+  const busyNow = active.length > 0 || otherPipelineActive;
+  useEffect(() => {
+    if (busyRef.current && !busyNow) void invalidate(path);
+    busyRef.current = busyNow;
+  }, [busyNow, invalidate, path]);
   const dna = useApiQuery<AppDnaResponse>(wsPath(workspaceId, `/apps/${appId}/dna`), { retry: false });
   const claims = useMemo(() => new Map<string, Claim>((dna.data?.claims ?? []).map((c) => [c.id, c])), [dna.data]);
   const activeTypes = new Set(active.map((j) => j.type));
