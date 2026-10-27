@@ -1,0 +1,59 @@
+/*
+ * MuseLaunch design tokens (light mode only).
+ * Plain CSS variables so non-Tailwind surfaces (studio iframes, previews, emails) can use them.
+ * Tailwind utilities are mapped from these in ./theme.css.
+ */
+:root {
+  /* Neutrals: bright, cool, quiet. */
+  --ml-canvas: #ffffff;
+  --ml-surface: #ffffff;
+  --ml-mist: #f5f5f7;
+  --ml-mist-2: #ececf0;
+  --ml-ink: #1d1d1f;
+  --ml-ink-2: #6e6e73;
+  --ml-ink-3: #a1a1a6;
+  --ml-line: #e8e8ed;
+  --ml-line-strong: #d2d2d7;
+
+  /* One restrained accent (cobalt). */
+  --ml-accent: #3355ff;
+  --ml-accent-hover: #2445ee;
+  --ml-accent-soft: #eef1ff;
+  --ml-accent-ink: #1f3bd6;
+
+  /* Status (used only to communicate state). */
+  --ml-success: #138a48;
+  --ml-success-soft: #e8f6ee;
+  --ml-warning: #9a5b00;
+  --ml-warning-soft: #fff4de;
+  --ml-danger: #d1243a;
+  --ml-danger-soft: #fdecee;
+
+  /* Radii: hierarchy, not one radius everywhere. */
+  --ml-radius-xs: 6px;
+  --ml-radius-sm: 8px;
+  --ml-radius-md: 10px;
+  --ml-radius-lg: 14px;
+  --ml-radius-xl: 20px;
+  --ml-radius-2xl: 28px;
+
+  /* Elevation: hairline-first, shadows only where things float. */
+  --ml-shadow-raised: 0 1px 2px rgb(16 24 40 / 0.04), 0 0 0 1px rgb(16 24 40 / 0.05);
+  --ml-shadow-float: 0 18px 48px -12px rgb(16 24 40 / 0.18), 0 0 0 1px rgb(16 24 40 / 0.06);
+  --ml-shadow-focus: 0 0 0 3px rgb(51 85 255 / 0.28);
+
+  /* Motion */
+  --ml-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ml-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ml-dur-fast: 140ms;
+  --ml-dur: 220ms;
+  --ml-dur-slow: 420ms;
+
+  /* Type */
+  --ml-font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --ml-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* Layout */
+  --ml-topbar-h: 56px;
+  --ml-content-max: 1180px;
+}

@@ -1,0 +1,23 @@
+@import "tailwindcss";
+@import "@muselaunch/ui/theme.css";
+
+/* Generate utilities used inside the shared UI package and feature folders. */
+@source "../../../../packages/ui/src";
+@source "../";
+
+@layer base {
+  /* cmdk command palette */
+  [cmdk-group-heading] {
+    padding: 8px 12px 4px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--ml-ink-3);
+  }
+  [cmdk-item][data-selected="true"] {
+    background: var(--ml-mist);
+  }
+  [cmdk-list] {
+    scroll-padding-block: 8px;
+  }
+}
