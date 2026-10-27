@@ -7,7 +7,7 @@ import { api, errorMessage, wsPath } from "@/lib/api";
 import { useJob } from "@/lib/jobs";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
-import { useWorkspace } from "@/lib/workspace";
+import { useMemberName, useWorkspace } from "@/lib/workspace";
 import { ApprovalCard } from "./approval-card";
 import type { JobOut, ManualPackage, PostView } from "./types";
 
@@ -41,6 +41,7 @@ export function PostSheet({ postId, onOpenChange }: { postId: string | null; onO
 
 function PostBody({ view }: { view: PostView }) {
   const { workspaceId, can } = useWorkspace();
+  const nameOf = useMemberName();
   const toast = useToast();
   const invalidate = useInvalidate();
   const { post, approval, publication, account, preflight } = view;
@@ -92,7 +93,7 @@ function PostBody({ view }: { view: PostView }) {
               </a>
             ) : null}
             <p className="text-caption">
-              {publication.mode === "api" ? `Receipt: ${publication.remoteId}` : `Confirmed by ${publication.confirmedBy}`} · {new Date(publication.publishedAt).toLocaleString()}
+              {publication.mode === "api" ? `Receipt: ${publication.remoteId}` : `Confirmed by ${nameOf(publication.confirmedBy)}`} · {new Date(publication.publishedAt).toLocaleString()}
             </p>
             {Array.isArray((publication.receipt as { notes?: string[] } | undefined)?.notes)
               ? ((publication.receipt as { notes: string[] }).notes.map((n) => (

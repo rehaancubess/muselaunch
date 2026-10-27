@@ -4,7 +4,7 @@ import { Badge, Button, Card, Notice, StatusPill, Textarea, statusKindOf, useToa
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
-import { useWorkspace } from "@/lib/workspace";
+import { useMemberName, useWorkspace } from "@/lib/workspace";
 
 const CAP: Record<Approval["action"], Capability> = {
   publish: "publish",
@@ -32,6 +32,7 @@ const ACTION_LABEL: Record<Approval["action"], string> = {
  */
 export function ApprovalCard({ approval, currentHash, onDecided, compact }: { approval: Approval; currentHash?: string; onDecided?: () => void; compact?: boolean }) {
   const { workspaceId, can } = useWorkspace();
+  const nameOf = useMemberName();
   const toast = useToast();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
@@ -66,7 +67,7 @@ export function ApprovalCard({ approval, currentHash, onDecided, compact }: { ap
           <p className="text-footnote text-ink-2 text-pretty">{approval.summary}</p>
           {approval.decidedBy ? (
             <p className="text-caption text-ink-3">
-              {approval.status === "rejected" ? "Rejected" : "Approved"} by {approval.decidedBy}
+              {approval.status === "rejected" ? "Rejected" : "Approved"} by {nameOf(approval.decidedBy)}
               {approval.decidedAt ? ` · ${new Date(approval.decidedAt).toLocaleString()}` : ""}
               {approval.note ? ` · “${approval.note}”` : ""}
             </p>

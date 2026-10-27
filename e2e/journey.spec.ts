@@ -149,7 +149,8 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
 
   await test.step("Calendar: approve and post manually", async () => {
     await page.goto(page.url().replace(/\/creator\/campaigns\/.*$/, "/calendar"));
-    await page.getByRole("button", { name: "Review post" }).first().click();
+    // The draft has no time yet, so it's listed under "Not scheduled yet"; open it from there.
+    await page.getByText("Forward. Focus. Done.", { exact: false }).first().click();
     await page.getByRole("button", { name: "Request approval" }).click();
     await expect(page.getByRole("button", { name: "Approve this version" })).toBeVisible();
     await page.getByRole("button", { name: "Approve this version" }).click();
@@ -161,6 +162,7 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     await page.getByRole("button", { name: "Mark as posted" }).click();
     await page.waitForTimeout(1000);
     await shot(page, "post-marked-posted");
+    await page.keyboard.press("Escape");
   });
 
   await test.step("Insights: CSV import → experiment → recommendation", async () => {
