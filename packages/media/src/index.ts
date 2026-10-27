@@ -21,4 +21,4 @@ export { LOW_QUALITY_THRESHOLD, SAM_MAX_FRAMES, encodeCorrection, decodeCorrecti
 export { modeForPurpose, MAX_TRANSCRIBE_SECONDS } from "./transcribe";
 export { needsVideoNormalisation, MAX_LONG_EDGE } from "./probe";
 export { requestSegmentation, correctSegmentation, requestTranscript, waitForTranscript, importStock, ensureConsent, PERSON_PROMPT } from "./service";
-export { installMediaDeps, type MediaDeps } from "./util";
+export { installMediaDeps, mediaDeps, type MediaDeps } from "./util";

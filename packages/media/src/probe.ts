@@ -1,3 +1,4 @@
+/// <reference path="./heic-convert.d.ts" />
 import { open, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MediaAsset } from "@muselaunch/contracts";
