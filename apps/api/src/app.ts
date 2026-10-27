@@ -9,7 +9,7 @@ import { analyticsRoutes } from "./routes/analytics";
 import { appDnaRoutes } from "./routes/app-dna";
 import { appRoutes } from "./routes/apps";
 import { assetRoutes } from "./routes/assets";
-import { billingRoutes } from "./routes/billing";
+import { adminRoutes, billingRoutes } from "./routes/billing";
 import { campaignRoutes } from "./routes/campaigns";
 import { compositionRoutes } from "./routes/compositions";
 import { creditRoutes } from "./routes/core-billing";
@@ -61,6 +61,8 @@ export function buildApp(platform: Platform) {
   v1.use("*", rateLimit({ perMinute: 240 }));
   v1.route("/", meRoutes);
   v1.route("/", statusRoutes);
+  // Operator console (ADMIN_UIDS only; the routes check it themselves).
+  v1.route("/admin", adminRoutes);
 
   // Tenant-scoped API: membership verified once here for every nested route.
   const ws = new Hono<AppEnv>();

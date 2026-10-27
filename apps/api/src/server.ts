@@ -7,7 +7,11 @@ const { serve } = await import("@hono/node-server");
 const { createPlatform, createRunner } = await import("@muselaunch/platform");
 const { buildApp } = await import("./app");
 
+const { installAnalyticsHooks } = await import("@muselaunch/analytics");
+
 const platform = createPlatform();
+// Plan quotas, monthly credit top-ups and ops counters (module F).
+installAnalyticsHooks(platform);
 if (platform.cfg.JOB_DISPATCH === "inline") {
   // Single-process mode: the API also executes jobs (local demos only).
   const { handlers } = await import("@muselaunch/worker/registry");

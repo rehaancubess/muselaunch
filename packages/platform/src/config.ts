@@ -96,6 +96,10 @@ export const ConfigSchema = z.object({
 
   PLANS_JSON: z.string().optional(),
   CREDIT_PRICES_JSON: z.string().optional(),
+  /** Comma-separated Firebase uids with operator access (admin ops, plan changes). */
+  ADMIN_UIDS: csv.default([]),
+  /** Public base URL for tracked links (/r/:slug); defaults to API_PUBLIC_URL. */
+  LINK_PUBLIC_BASE_URL: z.string().optional(),
   /** Credits granted to a new workspace. */
   SIGNUP_CREDITS: z.coerce.number().int().default(300),
 });
