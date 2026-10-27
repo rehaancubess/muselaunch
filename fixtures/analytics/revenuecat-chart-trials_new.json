@@ -1,0 +1,67 @@
+{
+ "_fixture": "Documented RevenueCat API v2 chart shape with invented test values. Not live data.",
+ "response": {
+  "object": "chart_data",
+  "category": "trials",
+  "display_name": "New Trials",
+  "description": "Number of new free trials started.",
+  "resolution": "day",
+  "yaxis_currency": "USD",
+  "values": [
+   {
+    "cohort": 1792454400,
+    "measure": 0,
+    "value": 14,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792540800,
+    "measure": 0,
+    "value": 17,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792627200,
+    "measure": 0,
+    "value": 12,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792713600,
+    "measure": 0,
+    "value": 19,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792800000,
+    "measure": 0,
+    "value": 21,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792886400,
+    "measure": 0,
+    "value": 16,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792972800,
+    "measure": 0,
+    "value": 18,
+    "incomplete": false
+   },
+   {
+    "cohort": 1793059200,
+    "measure": 0,
+    "value": 3,
+    "incomplete": true
+   }
+  ],
+  "measures": [
+   {
+    "display_name": "New Trials",
+    "unit": "#"
+   }
+  ]
+ }
+}

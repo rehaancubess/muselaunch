@@ -1,0 +1,16 @@
+{
+  "_fixture": "Documented RevenueCat API v2 overview shape with invented test values. Not live data.",
+  "response": {
+    "object": "overview_metrics",
+    "metrics": [
+      { "object": "overview_metric", "id": "active_trials", "name": "Active Trials", "description": "In total", "unit": "#", "period": "P0D", "value": 41, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "active_subscriptions", "name": "Active Subscriptions", "description": "In total", "unit": "#", "period": "P0D", "value": 268, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "mrr", "name": "MRR", "description": "Monthly Recurring Revenue", "unit": "$", "period": "P0D", "value": 1432.5, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "revenue", "name": "Revenue", "description": "Last 28 days", "unit": "$", "period": "P28D", "value": 1611.2, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "new_customers", "name": "New Customers", "description": "Last 28 days", "unit": "#", "period": "P28D", "value": 905, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "active_users", "name": "Active Users", "description": "Last 28 days", "unit": "#", "period": "P28D", "value": 2210, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" },
+      { "object": "overview_metric", "id": "some_future_metric", "name": "Future Metric", "description": "Unknown to MuseLaunch", "unit": "#", "period": "P7D", "value": 3, "last_updated_at": 1793102400000, "last_updated_at_iso8601": "2026-10-27 12:00:00.000000+00:00" }
+    ],
+    "currency": "USD"
+  }
+}

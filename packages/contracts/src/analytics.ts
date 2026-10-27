@@ -143,6 +143,8 @@ export const ImportBatch = BaseEntity.extend({
       attribution: z.enum(["aggregate", "platform_reported", "none"]).optional(),
       /** Free-text definition the user gives for the numbers (shown next to every value). */
       definitionNote: z.string().max(300).optional(),
+      /** How to read dates like 03/04/2026 when the file is ambiguous. */
+      dateFormat: z.enum(["auto", "YMD", "MDY", "DMY"]).optional(),
     })
     .default({}),
   /** First parsed rows (normalised), for the mapping preview. */
