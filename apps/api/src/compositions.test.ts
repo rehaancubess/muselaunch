@@ -17,9 +17,9 @@ function client(app: ReturnType<typeof buildApp>, uid: string, email = `${uid}@e
   const auth = { authorization: `Bearer dev:${uid}:${email}` };
   const json = async (res: Response) => ({ status: res.status, body: (await res.json()) as J });
   return {
-    get: (path: string) => app.request(path, { headers: auth }).then(json),
+    get: (path: string) => Promise.resolve(app.request(path, { headers: auth })).then(json),
     post: (path: string, body?: unknown) =>
-      app.request(path, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: body === undefined ? "{}" : JSON.stringify(body) }).then(json),
+      Promise.resolve(app.request(path, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: body === undefined ? "{}" : JSON.stringify(body) })).then(json),
   };
 }
 

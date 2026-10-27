@@ -8,6 +8,36 @@ importers:
 
   .:
     devDependencies:
+      '@muselaunch/agents':
+        specifier: workspace:*
+        version: link:packages/agents
+      '@muselaunch/analytics':
+        specifier: workspace:*
+        version: link:packages/analytics
+      '@muselaunch/compositions':
+        specifier: workspace:*
+        version: link:packages/compositions
+      '@muselaunch/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
+      '@muselaunch/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@muselaunch/growth':
+        specifier: workspace:*
+        version: link:packages/growth
+      '@muselaunch/media':
+        specifier: workspace:*
+        version: link:packages/media
+      '@muselaunch/platform':
+        specifier: workspace:*
+        version: link:packages/platform
+      '@muselaunch/providers':
+        specifier: workspace:*
+        version: link:packages/providers
+      '@muselaunch/render':
+        specifier: workspace:*
+        version: link:packages/render
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5

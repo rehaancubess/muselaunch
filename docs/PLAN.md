@@ -13,7 +13,7 @@ taken to implement it within the hackathon window (submission: 4 Nov 2026, 9:00 
 | Storage | Firebase Cloud Storage (GCS) with v4 signed URLs; local driver for dev | Keys always `workspaces/{wid}/...`. |
 | Queue | Cloud Tasks (prod), HTTP dispatch (local multi-process), inline (tests) | Same worker endpoint `/tasks/execute`. |
 | Video | HyperFrames 0.8.x: JSON `CompositionDoc` → allowlisted components → HTML → `@hyperframes/producer` MP4 | Preview with `@hyperframes/player`. |
-| Images | OpenAI Images (`gpt-image-1`, configurable) | Owner is in India: Meta policy bars Muse Image access from India. Muse Image adapter exists behind the eligibility gate and stays off unless organisers confirm otherwise. |
+| Images | OpenAI Images (`gpt-image-2.5-flare`, configurable; `gpt-image-1` was shut down 23 Oct 2026) | Owner is in India: Meta policy bars Muse Image access from India. Muse Image adapter exists behind the eligibility gate and stays off unless organisers confirm otherwise. |
 | Glimmer | Dev/demo on the owner's RTX 5090 (llama.cpp/SGLang/Ollama, OpenAI-compatible); production via partner credits (Modal/Baseten) | Memory itself lives in Firestore (`brandPreferences`); Glimmer retrieves/reasons over it. |
 | Research | Meta search grounding (Responses API tool) + SSRF-safe fetch of user-provided URLs | Every finding stores source URL + retrieved timestamp. |
 | Track | Indie developer track | Demo path first, breadth second. |
