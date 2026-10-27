@@ -194,6 +194,11 @@ export class MetaClient {
 }
 
 const clients = new WeakMap<Platform, MetaClient>();
+
+/** Tests: install a client built with a fake fetch (recorded/documented responses). */
+export function installMetaClient(platform: Platform, client: MetaClient): void {
+  clients.set(platform, client);
+}
 export function metaClient(platform: Platform): MetaClient {
   let c = clients.get(platform);
   if (!c) {

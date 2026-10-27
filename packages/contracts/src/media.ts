@@ -112,6 +112,11 @@ export const Segmentation = BaseEntity.extend({
    * with the source (or a PNG for images); `previewAsset` is an overlay preview for the selection UI.
    */
   maskAssetId: Id.optional(),
+  /**
+   * Subject-only media with alpha, frame-aligned with the source: VP9-alpha WebM for video,
+   * PNG for images. The compositions compiler swaps a masked layer's source to this asset.
+   */
+  cutoutAssetId: Id.optional(),
   previewAssetId: Id.optional(),
   frameCount: z.number().int().nonnegative().optional(),
   fps: z.number().positive().optional(),

@@ -11,6 +11,25 @@ import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime } from "./common";
  */
 export const COMPOSITION_SCHEMA_VERSION = 1 as const;
 
+/**
+ * Allowlisted scene templates (implemented by @muselaunch/compositions). Storyboards may only
+ * reference these ids; the compiler rejects anything else.
+ */
+export const TEMPLATE_IDS = [
+  "hook-title", // big kinetic headline, optional background media
+  "device-demo", // real screenshot/recording inside an animated device frame + caption
+  "feature-callout", // device or screenshot with 1-3 animated callout labels
+  "founder-cutout", // SAM cutout of the founder in front of the app demo / backdrop
+  "before-after", // split or wipe comparison (real workflow states only)
+  "text-over-media", // full-bleed image/video (stock/generated/upload) with headline
+  "split-screen", // two media panes with labels
+  "quote-proof", // REAL evidence only: review/press quote with source label
+  "stat-card", // REAL measured number with source label
+  "cta-endcard", // logo, CTA, store badges
+  "carousel-slide", // static slide for carousels/static ads/thumbnails
+] as const;
+export type TemplateId = (typeof TEMPLATE_IDS)[number];
+
 /** Hex colour or a theme token. */
 export const ColorValue = z.union([
   HexColor,
