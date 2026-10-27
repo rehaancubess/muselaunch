@@ -124,8 +124,10 @@ describe("Brand Guardian API (module G)", () => {
     const again = await alice.post(`${W()}/reviews`, { subject: { entity: "compositions", id: comp.id }, version: 1 });
     expect(again.status).toBe(200);
     expect(again.body).toMatchObject({ reused: true, review: { id: toneReviewId } });
-    const list = await alice.get(`${W()}/reviews?subjectId=${comp.id}`);
+    const list = await alice.get(`${W()}/reviews?subjectId=${comp.id}&entity=compositions`);
     expect(list.body.items.map((r: J) => r.id)).toEqual([toneReviewId]);
+    expect(list.body.items[0].current).toBe(true);
+    expect(list.body.current).toMatchObject({ version: 1 });
     // Failure paths: unsupported subject (422) and unknown composition (404).
     expect((await alice.post(`${W()}/reviews`, { subject: { entity: "apps", id: seeded.appId } })).status).toBe(422);
     expect((await alice.post(`${W()}/reviews`, { subject: { entity: "compositions", id: "cmp_missing" } })).status).toBe(404);
@@ -241,6 +243,9 @@ describe("Brand Guardian API (module G)", () => {
     expect(ok.status).toBe(200);
     expect(ok.body.approval).toMatchObject({ action: "publish", status: "pending" });
     expect(ok.body.brandReview).toMatchObject({ status: "passed", overridden: false });
+    // Only the review of the current caption is flagged `current` (posts have no version number).
+    const reviews = (await alice.get(`${W()}/reviews?subjectId=${post.id}&entity=scheduledPosts`)).body.items;
+    expect(reviews.map((r: J) => [r.status, r.current])).toEqual([["passed", true], ["blocked", false]]);
   });
 
   it("keeps reviews tenant-scoped (other workspaces get 404)", async () => {

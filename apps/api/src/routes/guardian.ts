@@ -1,5 +1,5 @@
-import { applyFinding, dismissFinding, listReviews, requestBrandReview } from "@muselaunch/agents";
-import { can, CreateBrandReviewRequest, DismissBrandFindingRequest } from "@muselaunch/contracts";
+import { applyFinding, dismissFinding, isSubjectEntity, listReviews, loadSubject, requestBrandReview } from "@muselaunch/agents";
+import { BrandReviewSubjectEntity, can, CreateBrandReviewRequest, DismissBrandFindingRequest } from "@muselaunch/contracts";
 import { glimmerClient } from "@muselaunch/providers";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -36,6 +36,8 @@ guardianRoutes.post("/reviews", requireCap("content.write"), async (c) => {
 
 const ListQuery = z.object({
   subjectId: z.string().min(1).max(128).optional(),
+  /** With subjectId: lets the response flag which reviews match the subject's CURRENT content. */
+  entity: BrandReviewSubjectEntity.optional(),
   appId: z.string().min(1).max(128).optional(),
   version: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
@@ -44,7 +46,17 @@ const ListQuery = z.object({
 
 guardianRoutes.get("/reviews", async (c) => {
   const q = query(c, ListQuery);
-  return c.json({ ...(await listReviews(ws(c), q)), ...engineInfo(c) });
+  const page = await listReviews(ws(c), q);
+  // `current`: which reviews are of the subject's current version/content (posts and drafts have
+  // no version number, so the client can't tell on its own).
+  let current: { version?: number; contentHash: string } | null = null;
+  const entity = q.entity ?? page.items[0]?.subject.entity;
+  if (q.subjectId && entity && isSubjectEntity(entity)) {
+    const s = await loadSubject(ws(c), { entity, id: q.subjectId }).catch(() => null);
+    if (s) current = { version: s.version, contentHash: s.contentHash };
+  }
+  const items = page.items.map((r) => ({ ...r, current: current ? (current.version !== undefined ? r.subjectVersion === current.version : r.contentHash === current.contentHash) : false }));
+  return c.json({ items, nextCursor: page.nextCursor, current, ...engineInfo(c) });
 });
 
 guardianRoutes.get("/reviews/:id", async (c) => {

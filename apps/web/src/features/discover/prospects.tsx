@@ -4,6 +4,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, JobProgress, Lis
 import { Copy, Mail, PenLine, Plus, Send, Users } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { QueryState } from "@/components/states";
+import { BrandGuardianBadge, GuardedApprovalButton } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { useJob } from "@/lib/jobs";
@@ -329,6 +330,7 @@ function DraftCard({ draftId, onChanged }: { draftId: string; onChanged: () => P
               </ul>
             </Notice>
           ) : null}
+          {["draft", "failed", "awaiting_approval"].includes(draft.status) && !edit ? <BrandGuardianBadge subject={{ entity: "outreachDrafts", id: draft.id }} /> : null}
           {approval && draft.status !== "sent" ? <ApprovalCard approval={approval} currentHash={snapshotHash} compact onDecided={() => void refresh()} /> : null}
           {jobId ? <JobProgress job={job.job} title="Sending" variant="row" /> : null}
           {copied ? (
@@ -352,9 +354,8 @@ function DraftCard({ draftId, onChanged }: { draftId: string; onChanged: () => P
                 </Button>
               ) : null}
               {["draft", "failed"].includes(draft.status) ? (
-                <Button size="sm" loading={busy === "req"} disabled={!draft.validation?.ok || !draft.to} onClick={() => run("req", () => api.post(D("/request-approval")), "Approval requested")}>
-                  Request approval
-                </Button>
+                // Brand Guardian (module G) gates approval requests; a blocked review asks for an override reason.
+                <GuardedApprovalButton size="sm" path={D("/request-approval")} onDone={refresh} disabled={!draft.validation?.ok || !draft.to} />
               ) : null}
               {["approved", "copied_manual"].includes(draft.status) && can("outreach.send") ? (
                 <>
