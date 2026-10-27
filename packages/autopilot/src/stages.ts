@@ -1,4 +1,4 @@
-import { applyFinding, brandGate, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
+import { applyFinding, brandGate, truncateWords, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
 import { gatherExperimentData } from "@muselaunch/analytics";
 import { lintDoc, totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
@@ -257,7 +257,7 @@ const planCreative: StageFn = async (env, step) => {
       {
         id: campaignId,
         appId: env.appId,
-        name: clip(`Autopilot #${env.iteration}: ${h?.statement ?? env.ap.goal}`, 160),
+        name: truncateWords(`Autopilot ${env.iteration}: ${env.ap.audience?.description ?? env.ap.goal}`, 60),
         goal: GOAL_BY_METRIC[h?.primaryMetric ?? ""] ?? "awareness",
         request: clip(
           [`Goal: ${env.ap.goal}`, `Audience: ${env.ap.audience?.description ?? ""}`, `Hypothesis to test: ${h?.statement ?? ""}`, `Make strategically distinct short vertical videos so the variants test the hypothesis (primary metric: ${h?.primaryMetric ?? "views"}).`].join("\n"),

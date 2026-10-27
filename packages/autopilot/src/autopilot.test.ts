@@ -52,6 +52,12 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     // Two strategically distinct variants produced as editable compositions from real screenshots
     const variants = await h.p.db.ws(h.wid).collection("campaignVariants").getMany(ap.variantIds);
     expect(new Set(variants.map((v) => v.angleType)).size).toBe(2);
+    // ...each citing the research findings it builds on (from this loop's research run)
+    const loopFindings = new Set((await h.p.db.ws(h.wid).collection("researchFindings").list({ where: [["appId", "==", h.appId]], limit: 50 })).items.map((f) => f.id));
+    for (const v of variants) {
+      expect(v.findingIds.length).toBeGreaterThan(0);
+      for (const f of v.findingIds) expect(loopFindings.has(f)).toBe(true);
+    }
     expect(ap.compositionIds).toHaveLength(2);
     // Verified (lint + claims + Brand Guardian) then rendered under the auto-approve threshold
     expect(ap.reviewIds).toHaveLength(2);
@@ -260,8 +266,9 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const exp = await h.p.db.ws(h.wid).collection("experiments").getOrThrow(ap.hypothesis!.experimentId!);
     expect(exp.variants).toHaveLength(1);
 
-    // Default fixture offers 2 labels for a 1-variant loop: the decision tool rejects it every time.
-    const bad = await autopilotHarness({ workspaceId: "ws_autopilot_bad" });
+    // A Wonder that keeps offering 2 labels for a 1-variant loop: the decision tool rejects it every time.
+    const twoLabels = { statement: "For students, a problem-first hook drives installs.", primaryMetric: "installs", variantLabels: ["Demo-first hook (control)", "Problem-first hook"], rationale: "Grounded in research.", findingIds: ["$ID:fnd:0"] };
+    const bad = await autopilotHarness({ workspaceId: "ws_autopilot_bad", routes: [autopilotDecisionRoute({ set_hypothesis: twoLabels })] });
     const { autopilot: a2 } = await startAutopilot(bad.p, bad.wid, bad.appId, { goal: "Grow", maxCredits: 400, maxIterations: 1, autoApproveCredits: 100, variants: 1 }, "u1");
     await bad.p.inline!.drain();
     const failed = await get(bad, a2.id);

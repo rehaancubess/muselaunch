@@ -46,6 +46,22 @@ export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.ma
 export const clip = (s: string | undefined, max: number) => (s && s.length > max ? `${s.slice(0, max - 1)}…` : (s ?? ""));
 export const uniq = <T>(xs: readonly T[]) => [...new Set(xs)];
 
+/** Shorten to at most `max` characters at a word boundary, with an ellipsis (never mid-word). */
+export function truncateWords(text: string, max: number): string {
+  const s = text.replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space >= max * 0.4 ? cut.slice(0, space) : cut).replace(/[\s,;:.\-–—(]+$/, "")}…`;
+}
+
+/** Provisional campaign name from the founder's request (first line/sentence, cut at a word); Spark replaces it with a short name. */
+export function autoCampaignName(request: string): string {
+  const first = (request.split(/\r?\n/).find((l) => l.trim()) ?? "").replace(/\s+/g, " ").trim();
+  const sentence = (first.split(/(?<=[.!?])\s/)[0] ?? first).replace(/[.!?]+$/, "");
+  return truncateWords(sentence, 60) || "New campaign";
+}
+
 /** Canonical form for comparing URLs (drop fragment and trailing slash, lowercase host). */
 export function canonicalUrl(raw: string): string | null {
   try {

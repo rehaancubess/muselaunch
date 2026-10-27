@@ -51,6 +51,12 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
     const tool = ["choose_audience", "set_hypothesis", "pick_variants", "plan_next_iteration"].find((n) => names.includes(n));
     if (!tool) return undefined;
     let args: unknown = overrides[tool] ?? DECISIONS()[tool];
+    if (tool === "set_hypothesis" && !overrides[tool]) {
+      // Size the labels to the loop's variant count ("compare N creative approach(es)").
+      const n = Number(String(req.instructions ?? "").match(/compare (\d) creative approach/)?.[1] ?? 0);
+      const h = args as { variantLabels: string[] };
+      if (n && h.variantLabels.length !== n) args = { ...h, variantLabels: n === 1 ? [h.variantLabels[h.variantLabels.length - 1]!] : [...h.variantLabels, "Feature-demo hook", "Social-format hook"].slice(0, n) };
+    }
     if (tool === "pick_variants" && !overrides[tool]) {
       const text = requestText(req);
       const want = Number(String(req.instructions ?? "").match(/Pick exactly (\d+)/)?.[1] ?? 2);

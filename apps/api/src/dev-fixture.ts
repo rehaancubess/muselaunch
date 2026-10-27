@@ -53,11 +53,15 @@ const { installMetaClient, MetaClient } = await import("@muselaunch/providers");
 const agentsT = await import("@muselaunch/agents/testing");
 const mediaT = await import("@muselaunch/media/testing");
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
+const { installCampaignHooks } = await import("@muselaunch/agents");
+const { installAutopilotHooks } = await import("@muselaunch/autopilot");
 const { handlers } = await import("@muselaunch/worker/registry");
 const { buildApp } = await import("./app");
 
 const p = createPlatform();
 installAnalyticsHooks(p);
+installCampaignHooks(p); // campaigns leave "producing" when their production chains finish
+installAutopilotHooks(p); // Growth Autopilot resumes when the jobs it waits on finish
 createRunner(p, handlers, "fixture-inline");
 
 // ---------------------------------------------------------------- fake public web (sample listing)

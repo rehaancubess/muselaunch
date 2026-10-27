@@ -245,7 +245,8 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       )
     ).entity;
     await ws.collection("campaignVariants").update(variantId, { storyboardId, status: variant.status === "proposed" ? "selected" : variant.status, compositionIds: [...new Set([...variant.compositionIds, compositionId])] }, { actor: ctx.actor });
-    if (campaign.status === "planning" || campaign.status === "concepts_ready") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
+    // Producing (again): the campaign returns to `review` when every production chain has finished (campaign-status.ts).
+    if (campaign.status === "planning" || campaign.status === "concepts_ready" || campaign.status === "review") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
     await ctx.progress(90, "queueing composition build");
     const build = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
     await rec.finish("succeeded", { outputRefs: [{ entity: "storyboards", id: storyboard.id }], memoryRefs: memory.items.map((m) => m.id) });

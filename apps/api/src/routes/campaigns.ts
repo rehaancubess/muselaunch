@@ -1,4 +1,4 @@
-import { decideStrategy } from "@muselaunch/agents";
+import { autoCampaignName, decideStrategy, syncCampaignProduction } from "@muselaunch/agents";
 import { AgentBudget, Channel, CreateCampaignRequest, Id, ProduceVariantRequest, ResearchKind } from "@muselaunch/contracts";
 import { APPROVER_CAP } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
@@ -54,7 +54,8 @@ campaignRoutes.get("/apps/:appId/campaigns", async (c) => {
   const app = await appOf(c);
   const q = query(c, List);
   const page = await ws(c).collection("campaigns").list({ where: [["appId", "==", app.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: q.limit, cursor: q.cursor });
-  return c.json({ items: page.items.filter((x) => x.status !== "archived"), nextCursor: page.nextCursor });
+  const items = await Promise.all(page.items.filter((x) => x.status !== "archived").map(async (x) => (x.status === "producing" ? ((await syncCampaignProduction(c.get("platform"), c.get("workspaceId"), x.id)) ?? x) : x)));
+  return c.json({ items, nextCursor: page.nextCursor });
 });
 
 /** POST /apps/:appId/campaigns → 202 { campaign, job } (Muse Spark concepts). */
@@ -68,7 +69,8 @@ campaignRoutes.post("/apps/:appId/campaigns", requireCap("content.write"), async
     if (opps.length !== input.opportunityIds.length || opps.some((o) => o.appId !== app.id)) throw new AppError("BAD_REQUEST", "opportunityIds must belong to this app");
   }
   const actor = actorOf(c);
-  const name = input.request.split(/\r?\n/)[0]!.replace(/\s+/g, " ").trim().slice(0, 80) || "New campaign";
+  // Provisional name cut at a word boundary; Muse Spark replaces it with a short name with the concepts. The full request stays in `request`.
+  const name = autoCampaignName(input.request);
   const campaign = await ws(c).collection("campaigns").create(
     { appId: app.id, name, goal: input.goal, request: input.request, channels: input.channels, deliverables: input.deliverables ?? [], opportunityIds: input.opportunityIds, creditCap: input.creditCap, status: "planning" },
     { actor },
@@ -79,7 +81,9 @@ campaignRoutes.post("/apps/:appId/campaigns", requireCap("content.write"), async
 
 /** GET /campaigns/:campaignId → { campaign, brief, variants, storyboards, compositions, copyPacks } */
 campaignRoutes.get("/campaigns/:campaignId", async (c) => {
-  const campaign = await campaignOf(c);
+  let campaign = await campaignOf(c);
+  // Reconcile `producing` → `review` in case a job finished in a process without the status hook.
+  if (campaign.status === "producing") campaign = (await syncCampaignProduction(c.get("platform"), c.get("workspaceId"), campaign.id)) ?? campaign;
   const byCampaign = { where: [["campaignId", "==", campaign.id]] as const, orderBy: { field: "createdAt", dir: "desc" as const }, limit: 100 };
   const [brief, variants, storyboards, compositions, copyPacks] = await Promise.all([
     campaign.briefId ? ws(c).collection("campaignBriefs").get(campaign.briefId) : Promise.resolve(null),

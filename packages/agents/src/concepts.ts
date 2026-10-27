@@ -5,12 +5,13 @@ import { z } from "zod";
 import { dnaSummary, loadAppContext, requireDna } from "./context";
 import { retrieveMemory } from "./memory";
 import { RunRecorder } from "./runs";
-import { clip, hashId, jaccard, uniq } from "./util";
+import { autoCampaignName, clip, hashId, jaccard, truncateWords, uniq } from "./util";
 
 const Metric = z.object({ metric: z.string().min(1).max(80), target: z.string().max(120).optional(), measurement: z.string().max(500).optional() });
 
 export const ConceptsOutput = z.object({
   brief: z.object({
+    campaignName: z.string().min(1).max(60).optional().describe("Short campaign name, 2-6 words, no quotes or emoji (e.g. 'Calm focus for exam season')"),
     audienceDescription: z.string().min(1).max(1500),
     segmentIds: z.array(z.string()).max(5).default([]),
     angle: z.string().min(1).max(1000).describe("The campaign's overall strategic angle"),
@@ -69,7 +70,8 @@ const INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's creative strateg
 
 Rules:
 - Each concept must use a different angleType and a genuinely different hook, audience framing and message — not copy variants of one idea.
-- Ground every concept in the App DNA: real features, real audiences. Reference research findings / opportunities by id when they inform a concept; use team memory (accepted/rejected angles, lessons) and avoid angles the team rejected.
+- Ground every concept in the App DNA: real features, real audiences. When research findings are provided, every concept lists in findingIds the finding ids it builds on (at least one) and its rationale says how; never cite a finding that doesn't support it. Use opportunities and team memory (accepted/rejected angles, lessons) and avoid angles the team rejected.
+- brief.campaignName: a short, human campaign name (2-6 words) summarising the request.
 - Product claims in hooks/messages must come from the verified claims list (reference their ids in claimIds). Never invent numbers, testimonials, reviews, awards or user counts.
 - social_proof is only allowed when it appears in the allowed angle types (real proof exists).
 - scriptOutline: 3-8 beats for a short vertical video; demo beats must show the real app (screenshots/recordings), never generated UI.
@@ -199,7 +201,10 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       variants.push(entity);
     }
     for (const o of chosenOpps) if (o.status === "new" || o.status === "saved") await ws.collection("opportunities").update(o.id, { status: "used", campaignId }, { actor: ctx.actor });
-    await ws.collection("campaigns").update(campaignId, { status: "concepts_ready", briefId: brief.id }, { actor: ctx.actor });
+    // Replace the provisional name (derived from the request) with Spark's short name; a name the user chose is kept.
+    const spokenName = b.campaignName ? truncateWords(b.campaignName.replace(/["“”]/g, ""), 60) : "";
+    const rename = spokenName && campaign.request && campaign.name === autoCampaignName(campaign.request) ? { name: spokenName } : {};
+    await ws.collection("campaigns").update(campaignId, { status: "concepts_ready", briefId: brief.id, ...rename }, { actor: ctx.actor });
     await rec.finish("succeeded", { outputRefs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id }))], memoryRefs: memory.items.map((m) => m.id) });
     await ctx.progress(100, "concepts ready");
     return { refs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id })), { entity: "agentRuns", id: rec.id }], data: { usedGlimmer: memory.usedGlimmer, angleTypes: variants.map((v) => v.angleType) } };

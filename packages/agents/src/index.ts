@@ -14,6 +14,8 @@ export { retrieveMemory, rememberPreference, ingestMemory, rankPreferences, type
 export { validateClaims, unsupportedSpecifics, initialClaimState } from "./claims";
 export { decideStrategy, planSnapshot } from "./strategy";
 export { distinctnessProblems } from "./concepts";
+export { installCampaignHooks, syncCampaignProduction } from "./campaign-status";
+export { autoCampaignName, truncateWords } from "./util";
 export { checkStoryboard, fitDurations } from "./storyboard";
 export { checkEdit } from "./edit";
 export { CHANNEL_RULES, copyLimitProblems } from "./copy";
