@@ -374,7 +374,9 @@ const produce: StageFn = async (env, step) => {
 // verify (lint + claim validation + Brand Guardian; fix rounds via composition.edit)
 // ---------------------------------------------------------------------------
 
-const fixRounds = (env: LoopEnv) => env.fullLog.filter((e) => e.stage === "verify" && e.kind === "action" && e.summary.startsWith(`Fix round`) && e.summary.includes(`(iteration ${env.iteration})`)).length;
+/** Highest automatic fix round started in this iteration (0 = none). */
+const fixRounds = (env: LoopEnv) =>
+  Math.max(0, ...env.fullLog.filter((e) => e.stage === "verify" && e.kind === "action" && e.summary.includes(`(iteration ${env.iteration})`)).map((e) => Number(e.summary.match(/^Fix round (\d+)/)?.[1] ?? 0)));
 const reviewIdFor = (compositionId: string, version: number) => hashId("brv", compositionId, version);
 
 function textLayers(doc: CompositionDoc): { sceneId: string; id: string; text: string }[] {

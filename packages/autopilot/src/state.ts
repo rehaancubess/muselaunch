@@ -41,6 +41,9 @@ export function hashId(prefix: string, ...parts: (string | number)[]): string {
   return `${prefix}_${createHash("sha256").update(parts.join("␟")).digest("hex").slice(0, 24)}`;
 }
 
+/** Log prefix written when the user resumes a failed loop; delegated work gets fresh job keys. */
+export const RETRY_PREFIX = "Retrying after a failure";
+
 export const resumeKey = (autopilotId: string, jobIds: string[]) => `autopilot:${autopilotId}:resume:${shortHash([...jobIds].sort().join(","))}`;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -124,7 +127,8 @@ export class LoopEnv {
 
   /** Enqueue a delegated job with a deterministic key (idempotent) and log it with its ref. */
   async delegate<T extends JobType>(type: T, payload: z.input<(typeof JobPayloads)[T]>, opts: { key: string; label: string; credits?: { operation: string; params?: Record<string, unknown> } }): Promise<Job> {
-    const job = await this.ctx.enqueue(type, payload, { idempotencyKey: `autopilot:${this.ap.id}:it${this.iteration}:${opts.key}`, credits: opts.credits, appId: this.appId });
+    const retries = this.fullLog.filter((e) => e.summary.startsWith(RETRY_PREFIX)).length;
+    const job = await this.ctx.enqueue(type, payload, { idempotencyKey: `autopilot:${this.ap.id}:it${this.iteration}:${opts.key}${retries ? `:retry${retries}` : ""}`, credits: opts.credits, appId: this.appId });
     this.note("action", opts.label, [{ entity: "jobs", id: job.id }]);
     return job;
   }

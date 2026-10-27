@@ -1,0 +1,20 @@
+{
+  "_fixture": "Muse Wonder function_call arguments for Growth Autopilot decisions (choose_audience, set_hypothesis, plan_next_iteration). $ID:fnd:0 resolves to the first finding id in the request. NOT live output.",
+  "choose_audience": {
+    "candidates": [
+      { "name": "University students in exam season", "why": "Study-with-me timer videos recur in the research; the timer + blocking features fit." },
+      { "name": "Remote workers", "why": "Blocking helps, but the research found fewer reachable formats." }
+    ],
+    "audience": "University students revising for exams who lose evenings to their phones",
+    "rationale": "The study-with-me format with a visible timer is a recurring short-form format and maps directly to the real timer screen and app blocking.",
+    "findingIds": ["$ID:fnd:0"]
+  },
+  "set_hypothesis": {
+    "statement": "For students in exam season, a problem-first hook will drive more App Store installs (via tracked links) than a demo-first hook.",
+    "primaryMetric": "installs",
+    "variantLabels": ["Demo-first hook (control)", "Problem-first hook"],
+    "rationale": "Both formats are grounded in the research; installs via tracked links are measurable.",
+    "findingIds": ["$ID:fnd:0"]
+  },
+  "plan_next_iteration": { "continueLoop": false, "focus": "", "rationale": "There is no measured data yet, so another iteration would not be better informed." }
+}

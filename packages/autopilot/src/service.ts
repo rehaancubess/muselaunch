@@ -2,7 +2,7 @@ import type { AgentRun, Approval, Autopilot, BrandReview, Job, StartAutopilotReq
 import { AppError, type Platform } from "@muselaunch/platform";
 import type { z } from "zod";
 import { enqueueStep } from "./step";
-import { delegatedJobIds, nowMs, reasonText, type LogEntry } from "./state";
+import { delegatedJobIds, nowMs, reasonText, RETRY_PREFIX, type LogEntry } from "./state";
 
 type StartInput = z.infer<typeof StartAutopilotRequest>;
 
@@ -66,10 +66,15 @@ export async function pauseAutopilot(p: Platform, workspaceId: string, id: strin
 export async function resumeAutopilot(p: Platform, workspaceId: string, id: string, actor: string): Promise<{ autopilot: Autopilot; job: Job | null }> {
   const ap = await load(p, workspaceId, id);
   if (ap.status !== "paused" && ap.status !== "failed") throw new AppError("CONFLICT", `Autopilot is ${ap.status}`);
-  const repo = p.db.ws(workspaceId).collection("autopilots");
-  // Re-enter the stage; awaited jobs and checkpoints are re-evaluated by the step.
-  const status: Autopilot["status"] = ap.waitingOn.jobIds.length ? "waiting_on_jobs" : ap.waitingOn.until ? "sleeping" : ap.waitingOn.approvalId ? "awaiting_user" : "running";
-  const updated = await repo.update(id, { status, error: undefined, log: [...ap.log, entry(ap.stage, "checkpoint", `Resumed by you at ${ap.stage.replace(/_/g, " ")}.`)].slice(-400) }, { actor });
+  const ws = p.db.ws(workspaceId);
+  const repo = ws.collection("autopilots");
+  // Re-enter the stage: awaited jobs and a still-pending checkpoint are kept; a decided/rejected
+  // checkpoint is dropped so the stage asks again; failures re-run the stage.
+  const approval = ap.waitingOn.approvalId ? await ws.collection("approvals").get(ap.waitingOn.approvalId) : null;
+  const pendingCheckpoint = approval?.status === "pending";
+  const waitingOn = ap.status === "failed" ? { jobIds: [] } : pendingCheckpoint ? ap.waitingOn : { ...ap.waitingOn, approvalId: undefined };
+  const status: Autopilot["status"] = waitingOn.jobIds.length ? "waiting_on_jobs" : waitingOn.until ? "sleeping" : pendingCheckpoint ? "awaiting_user" : "running";
+  const updated = await repo.update(id, { status, waitingOn, error: undefined, log: [...ap.log, entry(ap.stage, "checkpoint", ap.status === "failed" ? `${RETRY_PREFIX}: resumed by you at ${ap.stage.replace(/_/g, " ")}.` : `Resumed by you at ${ap.stage.replace(/_/g, " ")}.`)].slice(-400) }, { actor });
   if (status === "awaiting_user") return { autopilot: updated, job: null };
   const job = await enqueueStep(p, updated, `autopilot:${id}:resume-user:${updated.updatedAt}`);
   return { autopilot: updated, job };
