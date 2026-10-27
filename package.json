@@ -33,7 +33,10 @@
       "puppeteer",
       "sharp",
       "protobufjs",
-      "@firebase/util"
+      "@firebase/util",
+      "ffmpeg-static",
+      "@ffprobe-installer/linux-x64",
+      "@ffprobe-installer/win32-x64"
     ]
   }
 }
