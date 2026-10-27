@@ -16,10 +16,15 @@ export const accessLog: MiddlewareHandler<AppEnv> = async (c, next) => {
   const p = c.get("platform");
   if (c.req.path === "/health") return;
   p.log.info(
-    { requestId: c.get("requestId"), method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start, uid: c.var.user?.uid, workspaceId: c.var.workspaceId },
+    { requestId: c.get("requestId"), method: c.req.method, path: logPath(c.req.path), status: c.res.status, ms: Date.now() - start, uid: c.var.user?.uid, workspaceId: c.var.workspaceId },
     "request",
   );
 };
+
+/** Signed storage URLs carry their bearer token in the path: never write it to logs. */
+export function logPath(path: string): string {
+  return path.startsWith("/v1/storage/local/") ? "/v1/storage/local/[token]" : path;
+}
 
 export const authenticate: MiddlewareHandler<AppEnv> = async (c, next) => {
   const p = c.get("platform");

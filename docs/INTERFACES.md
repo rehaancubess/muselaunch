@@ -63,3 +63,10 @@ AI edit: route `POST /compositions/:id/ai-edit` (C's route file) creates a `Comp
 - D `media.ts`: `POST /assets/:assetId/segment` (202 `{job, segmentation, reused}`, 200 when reused); `GET /assets/:assetId/segmentations`; `GET /segmentations/:id`; `POST /segmentations/:id/correct`; `POST /assets/:assetId/transcribe` (202); `GET /transcripts/:id`; `POST /images/generate` (202, response names the provider); `GET /stock/search`; `POST /stock/import`; `POST /tts` (202).
 - E `discover.ts` / `publishing.ts` / `oauth.ts`: feed, opportunities, trackers, prospects, outreach drafts, approvals, calendar/posts, connections, OAuth callbacks.
 - F `analytics.ts` / `billing.ts` / `public-links.ts`: insights overview, observations, CSV imports, RevenueCat connection/sync, tracked links, experiments, recommendations, plans, usage summary, admin ops, `/r/:slug`.
+
+## Phase 2 (see docs/PHASE2.md)
+
+- D `media.ts`: `POST /assets/:assetId/analyze-clip {prompts?: string[] = ["person","phone"], transcribe?: boolean = true}` → 202 `{job, analysis}` (200 `{job: null, analysis}` when reused); `GET /clip-analyses/:id` → `{analysis, segmentations, assets: Record<assetId, {url, kind, role}>, tracksUrls: Record<segmentationId, string>}`; `GET /assets/:assetId/clip-analyses` → `{items}`. Exports: `<ClipAnalyzer assetId onAnalysis?/>` (@/features/media), `loadTracks(p, ws, segmentationId): Promise<TracksFile | null>` (@muselaunch/media).
+- C `compositions.ts`: `GET /compositions/:id/clips`; `composition.variants` mode `"hooks"` (targets = hook briefs).
+- B `autopilot.ts`: `POST /apps/:appId/autopilot` (StartAutopilotRequest), `GET /apps/:appId/autopilots`, `GET /autopilots/:id`, `POST /autopilots/:id/{pause,resume,cancel}`, `POST /autopilots/:id/checkpoint {decision, note}`. Package `@muselaunch/autopilot`: `handlers`, `installAutopilotHooks(p)`, `wakeDueAutopilots(p)`.
+- G `guardian.ts`: `POST /reviews {subject, version?}` → 202 `{review, job}`; `GET /reviews?subjectId=&appId=`; `GET /reviews/:id`; `POST /reviews/:id/findings/:findingId/apply|dismiss`. UI: `<BrandGuardianPanel subject version? onApplied?/>`, `<BrandGuardianBadge/>` (@/features/guardian).
