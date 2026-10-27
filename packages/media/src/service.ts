@@ -73,7 +73,9 @@ export async function requestSegmentation(
 export async function lookupSegmentation(p: Platform, wid: string, asset: MediaAsset, prompt: string): Promise<{ mine?: Segmentation; same?: Segmentation }> {
   const repo = p.db.ws(wid).collection("segmentations");
   const model = p.cfg.META_MODEL_SAM;
-  const fresh = (s: Segmentation) => s.prompt === prompt && s.model === model && !s.corrections.length && !s.selectedObjectIds.length;
+  // Same SAM request (prompt, model, no geometry corrections). An object selection only changes the
+  // combined cutout; the SAM output, tracks and per-object outputs are the same, so it stays reusable.
+  const fresh = (s: Segmentation) => s.prompt === prompt && s.model === model && !s.corrections.length;
   const mineAll = (await repo.list({ where: [["sourceAssetId", "==", asset.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items.filter((s) => fresh(s) && s.status !== "failed");
   const mine = mineAll.find((s) => s.status === "succeeded") ?? mineAll[0];
   if (mine || !asset.sha256) return { mine };
@@ -112,7 +114,7 @@ export async function findOrCreateSegmentation(p: Platform, wid: string, asset: 
         fps: same.fps,
         trackingQuality: same.trackingQuality,
         corrections: [],
-        selectedObjectIds: [],
+        selectedObjectIds: same.selectedObjectIds,
         usageEventIds: [],
         reusedFromSegmentationId: same.id,
       },
