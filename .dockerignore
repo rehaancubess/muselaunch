@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+.next
+**/.next
+.data
+.render-tmp
+.env
+.env.*
+!.env.example
+fixtures/live/raw
+service-account*.json
+.git
+.sync
+docs/screenshots
