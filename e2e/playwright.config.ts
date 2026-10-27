@@ -1,15 +1,20 @@
+import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 
 /**
  * End-to-end journey against FIXTURE MODE (labelled fixtures instead of live models; real API,
  * jobs, storage and HyperFrames rendering). One command from the repo root:
  *
- *   RENDER_CHROME_PATH=/path/to/chrome-headless-shell pnpm e2e
+ *   pnpm e2e
+ *
+ * Set RENDER_CHROME_PATH=/path/to/chrome-headless-shell if the renderer can't find a browser.
  *
  * Starts `pnpm dev:fixture` (API :8080) and the web app (:3000) unless they're already running.
  * Screenshots of each step are written to docs/screenshots/e2e-*.png.
  */
-const chrome = process.env.RENDER_CHROME_PATH || "/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell";
+// The CI/container image ships Playwright's headless shell here; elsewhere the renderer finds its own.
+const BUNDLED_SHELL = "/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell";
+const chrome = process.env.RENDER_CHROME_PATH || (existsSync(BUNDLED_SHELL) ? BUNDLED_SHELL : undefined);
 
 export default defineConfig({
   testDir: ".",
@@ -36,7 +41,7 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 180_000,
       cwd: "..",
-      env: { RENDER_CHROME_PATH: chrome },
+      env: chrome ? { RENDER_CHROME_PATH: chrome } : {},
     },
     {
       command: "pnpm --filter @muselaunch/web dev",

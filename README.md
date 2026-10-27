@@ -63,6 +63,31 @@ pnpm --filter @muselaunch/web dev     # http://localhost:3000
 Add `META_API_KEY` (and `OPENAI_API_KEY`, `GLIMMER_BASE_URL`) to `.env` to turn on the real AI
 features. Anything without a key shows **Not connected**; nothing is faked.
 
+#### Fixture mode (development and tests only)
+
+To click through the whole product without keys, run the API in fixture mode instead:
+
+```powershell
+pnpm dev:fixture                      # API on :8080 with labelled fake model responses
+pnpm --filter @muselaunch/web dev     # the web app shows a "Fixture mode" banner
+```
+
+Model calls (Muse Spark, Muse Wonder, SAM, Voice, Glimmer) and the App Store lookup are answered
+from `fixtures/` and `apps/api/src/fixture-routes/`; rendering, storage, jobs and billing are real.
+Use the sample listing shown in the banner. Fixture mode refuses to start when `NODE_ENV` or
+`APP_ENV` is `production`. To add fake responses for a new feature, add a file to
+`apps/api/src/fixture-routes/` (the contract and an example are in `_types.ts`).
+
+The end-to-end journey test runs against fixture mode (it starts both servers if they aren't
+running, and does a real HyperFrames render, so allow about 10–20 minutes):
+
+```powershell
+pnpm e2e        # screenshots go to docs/screenshots/e2e-*.png
+```
+
+It needs Playwright's Chromium (`npx playwright install chromium`); set `RENDER_CHROME_PATH` to a
+chrome-headless-shell binary if the renderer can't find one.
+
 ### 4. Check the live APIs
 
 ```powershell
