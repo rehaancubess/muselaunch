@@ -1,13 +1,14 @@
 "use client";
 import type { Job } from "@muselaunch/contracts";
 import { Badge, Button, JobProgress, Notice, SegmentedControl, Textarea, cn, useToast } from "@muselaunch/ui";
-import { Check, Mic, ScanSearch, Sparkles, Undo2, X } from "lucide-react";
+import { Check, Mic, ScanSearch, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceRecorder } from "@/features/media";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { useAiEditCommand } from "@/lib/commands";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
+import { hooksAskedFor, requestHooks } from "./hooks-dialog";
 import { describeOp } from "./ops";
 import type { AiEditResponse, CommitResponse, CompositionDoc, CompositionPatch, PatchDetailResponse } from "./types";
 
@@ -106,6 +107,7 @@ function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchRead
   const live = useJob(workspaceId, turn.jobId, { initial: turn.initialJob, onSettled: onPatchReady });
   const job = live.job;
   const notConnected = job?.status === "failed" && job.error?.code === "PROVIDER_NOT_CONFIGURED";
+  const hooks = hooksAskedFor(turn.instruction);
   return (
     <li className="space-y-2">
       <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-md bg-accent px-3 py-2 text-body-sm text-white">
@@ -128,6 +130,14 @@ function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchRead
         )
       ) : null}
       {turn.patchId && (!job || job.status === "succeeded" || job.status === "needs_approval") ? <PatchCard base={base} patchId={turn.patchId} doc={doc} onApplied={onApplied} onUndo={onUndo} disabled={disabled} /> : null}
+      {hooks ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2">
+          <span className="text-footnote text-ink-2">You asked for {hooks} hook{hooks === 1 ? "" : "s"}. Hooks are copies of the current version, so apply this edit first.</span>
+          <Button size="sm" variant="secondary" icon={<Zap className="size-4" aria-hidden />} onClick={() => requestHooks(hooks)} disabled={disabled}>
+            Create {hooks}
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }

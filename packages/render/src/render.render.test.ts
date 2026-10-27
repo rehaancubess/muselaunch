@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPatch } from "@muselaunch/compositions";
+import { applyPatch, posterTimeSec } from "@muselaunch/compositions";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform } from "@muselaunch/platform";
 import { unzipSync } from "fflate";
@@ -164,5 +164,11 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     const frames = [1.8, 4.6, 7.6].map((t) => join(FIXTURES_DIR, "samples", `object-aware-${t}.png`));
     for (const [i, t] of [1.8, 4.6, 7.6].entries()) await extractFrame(file, t, frames[i]!);
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...frames.flatMap((f) => ["-i", f]), "-filter_complex", "[0]scale=480:-1[a];[1]scale=480:-1[b];[2]scale=480:-1[c];[a][b][c]hstack=3", "-frames:v", "1", "-update", "1", join(FIXTURES_DIR, "samples", "object-aware-sheet.png")]);
+    // Poster/thumbnail = the opening hook once it has landed (same frame the paused Studio preview shows).
+    expect(posterTimeSec(v1.doc)).toBeGreaterThan(0.5);
+    const poster = await ws.collection("mediaAssets").getOrThrow(done!.output!.data!.posterAssetId as string);
+    const posterFile = join(FIXTURES_DIR, "samples", "object-aware-poster.jpg");
+    await p.storage.downloadToFile(poster.storagePath, posterFile);
+    expect(statSync(posterFile).size).toBeGreaterThan(20_000);
   });
 });

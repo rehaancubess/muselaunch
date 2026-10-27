@@ -26,6 +26,23 @@ interface HookRef {
 }
 
 const HOOK_TITLE = / — Hook (\d+)$/;
+const HOOKS_EVENT = "ml:studio-hooks";
+
+/** Open the hooks dialog preset to `count` directed hooks (e.g. after "…and create three hooks"). The user still confirms the cost. */
+export function requestHooks(count = 3) {
+  window.dispatchEvent(new CustomEvent(HOOKS_EVENT, { detail: { count: Math.min(5, Math.max(1, Math.round(count))) } }));
+}
+
+const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+const COUNTED = /\b([1-5]|one|two|three|four|five)\s+(?:different\s+|new\s+|more\s+|alternative\s+|other\s+)*(?:opening\s+)?hooks?\b/i;
+const PLURAL = /\b(?:create|make|give|generate|try|write|produce|build)\b[^.]{0,40}\bhooks\b/i;
+
+/** "…and create three different hooks" → 3; null when the instruction doesn't ask for hook versions ("make the hook punchier"). */
+export function hooksAskedFor(instruction: string): number | null {
+  const m = COUNTED.exec(instruction);
+  if (m) return WORDS[m[1]!.toLowerCase()] ?? Number(m[1]);
+  return PLURAL.test(instruction) ? 3 : null;
+}
 
 function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; appId: string; hook: HookRef; index: number }) {
   const router = useRouter();
@@ -71,6 +88,7 @@ function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; ap
 export function HooksDialog({ workspaceId, appId, base, composition }: { workspaceId: string; appId: string; base: string; composition: Composition }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"auto" | "custom">("auto");
+  const [autoCount, setAutoCount] = useState(3);
   const [briefs, setBriefs] = useState(["", "", ""]);
   const [job, setJob] = useState<Job | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -80,7 +98,20 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
   const siblings = useApiQuery<Page<Composition>>(open ? listPath : null, { query: composition.campaignId ? { campaignId: composition.campaignId } : { appId } });
   const live = useJob(workspaceId, job?.id ?? null, { initial: job, onSettled: () => void siblings.refetch() });
   const custom = briefs.map((b) => b.trim()).filter(Boolean);
-  const count = mode === "auto" ? 3 : custom.length;
+  const count = mode === "auto" ? autoCount : custom.length;
+
+  useEffect(() => {
+    const on = (e: Event) => {
+      const n = (e as CustomEvent<{ count: number }>).detail?.count ?? 3;
+      setMode("auto");
+      setAutoCount(n);
+      setJob(null);
+      setError(null);
+      setOpen(true);
+    };
+    window.addEventListener(HOOKS_EVENT, on);
+    return () => window.removeEventListener(HOOKS_EVENT, on);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -111,7 +142,7 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
     setSubmitting(true);
     setError(null);
     try {
-      const r = await api.post<{ job: Job }>(`${base}/variants`, { mode: "hooks", targets: mode === "auto" ? ["3"] : custom }, { idempotent: true });
+      const r = await api.post<{ job: Job }>(`${base}/variants`, { mode: "hooks", targets: mode === "auto" ? [String(autoCount)] : custom }, { idempotent: true });
       setJob(r.job);
     } catch (e) {
       setError(errorMessage(e));
@@ -160,12 +191,12 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
               value={mode}
               onChange={setMode}
               items={[
-                { value: "auto", label: "3 directed hooks" },
+                { value: "auto", label: `${autoCount} directed hook${autoCount === 1 ? "" : "s"}` },
                 { value: "custom", label: "Write my own" },
               ]}
             />
             {mode === "auto" ? (
-              <p className="text-footnote text-ink-2">Outcome first, a sharp question, and a pattern interrupt: three proven hook styles, written from your verified claims.</p>
+              <p className="text-footnote text-ink-2">Proven hook styles (outcome first, a sharp question, a pattern interrupt…), one per copy, written from your verified claims.</p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-3">
                 {briefs.map((b, i) => (

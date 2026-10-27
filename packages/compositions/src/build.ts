@@ -1150,9 +1150,11 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
     if (co.cutoutReady(co.person)) {
       // Big word behind the presenter: reads as depth when the cutout sits in front of it.
       const word = (app.name || head).toUpperCase().slice(0, 14);
-      const size = Math.round(Math.min(300 * f.u, (f.W * 0.92) / Math.max(3, word.length * 0.62)));
+      // As wide as the platform safe zone allows (UI overlays never cover it).
+      const gw = 1 - f.safe.left - f.safe.right;
+      const size = Math.round(Math.min(300 * f.u, (f.W * gw * 0.96) / Math.max(3, word.length * 0.62)));
       layers.push(
-        text(`${sceneId}_ghost`, word, box(0.02, f.portrait ? 0.175 : 0.14, 0.96, (size * 1.05) / f.H, 3), {
+        text(`${sceneId}_ghost`, word, box(f.safe.left, Math.max(f.safe.top, f.portrait ? 0.175 : 0.14), gw, (size * 1.05) / f.H, 3), {
           role: "label",
           size,
           weight: 860,
