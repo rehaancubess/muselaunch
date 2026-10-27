@@ -46,6 +46,17 @@ export function redactForTrace(value: unknown, depth = 0): unknown {
  * (global daily + per-workspace monthly) before costly calls.
  */
 export class UsageMeter {
+  private readonly hooks: ((workspaceId: string, event: ModelUsageEvent) => Promise<void>)[] = [];
+
+  /** Observe every recorded usage event (module F ops counters). Errors are logged and swallowed. */
+  addHook(fn: (workspaceId: string, event: ModelUsageEvent) => Promise<void>): () => void {
+    this.hooks.push(fn);
+    return () => {
+      const i = this.hooks.indexOf(fn);
+      if (i >= 0) this.hooks.splice(i, 1);
+    };
+  }
+
   constructor(
     private readonly db: Db,
     private readonly storage: ObjectStorage,
@@ -98,6 +109,13 @@ export class UsageMeter {
         });
       } catch (err) {
         this.log.error({ err }, "failed to update spend counters");
+      }
+    }
+    for (const h of this.hooks) {
+      try {
+        await h(workspaceId, event);
+      } catch (err) {
+        this.log.warn({ err }, "usage hook failed");
       }
     }
     return event;
