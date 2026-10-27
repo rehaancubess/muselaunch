@@ -1,0 +1,66 @@
+{
+ "_fixture": "Documented RevenueCat API v2 chart shape with invented test values. Not live data.",
+ "response": {
+  "object": "chart_data",
+  "category": "subscriptions",
+  "display_name": "New Paid Subscriptions",
+  "description": "Number of new paid subscriptions.",
+  "resolution": "day",
+  "values": [
+   {
+    "cohort": 1792454400,
+    "measure": 0,
+    "value": 5,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792540800,
+    "measure": 0,
+    "value": 7,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792627200,
+    "measure": 0,
+    "value": 4,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792713600,
+    "measure": 0,
+    "value": 6,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792800000,
+    "measure": 0,
+    "value": 8,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792886400,
+    "measure": 0,
+    "value": 6,
+    "incomplete": false
+   },
+   {
+    "cohort": 1792972800,
+    "measure": 0,
+    "value": 7,
+    "incomplete": false
+   },
+   {
+    "cohort": 1793059200,
+    "measure": 0,
+    "value": 1,
+    "incomplete": true
+   }
+  ],
+  "measures": [
+   {
+    "display_name": "New Paid Subscriptions",
+    "unit": "#"
+   }
+  ]
+ }
+}

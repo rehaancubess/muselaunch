@@ -128,7 +128,57 @@ export const DEFAULT_CREDIT_PRICES = {
   "media.image_edit": 6,
   "media.tts_per_100_chars": 1,
   "experiment.analyze": 8,
+  /** Spark interpretation + Wonder next-experiment proposal. */
+  "recommendations.generate": 10,
+  /** Analytics ingestion makes no AI calls. */
+  "analytics.sync": 0,
+  "analytics.import_csv": 0,
   "outreach.draft": 3,
   "memory.retrieve": 0,
 } as const;
 export type CreditOperation = keyof typeof DEFAULT_CREDIT_PRICES;
+
+// ---------------------------------------------------------------------------
+// Billing API shapes (module F)
+// ---------------------------------------------------------------------------
+
+/** Payments are not enabled in the beta; upgrade intent is recorded for an operator. */
+export const UpgradeRequestInput = z.object({ planId: PlanId, note: z.string().max(1000).optional() });
+export type UpgradeRequestInput = z.infer<typeof UpgradeRequestInput>;
+
+export const UpgradeRequestRecord = z.object({
+  id: Id,
+  workspaceId: Id,
+  planId: PlanId,
+  fromPlanId: z.string(),
+  requestedBy: Actor,
+  note: z.string().max(1000).optional(),
+  status: z.enum(["recorded", "applied", "declined"]),
+  createdAt: IsoDateTime,
+});
+export type UpgradeRequestRecord = z.infer<typeof UpgradeRequestRecord>;
+
+export const UsageSummaryRow = z.object({
+  key: z.string(),
+  calls: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  images: z.number().int().nonnegative(),
+  frames: z.number().int().nonnegative(),
+  audioSeconds: z.number().nonnegative(),
+  costUsd: z.number().nonnegative(),
+});
+export type UsageSummaryRow = z.infer<typeof UsageSummaryRow>;
+
+export const UsageSummary = z.object({
+  range: z.object({ from: IsoDateTime, to: IsoDateTime }),
+  groupBy: z.enum(["model", "provider", "task", "day"]),
+  rows: z.array(UsageSummaryRow),
+  totals: UsageSummaryRow,
+  credits: z.object({ consumed: z.number().int(), granted: z.number().int(), released: z.number().int() }),
+  /** True when the event scan hit its cap; totals then cover only the newest events. */
+  truncated: z.boolean(),
+  costDefinition: z.string(),
+});
+export type UsageSummary = z.infer<typeof UsageSummary>;

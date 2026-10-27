@@ -54,8 +54,8 @@ function Composer({ appName, href }: { appName: string; href: (text: string) => 
           className="block w-full resize-none rounded-2xl bg-transparent px-5 pb-14 pt-4 text-body text-ink outline-none placeholder:text-ink-3"
         />
         <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-3">
-          <p className="pl-2 text-caption text-ink-3">You’ll pick goals, channels and see the credit cost before anything runs.</p>
-          <Button type="submit" size="sm" className="rounded-full" trailing={<ArrowUp className="size-3.5" aria-hidden />}>
+          <p className="hidden pl-2 text-caption text-ink-3 sm:block">You’ll pick goals, channels and see the credit cost before anything runs.</p>
+          <Button type="submit" size="sm" className="ml-auto" trailing={<ArrowUp className="size-3.5" aria-hidden />}>
             Plan campaign
           </Button>
         </div>
@@ -90,12 +90,7 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
             </span>
           }
           title={c.name}
-          subtitle={
-            <>
-              {GOAL_LABEL[c.goal]}
-              {c.channels.length ? ` · ${c.channels.map((ch) => CHANNEL_LABEL[ch]).join(", ")}` : ""} · {relativeTime(c.createdAt)}
-            </>
-          }
+          subtitle={`${GOAL_LABEL[c.goal]}${c.channels.length ? ` for ${c.channels.map((ch) => CHANNEL_LABEL[ch]).join(", ")}` : ""}, started ${relativeTime(c.createdAt)}`}
           trailing={<StatusPill status={statusKindOf(c.status)}>{humanizeStatus(c.status)}</StatusPill>}
         />
       ))}

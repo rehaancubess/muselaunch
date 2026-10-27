@@ -20,6 +20,16 @@
     "deploy:gcp": "tsx scripts/deploy.ts"
   },
   "devDependencies": {
+    "@muselaunch/agents": "workspace:*",
+    "@muselaunch/analytics": "workspace:*",
+    "@muselaunch/compositions": "workspace:*",
+    "@muselaunch/contracts": "workspace:*",
+    "@muselaunch/db": "workspace:*",
+    "@muselaunch/growth": "workspace:*",
+    "@muselaunch/media": "workspace:*",
+    "@muselaunch/platform": "workspace:*",
+    "@muselaunch/providers": "workspace:*",
+    "@muselaunch/render": "workspace:*",
     "@types/node": "^22.20.5",
     "concurrently": "^10.0.6",
     "dotenv": "^17.2.3",
@@ -33,7 +43,10 @@
       "puppeteer",
       "sharp",
       "protobufjs",
-      "@firebase/util"
+      "@firebase/util",
+      "ffmpeg-static",
+      "@ffprobe-installer/linux-x64",
+      "@ffprobe-installer/win32-x64"
     ]
   }
 }

@@ -1,6 +1,6 @@
 # Next.js web app (standalone output).
 FROM node:22-bookworm-slim AS build
-ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH PUPPETEER_SKIP_DOWNLOAD=1 NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH PUPPETEER_SKIP_DOWNLOAD=1 NEXT_TELEMETRY_DISABLED=1 NEXT_OUTPUT=standalone
 RUN corepack enable
 WORKDIR /app
 COPY . .

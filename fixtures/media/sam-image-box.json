@@ -1,0 +1,9 @@
+{
+  "fixture": true,
+  "label": "SYNTHETIC fixture in the documented SAM 3.1 output format (masks encoded with @meta-sam/parser's codec). Not a live API response.",
+  "media": "image",
+  "width": 96,
+  "height": 64,
+  "prompt": "red box",
+  "rawOutput": "<0f>0<|box;x1=20;y1=16;x2=59;y2=45;w=96;h=64;c=0.92|><|mask;x=0;y=0;c=0.92;data=30,40,!!!!!0LA]8IXfM-#2Ih4F!!|>\n"
+}

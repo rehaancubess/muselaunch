@@ -68,6 +68,17 @@ export interface Dispatcher {
   dispatch(env: TaskEnvelope): Promise<void>;
 }
 
+/**
+ * Optional lifecycle hooks (installed by module F for plan quotas and ops counters).
+ * `beforeCreate` runs only for NEW jobs (not idempotent repeats) and may throw (e.g. QUOTA_EXCEEDED);
+ * it may return an undo function that is called if creation fails afterwards (e.g. insufficient credits).
+ * `onStatus` runs after a status change is persisted; errors are logged and swallowed.
+ */
+export interface JobLifecycleHooks {
+  beforeCreate?(input: { workspaceId: string; type: JobType; payload: Record<string, unknown>; opts: CreateJobOptions }): Promise<void | (() => Promise<void>)>;
+  onStatus?(event: { workspaceId: string; job: Job; from: Job["status"] | null; to: Job["status"]; error?: ErrorInfo }): Promise<void>;
+}
+
 const jobIdFor = (type: string, key: string) => `job_${createHash("sha256").update(`${type}:${key}`).digest("hex").slice(0, 24)}`;
 
 // ---------------------------------------------------------------------------
@@ -77,6 +88,7 @@ const jobIdFor = (type: string, key: string) => `job_${createHash("sha256").upda
 export class JobService {
   private dispatcher: Dispatcher | undefined;
   private eventSeq = 0;
+  private readonly hooks: JobLifecycleHooks[] = [];
 
   constructor(
     private readonly db: Db,
@@ -86,6 +98,26 @@ export class JobService {
 
   setDispatcher(d: Dispatcher) {
     this.dispatcher = d;
+  }
+
+  /** Register lifecycle hooks (quotas, ops counters). Returns an unregister function. */
+  addHooks(h: JobLifecycleHooks): () => void {
+    this.hooks.push(h);
+    return () => {
+      const i = this.hooks.indexOf(h);
+      if (i >= 0) this.hooks.splice(i, 1);
+    };
+  }
+
+  private async notifyStatus(workspaceId: string, job: Job, from: Job["status"] | null, to: Job["status"], error?: ErrorInfo): Promise<void> {
+    for (const h of this.hooks) {
+      if (!h.onStatus) continue;
+      try {
+        await h.onStatus({ workspaceId, job, from, to, error });
+      } catch (err) {
+        this.log.warn({ err, jobId: job.id }, "job status hook failed");
+      }
+    }
   }
   get dispatchMode() {
     return this.dispatcher?.mode;
@@ -99,12 +131,29 @@ export class JobService {
     const existing = await repo.get(id);
     if (existing) return existing;
 
+    const undo: (() => Promise<void>)[] = [];
+    for (const h of this.hooks) {
+      if (!h.beforeCreate) continue;
+      try {
+        const u = await h.beforeCreate({ workspaceId, type, payload: parsed, opts });
+        if (u) undo.push(u);
+      } catch (err) {
+        for (const u of undo) await u().catch(() => {});
+        throw err;
+      }
+    }
+
     let reservation: Job["reservation"];
     if (opts.credits) {
       const amount = opts.credits.amount ?? this.credits.estimate(opts.credits.operation, { ...parsed, ...opts.credits.params }).credits;
       if (amount > 0) {
-        const r = await this.credits.reserve(workspaceId, amount, { operation: opts.credits.operation, idempotencyKey: `job:${id}`, actor: opts.actor, jobId: id });
-        reservation = { reservationId: r.reservationId, credits: r.credits };
+        try {
+          const r = await this.credits.reserve(workspaceId, amount, { operation: opts.credits.operation, idempotencyKey: `job:${id}`, actor: opts.actor, jobId: id });
+          reservation = { reservationId: r.reservationId, credits: r.credits };
+        } catch (err) {
+          for (const u of undo) await u().catch(() => {});
+          throw err;
+        }
       }
     }
     const now = nowIso();
@@ -128,8 +177,12 @@ export class JobService {
       },
       { actor: opts.actor },
     );
-    if (!created) return job;
+    if (!created) {
+      for (const u of undo) await u().catch(() => {});
+      return job;
+    }
     await this.event(workspaceId, id, { kind: "status", status: "queued", message: `Queued ${type}` });
+    await this.notifyStatus(workspaceId, job, null, "queued");
     if (!opts.deferDispatch) await this.dispatch(job);
     return job;
   }
@@ -146,25 +199,29 @@ export class JobService {
   /** Worker: take a lease. Returns null when the job should not run (done, busy, cancelled). */
   async claim(workspaceId: string, jobId: string, workerId: string, leaseMs: number): Promise<Job | null> {
     let releaseReservation: string | undefined;
+    let terminal: { job: Job; to: Job["status"] } | undefined;
+    let fromStatus: Job["status"] | null = null;
     const result = await this.db.runTransaction(async (tx) => {
       const job = await tx.get(workspaceId, "jobs", jobId);
       if (!job) return null;
       if (TERMINAL_JOB_STATUSES.includes(job.status) || job.status === "needs_approval") return null;
       const now = Date.now();
       if (job.status === "running" && job.leaseOwner !== workerId && job.leaseExpiresAt && Date.parse(job.leaseExpiresAt) > now) return null;
+      fromStatus = job.status;
       if (job.cancelRequested) {
-        tx.update(workspaceId, "jobs", jobId, { status: "cancelled", finishedAt: nowIso(), leaseOwner: undefined, leaseExpiresAt: undefined }, { actor: workerId });
+        terminal = { job: tx.update(workspaceId, "jobs", jobId, { status: "cancelled", finishedAt: nowIso(), leaseOwner: undefined, leaseExpiresAt: undefined }, { actor: workerId }), to: "cancelled" };
         releaseReservation = job.reservation?.reservationId;
         return null;
       }
       if (job.attempts >= job.maxAttempts) {
-        tx.update(
+        const failed = tx.update(
           workspaceId,
           "jobs",
           jobId,
           { status: "failed", finishedAt: nowIso(), error: job.error ?? { code: "MAX_ATTEMPTS", message: "Retry limit reached", retryable: false, userMessage: "This task kept failing. Please retry." } },
           { actor: workerId },
         );
+        terminal = { job: failed, to: "failed" };
         releaseReservation = job.reservation?.reservationId;
         return null;
       }
@@ -184,7 +241,11 @@ export class JobService {
       );
     });
     if (releaseReservation) await this.credits.release(workspaceId, releaseReservation, { actor: workerId, reason: "Job cancelled or exhausted retries" });
-    if (result) await this.event(workspaceId, jobId, { kind: "status", status: "running", message: `Attempt ${result.attempts}` });
+    if (terminal) await this.notifyStatus(workspaceId, terminal.job, fromStatus, terminal.to, terminal.job.error);
+    if (result) {
+      await this.event(workspaceId, jobId, { kind: "status", status: "running", message: `Attempt ${result.attempts}` });
+      await this.notifyStatus(workspaceId, result, fromStatus, "running");
+    }
     return result;
   }
 
@@ -221,6 +282,7 @@ export class JobService {
       else await this.credits.settle(workspaceId, job.reservation.reservationId, charged, { actor: workerId });
     }
     await this.event(workspaceId, job.id, { kind: "status", status: updated.status, message: needsApproval ? "Waiting for your approval" : "Completed" });
+    await this.notifyStatus(workspaceId, updated, job.status, updated.status);
     return updated;
   }
 
@@ -228,7 +290,7 @@ export class JobService {
   async fail(workspaceId: string, job: Job, err: AppError, workerId: string): Promise<"retry" | "failed"> {
     const info: ErrorInfo = err.toInfo();
     const willRetry = err.retryable && job.attempts < job.maxAttempts;
-    await this.db.ws(workspaceId).collection("jobs").update(
+    const updated = await this.db.ws(workspaceId).collection("jobs").update(
       job.id,
       willRetry
         ? { status: "queued", error: info, leaseOwner: undefined, leaseExpiresAt: undefined, progress: { ...job.progress, stage: "retrying", message: info.userMessage } }
@@ -237,13 +299,15 @@ export class JobService {
     );
     if (!willRetry && job.reservation) await this.credits.release(workspaceId, job.reservation.reservationId, { actor: workerId, reason: `Job failed: ${info.code}` });
     await this.event(workspaceId, job.id, { kind: willRetry ? "log" : "error", status: willRetry ? "queued" : "failed", message: `${info.code}: ${info.userMessage ?? info.message}` });
+    await this.notifyStatus(workspaceId, updated, job.status, updated.status, info);
     return willRetry ? "retry" : "failed";
   }
 
   async markCancelled(workspaceId: string, job: Job, actor: string): Promise<void> {
-    await this.db.ws(workspaceId).collection("jobs").update(job.id, { status: "cancelled", finishedAt: nowIso(), leaseOwner: undefined, leaseExpiresAt: undefined }, { actor });
+    const updated = await this.db.ws(workspaceId).collection("jobs").update(job.id, { status: "cancelled", finishedAt: nowIso(), leaseOwner: undefined, leaseExpiresAt: undefined }, { actor });
     if (job.reservation) await this.credits.release(workspaceId, job.reservation.reservationId, { actor, reason: "Job cancelled" });
     await this.event(workspaceId, job.id, { kind: "status", status: "cancelled", message: "Cancelled" });
+    await this.notifyStatus(workspaceId, updated, job.status, "cancelled");
   }
 
   /** User cancel: queued jobs stop immediately; running jobs are signalled. */

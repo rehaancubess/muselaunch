@@ -1,0 +1,13 @@
+{
+  "_fixture": "Muse Spark web-search-grounded answer (Responses API: message.output_text with url_citation annotations + web_search_call.results). Fictional sources on example domains; NOT live output.",
+  "text": "- Short 'study with me' focus videos with a visible timer are a recurring format on TikTok and YouTube Shorts.\n- Creators in the study niche pair Pomodoro timers with lo-fi music.\n- Several focus apps advertise app blocking as their main hook.",
+  "citations": [
+    { "url": "https://trends.example.com/2026/study-with-me-format", "title": "The 'study with me' format in 2026" },
+    { "url": "https://blog.example.org/focus-apps-compared", "title": "Focus apps compared" }
+  ],
+  "searchResults": [
+    { "url": "https://trends.example.com/2026/study-with-me-format", "title": "The 'study with me' format in 2026", "snippet": "Study-with-me videos with on-screen timers keep growing on short-form platforms." },
+    { "url": "https://blog.example.org/focus-apps-compared", "title": "Focus apps compared", "snippet": "Forest and Opal lead with app blocking; most apps show a timer in their ads." },
+    { "url": "https://calmstudy.example.com/about", "title": "CalmStudy — study with me streams", "snippet": "CalmStudy (@calmstudy) posts daily Pomodoro study-with-me sessions." }
+  ]
+}

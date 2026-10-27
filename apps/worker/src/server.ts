@@ -10,7 +10,10 @@ const { JOB_POOLS, TaskEnvelope } = await import("@muselaunch/contracts");
 const { createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
 const { handlers } = await import("./registry");
 
+const { installAnalyticsHooks } = await import("@muselaunch/analytics");
+
 const platform = createPlatform();
+installAnalyticsHooks(platform);
 const pools = new Set(platform.cfg.WORKER_POOLS);
 const runner = createRunner(platform, handlers);
 const app = new Hono();

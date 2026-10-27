@@ -108,17 +108,16 @@ function AppSwitcher({ app, section }: { app: App | null; section?: string }) {
         <MenuLink href={routes.settings.workspace(workspaceId)} icon={<Settings />} active={section === "settings"} onNavigate={(h) => router.push(h)}>
           Settings
         </MenuLink>
-        {otherWorkspaces.length ? (
-          <>
-            <MenuSeparator />
-            <MenuLabel>Other workspaces</MenuLabel>
-            {otherWorkspaces.map((w) => (
-              <MenuLink key={w.workspace.id} href={routes.workspace(w.workspace.id)} icon={<Avatar name={w.workspace.name} size={18} shape="squircle" />} onNavigate={(h) => router.push(h)}>
-                {w.workspace.name}
-              </MenuLink>
-            ))}
-          </>
-        ) : null}
+        <MenuSeparator />
+        {otherWorkspaces.length ? <MenuLabel>Other workspaces</MenuLabel> : null}
+        {otherWorkspaces.map((w) => (
+          <MenuLink key={w.workspace.id} href={routes.workspace(w.workspace.id)} icon={<Avatar name={w.workspace.name} size={18} shape="squircle" />} onNavigate={(h) => router.push(h)}>
+            {w.workspace.name}
+          </MenuLink>
+        ))}
+        <MenuLink href={`${routes.onboarding()}?new=1`} icon={<Plus />} onNavigate={(h) => router.push(h)}>
+          New workspace
+        </MenuLink>
       </MenuContent>
     </Menu>
   );

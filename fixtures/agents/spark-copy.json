@@ -1,0 +1,15 @@
+{
+  "_fixture": "Muse Spark structured-output content for schema CopyPacks. The Product Hunt tagline is over 60 chars on the first attempt (exercises the limit repair). NOT live output.",
+  "first": {
+    "packs": [
+      { "channel": "instagram", "items": [ { "kind": "caption", "text": "One tap and your distracting apps stay quiet for 25 minutes. Block distracting apps during focus sessions and watch your weekly streak grow.", "claimIds": ["$ID:clm:0"] }, { "kind": "hashtags", "text": "#pomodoro #studywithme #focus" }, { "kind": "cta", "text": "Start your first focus session: [APP_LINK]" } ] },
+      { "channel": "producthunt", "items": [ { "kind": "product_hunt_tagline", "text": "The calmest Pomodoro timer that blocks every distracting app on your iPhone" }, { "kind": "product_hunt_description", "text": "Custom-length focus sessions, app blocking and weekly focus reports." }, { "kind": "maker_comment", "text": "Hi Product Hunt! I built Tidy Timer because I kept losing evenings to my phone. Feedback welcome." } ] }
+    ]
+  },
+  "repaired": {
+    "packs": [
+      { "channel": "instagram", "items": [ { "kind": "caption", "text": "One tap and your distracting apps stay quiet for 25 minutes. Block distracting apps during focus sessions and watch your weekly streak grow.", "claimIds": ["$ID:clm:0"] }, { "kind": "hashtags", "text": "#pomodoro #studywithme #focus" }, { "kind": "cta", "text": "Start your first focus session: [APP_LINK]" } ] },
+      { "channel": "producthunt", "items": [ { "kind": "product_hunt_tagline", "text": "A calm Pomodoro timer that blocks distractions" }, { "kind": "product_hunt_description", "text": "Custom-length focus sessions, app blocking and weekly focus reports. Trusted by 1,000,000 students." }, { "kind": "maker_comment", "text": "Hi Product Hunt! I built Tidy Timer because I kept losing evenings to my phone. Feedback welcome." } ] }
+    ]
+  }
+}

@@ -78,7 +78,8 @@ export const ConfigSchema = z.object({
   MUSE_IMAGE_RESTRICTED_COUNTRIES: csv.default(["IN"]),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().default("https://api.openai.com/v1"),
-  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-1"),
+  /** gpt-image-1 was shut down on 2026-10-23; documented replacements: gpt-image-2.5-flare (fast) / gpt-image-2.5-sunburst. */
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2.5-flare"),
   OPENAI_TTS_MODEL: z.string().default("gpt-4o-mini-tts"),
 
   // Optional third-party media
@@ -95,6 +96,10 @@ export const ConfigSchema = z.object({
 
   PLANS_JSON: z.string().optional(),
   CREDIT_PRICES_JSON: z.string().optional(),
+  /** Comma-separated Firebase uids with operator access (admin ops, plan changes). */
+  ADMIN_UIDS: csv.default([]),
+  /** Public base URL for tracked links (/r/:slug); defaults to API_PUBLIC_URL. */
+  LINK_PUBLIC_BASE_URL: z.string().optional(),
   /** Credits granted to a new workspace. */
   SIGNUP_CREDITS: z.coerce.number().int().default(300),
 });

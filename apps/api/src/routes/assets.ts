@@ -119,6 +119,9 @@ assetRoutes.delete("/assets/:assetId", requireCap("content.write"), async (c) =>
   const asset = await repo.getOrThrow(c.req.param("assetId"));
   assertKeyInWorkspace(wid, asset.storagePath);
   await p.storage.delete(asset.storagePath);
+  // Derived files (normalised copies, posters, masks) and the original upload folder.
+  await p.storage.deletePrefix(`${workspaceKey(wid, "media", asset.id)}/`);
+  await p.storage.deletePrefix(`${workspaceKey(wid, "uploads", asset.id)}/`);
   const updated = await repo.update(asset.id, { status: "deleted" }, { actor: actorOf(c) });
   return c.json({ asset: updated });
 });

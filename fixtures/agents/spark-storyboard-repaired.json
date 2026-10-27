@@ -1,0 +1,70 @@
+{
+  "_fixture": "Muse Spark Storyboard content after repair (supporting visual no longer depicts the app UI). NOT live output.",
+  "title": "One tap to deep work",
+  "scenes": [
+    {
+      "purpose": "hook",
+      "durationSec": 2.5,
+      "onScreenText": "One tap. No distractions.",
+      "narration": "",
+      "visual": "Bold headline on a soft violet gradient",
+      "template": "hook-title",
+      "assets": [],
+      "claimIds": []
+    },
+    {
+      "purpose": "demo",
+      "durationSec": 5,
+      "onScreenText": "Start a 25-minute session",
+      "narration": "",
+      "visual": "Real timer screen in an iPhone frame, gentle float",
+      "template": "device-demo",
+      "assets": [
+        {
+          "kind": "screenshot",
+          "assetId": "$ID:ast:0",
+          "featureId": "feat_timer"
+        }
+      ],
+      "claimIds": []
+    },
+    {
+      "purpose": "feature",
+      "durationSec": 4,
+      "onScreenText": "Distracting apps stay blocked",
+      "narration": "",
+      "visual": "Feature callout pointing at the blocking state",
+      "template": "feature-callout",
+      "assets": [
+        {
+          "kind": "stock_image",
+          "query": "student at a calm desk with headphones, warm evening light"
+        }
+      ],
+      "claimIds": [
+        "$ID:clm:0"
+      ]
+    },
+    {
+      "purpose": "cta",
+      "durationSec": 2.5,
+      "onScreenText": "Start your first focus session",
+      "narration": "",
+      "visual": "Logo, CTA and App Store badge",
+      "template": "cta-endcard",
+      "assets": [
+        {
+          "kind": "logo",
+          "assetId": "ast_invented_logo"
+        }
+      ],
+      "claimIds": []
+    }
+  ],
+  "voiceover": {
+    "source": "none"
+  },
+  "music": {
+    "mood": "calm lo-fi"
+  }
+}
