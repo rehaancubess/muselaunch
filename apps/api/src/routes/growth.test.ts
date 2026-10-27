@@ -49,7 +49,8 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     .on("POST", "https://oauth2.googleapis.com/revoke", { status: 200, text: "" })
     .on("POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { json: gm.send });
   const creds = { clientId: "google-client", clientSecret: "google-secret" };
-  configureGrowth(p, { fetch: http.fetch, sleep: async () => {}, settings: { creds: { youtube: creds, gmail: creds } } });
+  // Deterministic rule validator here; module B's model-backed validateClaims is tested in packages/agents.
+  configureGrowth(p, { fetch: http.fetch, sleep: async () => {}, claimValidator: null, settings: { creds: { youtube: creds, gmail: creds } } });
 
   let claimId = "clm_placeholder";
   const metaRequests: J[] = [];
