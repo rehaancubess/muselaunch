@@ -1,5 +1,6 @@
 import { decideStrategy } from "@muselaunch/agents";
 import { AgentBudget, Channel, CreateCampaignRequest, Id, ProduceVariantRequest, ResearchKind } from "@muselaunch/contracts";
+import { APPROVER_CAP } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -231,14 +232,21 @@ campaignRoutes.get("/agent-runs/:runId", async (c) => {
   return c.json({ run, steps: steps.items, usage: usage.items, tools: tools.items });
 });
 
-/** Approve / reject a strategy run's spend proposals (approval checkpoint). */
-campaignRoutes.post("/agent-runs/:runId/approve", requireCap("content.write"), async (c) => {
+/**
+ * Approve / reject a strategy run's spend proposals (approval checkpoint).
+ * SECURITY: the run's pending Approval has action "spend", whose approver capability is
+ * `billing.manage` (growth APPROVER_CAP). Deciding it here with only `content.write` let an editor
+ * authorise agent-proposed credit spend that the generic /approvals/:id/approve route refuses them.
+ */
+const SPEND_APPROVER_CAP = APPROVER_CAP.spend;
+
+campaignRoutes.post("/agent-runs/:runId/approve", requireCap(SPEND_APPROVER_CAP), async (c) => {
   const input = await optionalBody(c, z.object({ note: z.string().max(1000).optional() }));
   const out = await decideStrategy(c.get("platform"), { workspaceId: c.get("workspaceId"), runId: c.req.param("runId"), actor: actorOf(c), approve: true, note: input.note });
   return c.json(out, 202);
 });
 
-campaignRoutes.post("/agent-runs/:runId/reject", requireCap("content.write"), async (c) => {
+campaignRoutes.post("/agent-runs/:runId/reject", requireCap(SPEND_APPROVER_CAP), async (c) => {
   const input = await optionalBody(c, z.object({ note: z.string().max(1000).optional() }));
   const out = await decideStrategy(c.get("platform"), { workspaceId: c.get("workspaceId"), runId: c.req.param("runId"), actor: actorOf(c), approve: false, note: input.note });
   return c.json(out);

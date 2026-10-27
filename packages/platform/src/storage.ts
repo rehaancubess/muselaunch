@@ -185,8 +185,11 @@ export class LocalStorage implements ObjectStorage {
     return t;
   }
 
-  /** Stream an incoming PUT body to disk with a size cap. */
-  async writeStream(key: string, body: Readable, contentType: string, maxBytes?: number): Promise<number> {
+  /**
+   * Stream an incoming PUT body to disk with a size cap. `exclusive` makes the write create-only
+   * (signed upload URLs are single-use, see `signedUploadUrl`); a failed write leaves nothing behind.
+   */
+  async writeStream(key: string, body: Readable, contentType: string, maxBytes?: number, opts: { exclusive?: boolean } = {}): Promise<number> {
     const p = this.file(key);
     await mkdir(dirname(p), { recursive: true });
     let bytes = 0;
@@ -197,7 +200,20 @@ export class LocalStorage implements ObjectStorage {
         yield chunk;
       }
     };
-    await pipeline(body, limiter, createWriteStream(p));
+    let out: ReturnType<typeof createWriteStream>;
+    try {
+      out = createWriteStream(p, { flags: opts.exclusive ? "wx" : "w" });
+      await new Promise<void>((resolveOpen, rejectOpen) => out.once("open", () => resolveOpen()).once("error", rejectOpen));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") throw new AppError("CONFLICT", "This upload URL was already used", { userMessage: "This upload already finished. Start a new upload to replace the file." });
+      throw err;
+    }
+    try {
+      await pipeline(body, limiter, out);
+    } catch (err) {
+      await rm(p, { force: true }).catch(() => {});
+      throw err;
+    }
     await writeFile(`${p}.meta.json`, JSON.stringify({ contentType }));
     return bytes;
   }
@@ -285,6 +301,9 @@ export class GcsStorage implements ObjectStorage {
     const expires = Date.now() + (opts.expiresSec ?? 900) * 1000;
     const extensionHeaders: Record<string, string> = {};
     if (opts.maxBytes) extensionHeaders["x-goog-content-length-range"] = `0,${opts.maxBytes}`;
+    // Single-use: only creates the object. Otherwise the URL (valid for its whole TTL) could replace a
+    // file after it was probed/hashed and approved, publishing content nobody approved.
+    extensionHeaders["x-goog-if-generation-match"] = "0";
     const [url] = await this.bucket.file(key).getSignedUrl({ version: "v4", action: "write", expires, contentType: opts.contentType, extensionHeaders });
     return { url, method: "PUT", headers: { "Content-Type": opts.contentType, ...extensionHeaders }, expiresAt: new Date(expires).toISOString() };
   }
