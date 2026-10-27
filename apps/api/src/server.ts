@@ -8,10 +8,13 @@ const { createPlatform, createRunner } = await import("@muselaunch/platform");
 const { buildApp } = await import("./app");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
+const { installAutopilotHooks } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
 // Plan quotas, monthly credit top-ups and ops counters (module F).
 installAnalyticsHooks(platform);
+// Growth Autopilot (module B): job cancellations/terminal transitions made by the API resume waiting loops.
+installAutopilotHooks(platform);
 if (platform.cfg.JOB_DISPATCH === "inline") {
   // Single-process mode: the API also executes jobs (local demos only).
   const { handlers } = await import("@muselaunch/worker/registry");

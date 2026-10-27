@@ -12,9 +12,13 @@ const { handlers } = await import("./registry");
 const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
+const { installAutopilotHooks, wakeDueAutopilots } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
 installAnalyticsHooks(platform);
+// Growth Autopilot (module B): resume a loop when the jobs it waits on finish (status hook in the
+// process that finishes them); the "autopilot-wake" cron wakes sleeping loops and repairs missed resumes.
+installAutopilotHooks(platform);
 const pools = new Set(platform.cfg.WORKER_POOLS);
 const runner = createRunner(platform, handlers);
 const app = new Hono();
@@ -55,6 +59,7 @@ app.post("/tasks/execute", async (c) => {
  */
 const CRONS: Record<string, () => Promise<unknown>> = {
   "publish-due": () => runDueScheduledPosts(platform),
+  "autopilot-wake": () => wakeDueAutopilots(platform),
 };
 
 app.post("/tasks/cron/:name", async (c) => {
