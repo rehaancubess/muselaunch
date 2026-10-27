@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
-loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
+loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), quiet: true });
 
 const { serve } = await import("@hono/node-server");
 const { createPlatform, createRunner } = await import("@muselaunch/platform");

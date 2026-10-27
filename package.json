@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "smoke:live": "tsx scripts/smoke-live.ts",
     "doctor": "tsx scripts/doctor.ts",
-    "seed:dev": "tsx scripts/seed-dev.ts"
+    "seed:dev": "tsx scripts/seed-dev.ts",
+    "deploy:gcp": "tsx scripts/deploy.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
