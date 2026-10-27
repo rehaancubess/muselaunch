@@ -1,0 +1,184 @@
+import { createHash } from "node:crypto";
+import { TERMINAL_JOB_STATUSES, type Approval, type Autopilot, type AutopilotStage, type EntityRef, type Job, type JobPayloads, type JobType } from "@muselaunch/contracts";
+import type { WorkspaceDb } from "@muselaunch/db";
+import { AppError, type JobContext, type Platform } from "@muselaunch/platform";
+import type { z } from "zod";
+
+export type LogEntry = Autopilot["log"][number];
+export type Stage = AutopilotStage;
+
+/** What a stage decided the loop should do next. */
+export type Outcome =
+  | { kind: "advance"; to: Stage }
+  | { kind: "wait"; jobIds: string[]; tag: string; reason: string }
+  | { kind: "checkpoint"; approvalId: string; tag: string; reason: string }
+  | { kind: "sleep"; until: string; tag: string; reason: string }
+  | { kind: "done"; summary: string };
+
+export const STAGE_ORDER: Stage[] = ["understand", "research", "select_audience", "hypothesis", "plan_creative", "produce", "verify", "render", "schedule", "measure", "learn", "done"];
+
+/** Statuses after which the loop does nothing until a human acts. */
+export const INACTIVE: Autopilot["status"][] = ["completed", "failed", "cancelled", "paused"];
+
+const clocks = new WeakMap<Platform, () => number>();
+/** Tests: control time (sleep/wake of the measure stage). */
+export function setAutopilotClock(p: Platform, now: () => number): void {
+  clocks.set(p, now);
+}
+export function nowMs(p: Platform): number {
+  return (clocks.get(p) ?? Date.now)();
+}
+
+/** `waitingOn.reason` carries a machine tag for the stage's sub-phase: "[produce:builds] Building 2 videos". */
+export const tagOf = (reason?: string) => reason?.match(/^\[([^\]]+)\]/)?.[1];
+export const reasonText = (reason?: string) => (reason ?? "").replace(/^\[[^\]]+\]\s*/, "");
+
+export const isTerminalJob = (j: Pick<Job, "status">) => (TERMINAL_JOB_STATUSES as readonly string[]).includes(j.status) || j.status === "needs_approval";
+
+export const shortHash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+
+export function hashId(prefix: string, ...parts: (string | number)[]): string {
+  return `${prefix}_${createHash("sha256").update(parts.join("␟")).digest("hex").slice(0, 24)}`;
+}
+
+export const resumeKey = (autopilotId: string, jobIds: string[]) => `autopilot:${autopilotId}:resume:${shortHash([...jobIds].sort().join(","))}`;
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Job refs recorded in the decision log = every job this loop delegated. */
+export function delegatedJobIds(log: LogEntry[]): string[] {
+  return [...new Set(log.flatMap((e) => e.refs.filter((r) => r.entity === "jobs").map((r) => r.id)))];
+}
+
+/**
+ * Credits consumed or held by everything this loop started: delegated jobs plus the follow-ups
+ * they chained (e.g. storyboard → composition.build → render.preview). Settled jobs count what
+ * was charged; open ones count their reservation.
+ */
+export async function spentCredits(ws: WorkspaceDb, appId: string, log: LogEntry[]): Promise<number> {
+  const ids = delegatedJobIds(log);
+  if (!ids.length) return 0;
+  const direct = await ws.collection("jobs").getMany(ids);
+  const set = new Set(ids);
+  const recent = (await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 300 })).items;
+  const all = new Map(direct.map((j) => [j.id, j]));
+  // two levels of chaining (storyboard → build → preview)
+  for (let level = 0; level < 2; level++) {
+    for (const j of recent) if (j.parentJobId && set.has(j.parentJobId) && !all.has(j.id) && j.type !== "autopilot.step") all.set(j.id, j);
+    for (const id of all.keys()) set.add(id);
+  }
+  let total = 0;
+  for (const j of all.values()) total += isTerminalJob(j) ? (j.creditsCharged ?? 0) : (j.reservation?.credits ?? 0);
+  return total;
+}
+
+/**
+ * One autopilot step's working state: the loaded loop, its decision log additions and field
+ * changes, plus helpers to delegate jobs (always logged), gate spend and open checkpoints.
+ */
+export class LoopEnv {
+  readonly entries: LogEntry[] = [];
+  readonly patch: Partial<Autopilot> = {};
+  readonly runIds: string[] = [];
+  usd = 0;
+  ap: Autopilot;
+  /** Sub-phase tag of the work being done in this step (undefined = stage entry). */
+  currentTag: string | undefined;
+
+  constructor(
+    readonly ctx: JobContext<"autopilot.step">,
+    readonly original: Autopilot,
+  ) {
+    this.ap = original;
+  }
+
+  get p() {
+    return this.ctx.platform;
+  }
+  get ws() {
+    return this.ctx.ws;
+  }
+  get appId() {
+    return this.ap.appId;
+  }
+  get iteration() {
+    return this.ap.iteration;
+  }
+  get tag() {
+    return tagOf(this.ap.waitingOn.reason);
+  }
+
+  note(kind: LogEntry["kind"], summary: string, refs: EntityRef[] = [], agentRunId?: string): void {
+    this.entries.push({ at: new Date(nowMs(this.p)).toISOString(), stage: this.ap.stage, kind, summary: clip(summary, 1200), refs: refs.slice(0, 20), agentRunId });
+  }
+
+  set(patch: Partial<Autopilot>): void {
+    Object.assign(this.patch, patch);
+    this.ap = { ...this.ap, ...patch };
+  }
+
+  /** All log entries including this step's additions. */
+  get fullLog(): LogEntry[] {
+    return [...this.ap.log, ...this.entries];
+  }
+
+  /** Enqueue a delegated job with a deterministic key (idempotent) and log it with its ref. */
+  async delegate<T extends JobType>(type: T, payload: z.input<(typeof JobPayloads)[T]>, opts: { key: string; label: string; credits?: { operation: string; params?: Record<string, unknown> } }): Promise<Job> {
+    const job = await this.ctx.enqueue(type, payload, { idempotencyKey: `autopilot:${this.ap.id}:it${this.iteration}:${opts.key}`, credits: opts.credits, appId: this.appId });
+    this.note("action", opts.label, [{ entity: "jobs", id: job.id }]);
+    return job;
+  }
+
+  estimate(operation: string, params: Record<string, unknown> = {}): number {
+    return this.p.credits.estimate(operation, params).credits;
+  }
+
+  async spent(): Promise<number> {
+    return spentCredits(this.ws, this.appId, this.fullLog);
+  }
+
+  /**
+   * Budget guard before delegating `credits` of work. Returns a checkpoint when the loop budget
+   * would be exceeded (the user can raise it by approving), otherwise null.
+   */
+  async budgetGate(credits: number, what: string, approved: boolean): Promise<Outcome | null> {
+    const spent = await this.spent();
+    const max = this.ap.budget.maxCredits;
+    if (spent + credits <= max) return null;
+    if (approved) {
+      this.set({ budget: { ...this.ap.budget, maxCredits: spent + credits } });
+      this.note("budget", `Budget raised to ${spent + credits} credits after your approval to continue (${what}).`);
+      return null;
+    }
+    this.note("budget", `Paused: ${what} needs ≈${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit budget remain.`);
+    return this.checkpoint("spend", `Growth Autopilot needs ≈${credits} more credits for ${what} (budget ${max}, used ${spent}). Approve to raise the budget and continue.`, credits, `budget@${this.currentTag ?? "enter"}`, `Budget reached before ${what}`);
+  }
+
+  /** Open an approval checkpoint on this loop (spend / continue). */
+  async checkpoint(action: Approval["action"], summary: string, credits: number | undefined, tag: string, reason: string): Promise<Outcome> {
+    const approval = await this.ws.collection("approvals").create(
+      {
+        appId: this.appId,
+        action,
+        subject: { entity: "autopilots", id: this.ap.id },
+        snapshotHash: shortHash(`${this.ap.id}:${this.iteration}:${this.ap.stage}:${tag}:${this.fullLog.length}`),
+        summary: clip(summary, 1000),
+        requestedBy: `agent:autopilot:${this.ap.id}`,
+        status: "pending",
+        estimate: credits !== undefined ? { credits } : undefined,
+      },
+      { actor: this.ctx.actor },
+    );
+    this.note("checkpoint", reason, [{ entity: "approvals", id: approval.id }]);
+    return { kind: "checkpoint", approvalId: approval.id, tag, reason };
+  }
+
+  /** Jobs this step waits on, loaded. */
+  async jobs(ids = this.ap.waitingOn.jobIds): Promise<Job[]> {
+    return this.ws.collection("jobs").getMany(ids);
+  }
+}
+
+export function fail(code: "PROVIDER_ERROR" | "BAD_REQUEST" | "CONFLICT", message: string, userMessage?: string): AppError {
+  return new AppError(code, message, { retryable: false, userMessage: userMessage ?? message });
+}
