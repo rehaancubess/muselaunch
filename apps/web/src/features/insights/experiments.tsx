@@ -151,7 +151,7 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
   return (
     <Sheet open={Boolean(experimentId)} onOpenChange={(o) => !o && onClose()} title={exp?.title ?? "Experiment"} description={exp?.hypothesis} width="max-w-2xl">
       {exp ? (
-        <div className="space-y-6">
+        <div className="space-y-6 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill status={statusKindOf(exp.status === "concluded" ? "succeeded" : exp.status === "abandoned" ? "cancelled" : exp.status === "running" ? "running" : "queued")}>{exp.status}</StatusPill>
             <Badge tone="outline">Primary: {exp.primaryMetric.replace(/_/g, " ")}</Badge>
@@ -199,9 +199,11 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
           ) : null}
         </div>
       ) : (
-        <QueryState query={detail} feature="Experiment">
-          {() => null}
-        </QueryState>
+        <div className="p-5">
+          <QueryState query={detail} feature="Experiment">
+            {() => null}
+          </QueryState>
+        </div>
       )}
     </Sheet>
   );

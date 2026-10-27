@@ -9,7 +9,7 @@ import { defineConfig } from "@playwright/test";
  * Starts `pnpm dev:fixture` (API :8080) and the web app (:3000) unless they're already running.
  * Screenshots of each step are written to docs/screenshots/e2e-*.png.
  */
-const chrome = process.env.RENDER_CHROME_PATH ?? "/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell";
+const chrome = process.env.RENDER_CHROME_PATH || "/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell";
 
 export default defineConfig({
   testDir: ".",
