@@ -33,6 +33,12 @@ for (const [net, prefix] of [
 for (const [net, prefix] of [
   ["::", 128],
   ["::1", 128],
+  // Deprecated IPv4-compatible (::a.b.c.d), 6to4 (2002::/16) and Teredo (2001::/32) addresses embed
+  // an IPv4 address (e.g. ::7f00:1, 2002:a9fe:a9fe::), and fec0::/10 is old site-local space.
+  ["::", 96],
+  ["2002::", 16],
+  ["2001::", 32],
+  ["fec0::", 10],
   ["fc00::", 7],
   ["fe80::", 10],
   ["ff00::", 8],
@@ -64,7 +70,8 @@ export function assertSafeUrl(raw: string): URL {
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new AppError("UNSAFE_URL", "Only http(s) URLs are allowed");
   if (url.username || url.password) throw new AppError("UNSAFE_URL", "Credentials in URLs are not allowed");
   if (url.port && !["80", "443"].includes(url.port)) throw new AppError("UNSAFE_URL", "Non-standard ports are not allowed");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
+  // A trailing dot is the same DNS name ("localhost." / "metadata.google.internal.").
+  const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
   if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) {
     throw new AppError("UNSAFE_URL", "Internal hostnames are not allowed");
   }

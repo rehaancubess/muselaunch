@@ -555,7 +555,7 @@ function TrackedLinksSection({ workspaceId, appId, highlight }: { workspaceId: s
               </Field>
             </div>
             {f.destination === "custom" ? (
-              <Checkbox checked={f.confirm} onCheckedChange={(v) => setF({ ...f, confirm: v })} label="I confirm this destination" description="It isn't one of your app's own store pages or website." />
+              <Checkbox checked={f.confirm} onCheckedChange={(v) => setF({ ...f, confirm: v })} label="I confirm this destination" description="It isn't one of your app's own store pages or website, so visitors first see a “You're leaving to this site” page (MuseLaunch never redirects silently to outside sites)." />
             ) : null}
             <Button icon={<Link2 aria-hidden />} onClick={() => void create()} loading={busy} disabled={!f.campaignId || !f.source.trim() || !f.medium.trim() || (f.destination === "custom" && (!f.url || !f.confirm))}>
               Create link

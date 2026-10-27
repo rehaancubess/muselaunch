@@ -91,13 +91,21 @@ export const Animation = z.object({
 export type Animation = z.infer<typeof Animation>;
 
 /**
+ * SAM object id as referenced from a composition (SAM returns small integers as strings).
+ * SECURITY: composition docs are user/LLM-editable and compiled into HTML + an inline timeline
+ * script, so ids that reach the compiler are restricted to a safe charset (no quotes, angle
+ * brackets or backslashes), like every other id in the doc.
+ */
+export const ObjectKey = z.string().regex(/^[A-Za-z0-9_.:-]{1,40}$/, "invalid object id");
+
+/**
  * Pins a layer to a SAM-tracked object: the compiler drives the layer's position (and optionally
  * scale) from the object's per-frame track, so labels/graphics follow real objects in footage.
  * `box` remains the fallback position when the object is not visible.
  */
 export const ObjectAnchor = z.object({
   segmentationId: Id,
-  objectId: z.string().max(40),
+  objectId: ObjectKey,
   point: z.enum(["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]).default("center"),
   /** Offset from the anchor point, in frame fractions. */
   offset: z.object({ x: z.number().min(-1).max(1).default(0), y: z.number().min(-1).max(1).default(0) }).default({ x: 0, y: 0 }),
@@ -174,7 +182,7 @@ export const MaskUse = z.object({
   segmentationId: Id,
   /** cutout: only the subject is visible; background layers show through. */
   mode: z.enum(["cutout", "inverse"]).default("cutout"),
-  objectIds: z.array(z.string().max(40)).default([]),
+  objectIds: z.array(ObjectKey).default([]),
   feather: z.number().min(0).max(20).default(1),
   /** Fallback when tracking quality is low or the mask is missing: show unmasked footage. */
   fallback: z.enum(["unmasked", "hide"]).default("unmasked"),
@@ -234,7 +242,7 @@ export const BlockLayer = LayerBase.extend({
 export const EffectLayer = LayerBase.extend({
   type: z.literal("effect"),
   effect: z.enum(["spotlight", "outline-glow", "focus-blur", "highlight-ring", "follow-arrow", "screen-insert"]),
-  target: z.object({ segmentationId: Id, objectId: z.string().max(40) }),
+  target: z.object({ segmentationId: Id, objectId: ObjectKey }),
   color: ColorValue.optional(),
   intensity: z.number().min(0).max(1).default(0.7),
   /** screen-insert only: real product media (isProductTruth) to place on the object. */

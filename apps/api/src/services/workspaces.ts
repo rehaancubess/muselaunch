@@ -91,9 +91,23 @@ export async function acceptInvite(p: Platform, user: AuthUser, token: string): 
   const profile = await ensureUser(p, user);
   const members = p.db.ws(invite.workspaceId).collection("members");
   const existing = await members.get(user.uid);
-  const member = existing
-    ? await members.update(user.uid, { role: invite.role, status: "active" }, { actor: user.uid })
-    : await members.create({ id: user.uid, userId: user.uid, email: user.email, displayName: user.name, role: invite.role, canPublish: false, canManageAccounts: false, status: "active" }, { actor: user.uid });
+  // Plan seat limit is checked again here: it is only checked against *active* members when inviting,
+  // so several outstanding invites could otherwise all be accepted past the limit.
+  if (existing?.status !== "active") {
+    const workspace = await p.db.top("workspaces").get(invite.workspaceId);
+    const plan = p.credits.plans[workspace?.planId as keyof typeof p.credits.plans] ?? p.credits.plans.free;
+    const active = (await members.list({ limit: 200 })).items.filter((m) => m.status === "active").length;
+    if (active >= plan.limits.members) throw new AppError("QUOTA_EXCEEDED", `Plan allows ${plan.limits.members} members`, { userMessage: "This workspace has no free seats on its plan. Ask the owner to upgrade or remove a member." });
+  }
+  // SECURITY: an invite never changes the role of someone who is already an active member. Otherwise an
+  // admin could send the OWNER an invite with role "viewer"; one click demoted the owner, after which the
+  // admin could remove them and keep the workspace. Role changes go through PATCH /members/:uid.
+  const member =
+    existing?.status === "active"
+      ? existing
+      : existing
+        ? await members.update(user.uid, { role: invite.role, status: "active" }, { actor: user.uid })
+        : await members.create({ id: user.uid, userId: user.uid, email: user.email, displayName: user.name, role: invite.role, canPublish: false, canManageAccounts: false, status: "active" }, { actor: user.uid });
   await p.db.top("invites").update(invite.id, { status: "accepted", acceptedBy: user.uid, acceptedAt: nowIso() });
   if (!profile.workspaceIds.includes(invite.workspaceId)) {
     await p.db.top("users").update(user.uid, { workspaceIds: [...profile.workspaceIds, invite.workspaceId], defaultWorkspaceId: profile.defaultWorkspaceId ?? invite.workspaceId });

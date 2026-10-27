@@ -1,4 +1,5 @@
 import { JobStatus, TERMINAL_JOB_STATUSES, type Job } from "@muselaunch/contracts";
+import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -69,8 +70,22 @@ jobRoutes.post("/:jobId/cancel", requireCap("content.write"), async (c) => {
   return c.json({ job });
 });
 
+/**
+ * SECURITY: jobs that perform an external action must be started through their own endpoints,
+ * which enforce the separate member grant (`publish` / `outreach.send`), the approval gate, the
+ * post/draft state machine and the outreach anti-blast rate limit. A generic retry only needs
+ * `content.write`, so re-running these from here let an editor publish or send email.
+ */
+const EXTERNAL_ACTION_JOBS: Partial<Record<Job["type"], string>> = {
+  "publish.post": "Publish the post again from the calendar (POST /posts/:id/publish).",
+  "outreach.send": "Send the draft again from outreach (POST /outreach/drafts/:id/send).",
+};
+
 jobRoutes.post("/:jobId/retry", requireCap("content.write"), async (c) => {
   const p = c.get("platform");
-  const job = await p.jobs.retry(c.get("workspaceId"), c.req.param("jobId"), actorOf(c));
+  const existing = await p.db.ws(c.get("workspaceId")).collection("jobs").getOrThrow(c.req.param("jobId"));
+  const via = EXTERNAL_ACTION_JOBS[existing.type];
+  if (via) throw new AppError("CONFLICT", `${existing.type} jobs can't be retried generically`, { userMessage: via });
+  const job = await p.jobs.retry(c.get("workspaceId"), existing.id, actorOf(c));
   return c.json({ job }, 202);
 });

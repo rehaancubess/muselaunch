@@ -173,7 +173,9 @@ export async function enforceQuota(p: Platform, input: { workspaceId: string; ty
   const workspace = await p.db.top("workspaces").get(input.workspaceId);
   const plan = planFor(p, workspace?.planId);
   await ensurePeriodAllowance(p, input.workspaceId, workspace).catch((err) => p.log.warn({ err }, "period allowance check failed"));
-  if (!input.opts.parentJobId && !CONCURRENCY_EXEMPT.has(input.type)) {
+  // Chained children (parentJobId) run under their parent's slot. A user retry also carries a
+  // parentJobId (audit link), so it is checked explicitly: otherwise cancel → retry bypassed the limit.
+  if ((!input.opts.parentJobId || input.opts.retryOfJobId) && !CONCURRENCY_EXEMPT.has(input.type)) {
     const active = await activeJobs(p, input.workspaceId);
     if (active.length >= plan.limits.concurrentJobs) {
       throw new AppError("QUOTA_EXCEEDED", `Concurrent job limit ${plan.limits.concurrentJobs} reached`, {
