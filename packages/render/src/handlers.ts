@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AspectRatio,
+  type ClipAnalysis,
   type Claim,
   type Composition,
   type CompositionDoc,
@@ -18,11 +19,12 @@ import { adaptToAspect, buildFromStoryboard, collectAssetRefs, compileToHtml, do
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, workspaceKey, type HandlerRegistry, type JobContext } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, workspaceKey, type HandlerRegistry, type JobContext, type ObjectStorage } from "@muselaunch/platform";
 import { exportPackage } from "./package";
 import { extFor, extractFrame, probe, sha256File, shortHash, toJpeg } from "./media";
 import { PREVIEW_SCALE, renderCacheKey } from "./keys";
 import { renderProject } from "./producer";
+import { loadTracksFor, segmentationAssetIds } from "./tracks";
 
 const PREVIEW_TIMEOUT_MS = Number(process.env.RENDER_PREVIEW_TIMEOUT_MS ?? 8 * 60_000);
 const FINAL_TIMEOUT_MS = Number(process.env.RENDER_FINAL_TIMEOUT_MS ?? 25 * 60_000);
@@ -47,17 +49,22 @@ export async function loadAppAssets(ws: WorkspaceDb, appId: string): Promise<Med
   return listAll((cursor) => ws.collection("mediaAssets").list({ where: [["appId", "==", appId]], limit: 200, cursor }));
 }
 
+export async function loadAppClipAnalyses(ws: WorkspaceDb, appId: string): Promise<ClipAnalysis[]> {
+  return (await listAll((cursor) => ws.collection("clipAnalyses").list({ where: [["appId", "==", appId]], limit: 100, cursor }), 300)).filter((a) => a.status === "succeeded" || a.status === "partial");
+}
+
 export async function loadAppSegmentations(ws: WorkspaceDb, appId: string): Promise<Segmentation[]> {
   return listAll((cursor) => ws.collection("segmentations").list({ where: [["appId", "==", appId]], limit: 200, cursor }));
 }
 
 /** Assets + segmentations a doc needs (ids resolved in this workspace only). */
-export async function loadDocMedia(ws: WorkspaceDb, doc: CompositionDoc) {
+export async function loadDocMedia(ws: WorkspaceDb, doc: CompositionDoc, storage?: ObjectStorage) {
   const refs = collectAssetRefs(doc);
   const segs = (await ws.collection("segmentations").getMany(refs.segmentationIds)) as Segmentation[];
-  const cutouts = segs.map((s) => s.cutoutAssetId).filter((x): x is string => !!x);
+  const cutouts = segmentationAssetIds(segs);
   const assets = (await ws.collection("mediaAssets").getMany([...new Set([...refs.assetIds, ...cutouts])])) as MediaAsset[];
-  return { refs, segs, assets };
+  const tracks = storage ? await loadTracksFor(storage, ws, segs) : {};
+  return { refs, segs, assets, tracks };
 }
 
 async function loadClaims(ws: WorkspaceDb, doc: CompositionDoc): Promise<Record<string, Claim>> {
@@ -67,12 +74,13 @@ async function loadClaims(ws: WorkspaceDb, doc: CompositionDoc): Promise<Record<
   return Object.fromEntries(claims.map((c) => [c.id, c]));
 }
 
-export async function lintForRender(ws: WorkspaceDb, doc: CompositionDoc): Promise<LintIssue[]> {
-  const { assets, segs } = await loadDocMedia(ws, doc);
+export async function lintForRender(ws: WorkspaceDb, doc: CompositionDoc, storage?: ObjectStorage): Promise<LintIssue[]> {
+  const { assets, segs, tracks } = await loadDocMedia(ws, doc, storage);
   return lintDoc(doc, {
     assets: Object.fromEntries(assets.map((a) => [a.id, a])),
     claims: await loadClaims(ws, doc),
     segmentations: Object.fromEntries(segs.map((s) => [s.id, s])),
+    tracks: storage ? tracks : undefined,
   });
 }
 
@@ -102,7 +110,8 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
     composition = existing;
     version = await getVersion(ctx.ws, compositionId, existing.currentVersion);
   } else {
-    const doc = buildFromStoryboard({ storyboard, app, brand, assets, segmentations });
+    const clipAnalyses = await loadAppClipAnalyses(ctx.ws, appId);
+    const doc = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses });
     ({ composition, version } = await createComposition(
       ctx.ws,
       { id: compositionId, appId, campaignId: storyboard.campaignId, variantId: storyboard.variantId, storyboardId, title: storyboard.title, doc },
@@ -110,7 +119,7 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
     ));
   }
   await ctx.progress(60, "checking composition");
-  const lint = await lintForRender(ctx.ws, version.doc);
+  const lint = await lintForRender(ctx.ws, version.doc, ctx.platform.storage);
 
   // Link back to the concept/variant (idempotent set-add).
   const variant = await ctx.ws.collection("campaignVariants").get(storyboard.variantId);
@@ -188,12 +197,12 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
   }
 
   // ---- lint gate ------------------------------------------------------------------------------
-  const { assets, segs, refs } = await loadDocMedia(ctx.ws, doc);
+  const { assets, segs, refs, tracks } = await loadDocMedia(ctx.ws, doc, p.storage);
   const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
   const missing = refs.assetIds.filter((id) => !byId[id] || !READY.has(byId[id]!.status));
   if (missing.length) throw new AppError("VALIDATION_FAILED", `Media not available: ${missing.join(", ")}`, { userMessage: "Some media in this video is missing or still uploading.", details: { missing } });
   if (quality === "final") {
-    const errors = lintDoc(doc, { assets: byId, claims: await loadClaims(ctx.ws, doc), segmentations: Object.fromEntries(segs.map((s) => [s.id, s])) }).filter((i) => i.level === "error");
+    const errors = lintDoc(doc, { assets: byId, claims: await loadClaims(ctx.ws, doc), segmentations: Object.fromEntries(segs.map((s) => [s.id, s])), tracks }).filter((i) => i.level === "error");
     if (errors.length) throw new AppError("VALIDATION_FAILED", `Composition has ${errors.length} blocking issue(s): ${errors.map((e) => e.message).slice(0, 3).join("; ")}`, { userMessage: "Fix the flagged issues in the editor before the final render.", details: { issues: errors } });
   }
 
@@ -209,6 +218,7 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
       gsapSource: "inline",
       scale: quality === "preview" ? PREVIEW_SCALE : 1,
       segmentations: Object.fromEntries(segs.map((s) => [s.id, s])),
+      tracks,
       assetKinds: Object.fromEntries(assets.map((a) => [a.id, a.kind])),
       still,
       sceneSlotSec: still ? 0.2 : undefined,
@@ -421,7 +431,7 @@ async function compositionVariants(ctx: JobContext<"composition.variants">) {
         if (sb) {
           const app = await ctx.ws.collection("apps").getOrThrow(appId);
           const brand = await ctx.ws.collection("brandProfiles").get(app.brandProfileId ?? appId);
-          rebuilt = buildFromStoryboard({ storyboard: sb, app, brand, assets: await loadAppAssets(ctx.ws, appId), segmentations: await loadAppSegmentations(ctx.ws, appId), aspectRatio: ar.data, kind: ver.doc.kind });
+          rebuilt = buildFromStoryboard({ storyboard: sb, app, brand, assets: await loadAppAssets(ctx.ws, appId), segmentations: await loadAppSegmentations(ctx.ws, appId), clipAnalyses: await loadAppClipAnalyses(ctx.ws, appId), aspectRatio: ar.data, kind: ver.doc.kind });
         }
       }
       const doc = adaptToAspect(ver.doc, ar.data, rebuilt);

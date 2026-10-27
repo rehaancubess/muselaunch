@@ -7,15 +7,16 @@
  * element ids — document text and colours are escaped into markup/CSS and never reach script.
  * Every visual is produced by the allowlisted components below.
  */
-import type { CompositionDoc, Layer, MaskUse, Scene, Segmentation, Theme } from "@muselaunch/contracts";
+import type { CompositionDoc, Layer, MaskUse, Scene, Theme, TracksFile } from "@muselaunch/contracts";
 import { BLOCK_PARAMS, isBlockId } from "./blocks";
 import { estimateTextHeight } from "./lint";
+import { anchorPoint, clipMapping, holdGaps, sampleTrack, trackTweens, trackUsable, type SegmentationInfo } from "./objects";
 import { getCompileRuntime } from "./runtime";
 import { round3, sceneStarts, totalDuration } from "./validate";
 
 export const ROOT_COMPOSITION_ID = "muselaunch";
 
-export type SegmentationInfo = Pick<Segmentation, "status" | "cutoutAssetId" | "trackingQuality" | "mediaType">;
+export type { SegmentationInfo } from "./objects";
 
 export interface CompileOptions {
   /** Resolve an asset id to a URL or a path relative to the render directory. */
@@ -23,8 +24,10 @@ export interface CompileOptions {
   mode: "preview" | "render";
   /** "inline" embeds the registered GSAP source; anything else is used as a script URL. */
   gsapSource: "inline" | string;
-  /** Segmentations referenced by masked layers (cutout swap + fallback). */
+  /** Segmentations referenced by masked layers, anchors and effects (cutout swap + fallback). */
   segmentations?: Record<string, SegmentationInfo>;
+  /** SAM object tracks per segmentation id (TracksFile JSON), for anchors and effect layers. */
+  tracks?: Record<string, TracksFile>;
   /** Output scale (e.g. 0.5 for fast previews). The layout is authored at doc size and scaled. */
   scale?: number;
   /** Static capture: no motion, cuts only; each scene lasts `sceneSlotSec` (default: authored). */
@@ -249,6 +252,7 @@ body{-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;font-o
 .w{display:inline-block;overflow:hidden;vertical-align:top;padding:0.06em 0.02em 0.1em;margin:-0.06em -0.02em -0.1em}
 .wi,.ch{display:inline-block}
 .media{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+.fxm{display:block}
 .dev{position:absolute}
 .dev-body{position:absolute;left:0;top:0;width:100%;height:100%}
 .dev-screen{position:absolute;overflow:hidden;background:#000;isolation:isolate}
@@ -377,12 +381,151 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
     case "block":
       inner = blockHtml(ctx, layer, w, h, win, sceneWin.start);
       break;
+    case "effect": {
+      // Effects draw in frame coordinates over the whole frame; box.z / box.opacity still apply.
+      const fx = effectHtml(ctx, scene, layer, win, sceneWin.start);
+      if (fx === null) return "";
+      const id = `l-${layer.id}`;
+      if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start);
+      const op = b.opacity !== 1 ? `opacity:${n(b.opacity)};` : "";
+      return `<div id="${id}" class="layer clip l-effect" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-track-index="${2 + li}" style="left:0;top:0;width:${W}px;height:${H}px;z-index:${b.z};pointer-events:none;${op}"><div class="lk" id="${id}-k"><div class="le" id="${id}-e"><div class="ll" id="${id}-l">${fx}</div></div></div></div>`;
+    }
   }
   const rot = b.rotation ? `transform:rotate(${n(b.rotation, 2)}deg);` : "";
   const op = b.opacity !== 1 ? `opacity:${n(b.opacity)};` : "";
   const id = `l-${layer.id}`;
   if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start);
+  if (layer.anchor) anchorLayer(ctx, scene, layer, id, win, sceneWin.start);
   return `<div id="${id}" class="layer clip l-${layer.type}" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-track-index="${2 + li}" style="left:${px(left)};top:${px(top)};width:${px(w)};height:${px(h)};z-index:${b.z};${rot}${op}"><div class="lk" id="${id}-k"><div class="le" id="${id}-e"><div class="ll" id="${id}-l">${inner}</div></div></div></div>`;
+}
+
+// --- object-aware: anchors & effects ------------------------------------------------------------
+
+function segAndTracks(ctx: Ctx, segmentationId: string) {
+  return { seg: ctx.opts.segmentations?.[segmentationId], tracks: ctx.opts.tracks?.[segmentationId] };
+}
+
+/** Drive the layer's `-k` wrapper along the tracked object (static fallback when the track is unusable). */
+function anchorLayer(ctx: Ctx, scene: Scene, layer: Layer, id: string, win: Window, sceneStart: number) {
+  const a = layer.anchor!;
+  const { seg, tracks } = segAndTracks(ctx, a.segmentationId);
+  const use = trackUsable(seg, tracks, a.objectId);
+  if (!use.ok || !tracks) return;
+  const map = clipMapping(scene, seg, tracks, ctx.W, ctx.H);
+  let samples = sampleTrack(use.track!, tracks.fps, map, sceneStart, win, a.smoothFrames);
+  if (a.whenLost === "hold") samples = holdGaps(samples);
+  const ref = samples.find((s) => s.visible);
+  if (!ref) {
+    if (a.whenLost === "hide") ctx.tl.push(`tl.set(q("${id}-k"), {autoAlpha:0}, ${n(win.start)});`);
+    return;
+  }
+  const b = layer.box;
+  const cx0 = (b.x + b.w / 2) * ctx.W;
+  const cy0 = (b.y + b.h / 2) * ctx.H;
+  const refDiag = Math.hypot(ref.w, ref.h) || 1;
+  ctx.tl.push(
+    ...trackTweens(
+      `q("${id}-k")`,
+      samples,
+      (s) => {
+        const p = anchorPoint(s, a.point);
+        const o: Record<string, number> = { x: p.x + a.offset.x * ctx.W - cx0, y: p.y + a.offset.y * ctx.H - cy0 };
+        if (a.scaleWithObject) o.scale = Math.max(0.3, Math.min(3, Math.hypot(s.w, s.h) / refDiag));
+        return o;
+      },
+      { fadeLost: a.whenLost === "hide" },
+    ),
+  );
+}
+
+/** The object's own cutout (per-object output first, else the segmentation's combined cutout). */
+function objectCutout(seg: SegmentationInfo | undefined, objectId: string): string | undefined {
+  return seg?.objectOutputs?.[objectId]?.cutoutAssetId ?? seg?.cutoutAssetId;
+}
+
+/** A timed <video> of the clip (or its cutout) positioned exactly like the clip layer. */
+function clipVideo(ctx: Ctx, assetId: string, elId: string, map: ReturnType<typeof clipMapping>, win: Window, sceneStart: number, extraStyle = ""): string {
+  const style = `position:absolute;left:${px(map.boxX)};top:${px(map.boxY)};width:${px(map.boxW)};height:${px(map.boxH)};object-fit:${map.fit};${extraStyle}`;
+  return mediaElement(ctx, assetId, elId, win, { cls: "fxm", style, trimIn: map.srcAt(win.start - sceneStart), rate: map.rate, muted: true, video: true });
+}
+
+function effectHtml(ctx: Ctx, scene: Scene, layer: Extract<Layer, { type: "effect" }>, win: Window, sceneStart: number): string | null {
+  const { W, H } = ctx;
+  const th = ctx.doc.theme;
+  const { seg, tracks } = segAndTracks(ctx, layer.target.segmentationId);
+  const use = trackUsable(seg, tracks, layer.target.objectId);
+  const map = clipMapping(scene, seg, tracks, W, H);
+  const color = themeColor(th, layer.color, th.accent);
+  const rgb = color.length >= 7 ? color.slice(0, 7) : "#FFFFFF";
+  const I = layer.intensity;
+  const id = `l-${layer.id}`;
+  const sel = (suffix: string) => `q("${id}-${suffix}")`;
+  const samples = use.ok && tracks ? holdGaps(sampleTrack(use.track!, tracks.fps, map, sceneStart, win, 5)) : [];
+  const anyVisible = samples.some((s) => s.visible);
+  const motion = (suffix: string, props: Parameters<typeof trackTweens>[2], fadeLost = false) => {
+    if (!ctx.still) ctx.tl.push(...trackTweens(sel(suffix), samples, props, { fadeLost }));
+    else if (samples[0]) ctx.tl.push(`tl.set(${sel(suffix)}, ${JSON.stringify(props(samples.find((x) => x.visible) ?? samples[0]))}, ${n(win.start)});`);
+  };
+  switch (layer.effect) {
+    case "spotlight": {
+      if (!anyVisible) return null;
+      const a = n(0.35 + I * 0.5);
+      motion("spot", (s) => ({ "--x": `${n(s.cx, 1)}px`, "--y": `${n(s.cy, 1)}px`, "--rx": `${n(s.w * 0.72 + W * 0.04, 1)}px`, "--ry": `${n(s.h * 0.68 + W * 0.04, 1)}px` }));
+      const first = samples.find((x) => x.visible)!;
+      const vars = `--x:${n(first.cx, 1)}px;--y:${n(first.cy, 1)}px;--rx:${n(first.w * 0.72, 1)}px;--ry:${n(first.h * 0.68, 1)}px`;
+      return `<div id="${id}-spot" class="media" style="${vars};background:radial-gradient(ellipse var(--rx) var(--ry) at var(--x) var(--y),rgba(0,0,0,0) 0%,rgba(0,0,0,0) 58%,${withAlpha(rgb, 0.16 * I)} 66%,rgba(0,0,0,${a}) 100%)"></div>`;
+    }
+    case "highlight-ring": {
+      if (!anyVisible) return null;
+      const first = samples.find((x) => x.visible)!;
+      const pad = Math.max(first.w, first.h) * 0.08;
+      const radius = Math.min(first.w, first.h) * 0.22;
+      motion("ring", (s) => ({ left: s.x - pad, top: s.y - pad, width: s.w + pad * 2, height: s.h + pad * 2 }));
+      const bw = Math.max(3, W * 0.005);
+      return `<div id="${id}-ring" style="position:absolute;left:${px(first.x - pad)};top:${px(first.y - pad)};width:${px(first.w + pad * 2)};height:${px(first.h + pad * 2)};border:${px(bw)} solid ${withAlpha(rgb, 0.55 + 0.45 * I)};border-radius:${px(radius)};box-shadow:0 0 ${px(W * 0.03)} ${withAlpha(rgb, 0.55 * I)},inset 0 0 ${px(W * 0.02)} ${withAlpha(rgb, 0.35 * I)}"></div>`;
+    }
+    case "follow-arrow": {
+      if (!anyVisible) return null;
+      const size = W * 0.075;
+      const first = samples.find((x) => x.visible)!;
+      motion("arrow", (s) => ({ left: s.cx - size / 2, top: s.y - size * 1.25 }));
+      if (!ctx.still) {
+        const reps = Math.max(0, Math.ceil((win.end - win.start) / 0.5) - 1);
+        ctx.tl.push(`tl.fromTo(${sel("arrow-b")}, {y:0}, {y:${n(size * 0.18, 1)}, duration:0.5, ease:"sine.inOut", yoyo:true, repeat:${reps}}, ${n(win.start)});`);
+      }
+      return `<div id="${id}-arrow" style="position:absolute;left:${px(first.cx - size / 2)};top:${px(first.y - size * 1.25)};width:${px(size)};height:${px(size)}"><svg id="${id}-arrow-b" viewBox="0 0 24 24" width="100%" height="100%" style="filter:drop-shadow(0 ${px(size * 0.06)} ${px(size * 0.14)} rgba(0,0,0,.35))"><path d="M12 22 L3.5 12.5 H9 V2 H15 V12.5 H20.5 Z" fill="${rgb}" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>`;
+    }
+    case "screen-insert": {
+      if (!layer.assetId || !anyVisible) return null;
+      const inset = layer.inset ?? { top: 0.045, right: 0.075, bottom: 0.045, left: 0.075 };
+      const first = samples.find((x) => x.visible)!;
+      const rect = (s: { x: number; y: number; w: number; h: number }) => ({ left: s.x + s.w * inset.left, top: s.y + s.h * inset.top, width: s.w * (1 - inset.left - inset.right), height: s.h * (1 - inset.top - inset.bottom) });
+      motion("ins", (s) => rect(s), true);
+      const r0 = rect(first);
+      const radius = Math.min(r0.width, r0.height) * 0.14;
+      const isVideo = (ctx.opts.assetKinds?.[layer.assetId] ?? "image") === "video";
+      const media = mediaElement(ctx, layer.assetId, `ef-${layer.id}-scr`, win, { cls: "media", style: "object-fit:cover;object-position:50% 0%", trimIn: 0, rate: 1, muted: true, video: isVideo });
+      return `<div id="${id}-ins" style="position:absolute;left:${px(r0.left)};top:${px(r0.top)};width:${px(r0.width)};height:${px(r0.height)};border-radius:${px(radius)};overflow:hidden;background:#000;box-shadow:0 0 0 1px rgba(0,0,0,.6)">${media}<div style="position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,255,255,.14),rgba(255,255,255,0) 40%);pointer-events:none"></div></div>`;
+    }
+    case "outline-glow": {
+      const cut = objectCutout(seg, layer.target.objectId);
+      if (!cut || !seg || seg.status !== "succeeded" || (seg.trackingQuality ?? 1) < 0.5) return null;
+      const r1 = W * (0.006 + 0.012 * I);
+      const r2 = W * (0.02 + 0.03 * I);
+      if (!ctx.still) {
+        const reps = Math.max(0, Math.ceil((win.end - win.start) / 1.2) - 1);
+        ctx.tl.push(`tl.fromTo(${sel("glow")}, {opacity:0.75}, {opacity:1, duration:1.2, ease:"sine.inOut", yoyo:true, repeat:${reps}}, ${n(win.start)});`);
+      }
+      return `<div id="${id}-glow" style="position:absolute;inset:0;filter:drop-shadow(0 0 ${px(r1)} ${withAlpha(rgb, 0.95)}) drop-shadow(0 0 ${px(r2)} ${withAlpha(rgb, 0.7)})">${clipVideo(ctx, cut, `ef-${layer.id}-cut`, map, win, sceneStart)}</div>`;
+    }
+    case "focus-blur": {
+      const cut = objectCutout(seg, layer.target.objectId);
+      const source = seg?.sourceAssetId;
+      if (!cut || !source || !seg || seg.status !== "succeeded" || (seg.trackingQuality ?? 1) < 0.5) return null;
+      const blur = W * (0.006 + 0.02 * I);
+      return `<div style="position:absolute;inset:0;overflow:hidden"><div style="position:absolute;inset:0;filter:blur(${px(blur)}) saturate(0.9);transform:scale(1.04)">${clipVideo(ctx, source, `ef-${layer.id}-bg`, map, win, sceneStart)}</div><div style="position:absolute;inset:0;background:rgba(0,0,0,${n(0.12 * I)})"></div>${clipVideo(ctx, cut, `ef-${layer.id}-cut`, map, win, sceneStart)}</div>`;
+    }
+  }
 }
 
 function resolveMask(ctx: Ctx, assetId: string, mask: MaskUse | undefined): { assetId: string } | null {
@@ -690,7 +833,7 @@ function animateLayer(ctx: Ctx, layer: Layer, id: string, win: Window, sceneStar
     default:
       break;
   }
-  const kf = a.keyframes;
+  const kf = layer.anchor ? undefined : a.keyframes; // an anchor owns the -k wrapper
   if (kf && kf.length) {
     const b = layer.box;
     const val = (k: (typeof kf)[number]) => ({
@@ -803,6 +946,11 @@ export function collectAssetRefs(doc: CompositionDoc): { assetIds: string[]; seg
       if (l.type === "image" || l.type === "video") a.add(l.assetId);
       if (l.type === "device") a.add(l.screenAssetId);
       if (l.type === "video" && l.mask) s.add(l.mask.segmentationId);
+      if (l.type === "effect") {
+        s.add(l.target.segmentationId);
+        if (l.assetId) a.add(l.assetId);
+      }
+      if (l.anchor) s.add(l.anchor.segmentationId);
     }
   }
   for (const t of doc.audio) a.add(t.assetId);

@@ -17,6 +17,7 @@ import {
   type AudioTrack,
   type BrandProfile,
   type CaptionCue,
+  type ClipAnalysis,
   type Layer,
   type MediaAsset,
   type Scene,
@@ -36,6 +37,8 @@ export interface BuildInput {
   brand: BrandProfile | null;
   assets: MediaAsset[];
   segmentations?: Segmentation[];
+  /** SAM clip analyses (module D) for founder clips; enable the object-aware templates. */
+  clipAnalyses?: ClipAnalysis[];
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +377,10 @@ interface SceneCtx {
   count: number;
   /** Words to tint in headlines. */
   emphasis: (t: string) => string[];
+  analyses: ClipAnalysis[];
+  /** Per-clip playback cursor so a presenter clip keeps playing across consecutive scenes. */
+  clipCursor: Map<string, number>;
+  durationSec: number;
 }
 
 type Built = { template: TemplateId; layers: Layer[]; background: Scene["background"] };
@@ -847,11 +854,12 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   const segs = input.segmentations ?? [];
   const kind = input.kind ?? "video";
   const ordered = [...storyboard.scenes].sort((a, b) => a.order - b.order);
+  const clipCursor = new Map<string, number>();
   const scenes: Scene[] = [];
   let prevTemplate: TemplateId | undefined;
   ordered.forEach((sb, index) => {
     const sceneId = `sc_${sb.id}`.slice(0, 100);
-    const ctx: SceneCtx = { f, theme, app, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords };
+    const ctx: SceneCtx = { f, theme, app, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords, analyses: input.clipAnalyses ?? [], clipCursor, durationSec: Math.max(0.5, Math.min(60, sb.durationSec)) };
     const requested = ((TEMPLATE_IDS as readonly string[]).includes(sb.template) ? sb.template : null) as TemplateId | null;
     const fallbackText = sb.onScreenText.trim() || (sb.purpose === "cta" ? "" : app.tagline || app.name);
     const t = kind === "video" ? (requested ?? defaultTemplate(sb)) : "carousel-slide";
@@ -980,13 +988,219 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
       return ctaEndcard(ctx, txt);
     case "carousel-slide":
       return carouselSlide(ctx, textOr(ctx.app.name), picker.product(sb));
-    // Object-aware templates: placeholder layouts until module C implements tracked compositing
-    // (presenter cutout in front of the demo, spotlight on the tracked phone, screen insert).
     case "presenter-depth":
     case "object-spotlight":
     case "product-in-hand":
-      return buildScene(ctx, "founder-cutout", txt);
+      return objectAware(ctx, t, textOr(ctx.app.name)) ?? buildScene(ctx, "founder-cutout", txt);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Object-aware templates (SAM tracks + cutouts of a real founder clip)
+// ---------------------------------------------------------------------------
+
+const PERSON = /person|presenter|founder|people|human|man|woman|speaker|body/i;
+const PHONE = /phone|smartphone|mobile|iphone|android|device|tablet|screen/i;
+const HAND = /hand/i;
+
+interface ClipObjects {
+  clip: MediaAsset;
+  analysis: ClipAnalysis;
+  person?: ClipAnalysis["objects"][number];
+  phone?: ClipAnalysis["objects"][number];
+  hand?: ClipAnalysis["objects"][number];
+  usable: (o: ClipAnalysis["objects"][number] | undefined) => boolean;
+  cutoutReady: (o: ClipAnalysis["objects"][number] | undefined) => boolean;
+}
+
+function clipObjects(ctx: SceneCtx): ClipObjects | null {
+  const clip = ctx.picker.founderClip(ctx.sb);
+  if (!clip) return null;
+  const analysis = ctx.analyses.find((a) => a.sourceAssetId === clip.id && (a.status === "succeeded" || a.status === "partial"));
+  if (!analysis) return null;
+  const pick = (re: RegExp) => analysis.objects.find((o) => re.test(`${o.key} ${o.label}`));
+  const segOf = (o: ClipAnalysis["objects"][number] | undefined) => (o ? ctx.segs.find((s) => s.id === o.segmentationId) : undefined);
+  const usable = (o: ClipAnalysis["objects"][number] | undefined) => {
+    const seg = segOf(o);
+    return !!o && !!seg && seg.status === "succeeded" && (o.trackingQuality ?? seg.trackingQuality ?? 1) >= 0.5;
+  };
+  const cutoutReady = (o: ClipAnalysis["objects"][number] | undefined) => {
+    const seg = segOf(o);
+    return usable(o) && !!(seg!.objectOutputs?.[o!.objectId]?.cutoutAssetId ?? seg!.cutoutAssetId);
+  };
+  return { clip, analysis, person: pick(PERSON), phone: pick(PHONE), hand: pick(HAND), usable, cutoutReady };
+}
+
+function baseClip(ctx: SceneCtx, clip: MediaAsset): Layer {
+  const trimIn = ctx.clipCursor.get(clip.id) ?? 0;
+  const avail = clip.durationSec ?? Infinity;
+  const start = trimIn + 0.5 < avail ? trimIn : 0;
+  ctx.clipCursor.set(clip.id, start + ctx.durationSec);
+  return {
+    id: `${ctx.sceneId}_clip`,
+    name: "Presenter clip",
+    type: "video",
+    assetId: clip.id,
+    fit: "cover",
+    trimInSec: r4(start),
+    playbackRate: 1,
+    muted: false,
+    volume: 1,
+    radiusPx: 0,
+    box: box(0, 0, 1, 1, 1),
+    timing: { start: 0 },
+    animation: { loop: "none" },
+    locked: false,
+    hidden: false,
+  } as Layer;
+}
+
+function cutoutLayer(id: string, name: string, base: Layer, obj: ClipAnalysis["objects"][number], z: number): Layer {
+  const b = base as Extract<Layer, { type: "video" }>;
+  return {
+    ...structuredClone(b),
+    id,
+    name,
+    muted: true,
+    box: { ...b.box, z },
+    mask: { segmentationId: obj.segmentationId, mode: "cutout", objectIds: [obj.objectId], feather: 1, fallback: "hide" },
+  } as Layer;
+}
+
+function effect(id: string, name: string, kind: Extract<Layer, { type: "effect" }>["effect"], obj: ClipAnalysis["objects"][number], z: number, o: { intensity?: number; color?: string; assetId?: string; enter?: TextOpts["enter"] } = {}): Layer {
+  return {
+    id,
+    name,
+    type: "effect",
+    effect: kind,
+    target: { segmentationId: obj.segmentationId, objectId: obj.objectId },
+    intensity: o.intensity ?? 0.7,
+    color: o.color,
+    assetId: o.assetId,
+    box: box(0, 0, 1, 1, z),
+    timing: { start: 0 },
+    animation: { enter: o.enter ? { preset: o.enter.preset, durationSec: o.enter.durationSec ?? 0.6, delaySec: o.enter.delaySec ?? 0, easing: o.enter.easing ?? "smooth" } : undefined, loop: "none" },
+    locked: false,
+    hidden: false,
+  } as Layer;
+}
+
+function topHeadline(ctx: SceneCtx, value: string, z: number, size = 88): Layer {
+  const { f } = ctx;
+  const tw = 1 - f.safe.left - f.safe.right - 0.02;
+  const fit = fitText(f, value, size * f.u, f.landscape ? 0.5 : tw, { maxLines: f.landscape ? 3 : 2 });
+  const b = f.landscape ? box(0.06, f.safe.top + 0.02, 0.5, fit.h, z) : box(0.5 - tw / 2, f.safe.top + 0.005, tw, fit.h, z);
+  return text(`${ctx.sceneId}_headline`, value, b, {
+    size: fit.size,
+    weight: 760,
+    color: "#FFFFFF",
+    align: f.landscape ? "left" : "center",
+    shadow: true,
+    enter: ENTER_HEAD,
+    highlight: { words: ctx.emphasis(value), color: mix(ctx.theme.accent, "#FFFFFF", 0.35) },
+    claimIds: ctx.sb.claimIds,
+  });
+}
+
+function anchoredChip(ctx: SceneCtx, label: string, obj: ClipAnalysis["objects"][number], z: number, point: "top" | "right" | "left" = "top"): Layer {
+  const { f } = ctx;
+  const chipH = f.portrait ? 0.042 : 0.07;
+  const chipW = Math.min(0.62, (label.length * 0.55 * 34 * f.u + 120 * f.u) / f.W);
+  const mb = obj.meanBbox ?? { x: 0.5, y: 0.5, w: 0.2, h: 0.2 };
+  const fx = point === "right" ? mb.x + mb.w + chipW / 2 + 0.02 : point === "left" ? mb.x - chipW / 2 - 0.02 : mb.x + mb.w / 2;
+  const fy = point === "top" ? mb.y - chipH : mb.y + mb.h / 2;
+  const layer = blockChip(`${ctx.sceneId}_chip1`, label, box(Math.min(1 - chipW, Math.max(0, fx - chipW / 2)), Math.max(0, fy - chipH / 2), chipW, chipH, z), 0.6);
+  return {
+    ...layer,
+    name: "Callout (follows phone)",
+    anchor: {
+      segmentationId: obj.segmentationId,
+      objectId: obj.objectId,
+      point,
+      offset: point === "top" ? { x: 0, y: -(chipH * 0.9) } : { x: point === "right" ? chipW / 2 + 0.015 : -(chipW / 2 + 0.015), y: 0 },
+      scaleWithObject: false,
+      smoothFrames: 7,
+      whenLost: "hold",
+    },
+  } as Layer;
+}
+
+function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | "product-in-hand", value: string): Built | null {
+  const co = clipObjects(ctx);
+  if (!co) return null;
+  const { f, sceneId, theme, app } = ctx;
+  const parts = splitParts(value);
+  const head = parts[0] ?? value;
+  const featureNames = ctx.sb.assets.map((h) => ctx.brand?.features.find((x) => x.id === h.featureId)?.name).filter((x): x is string => !!x);
+  const chipText = (parts[1] ?? featureNames[0])?.slice(0, 40);
+  const darkBg: Scene["background"] = { kind: "solid", color: "#000000", angle: 180, dim: 0 };
+  const shade = (z: number, strength = 1) => shape(`${sceneId}_shade`, "rect", box(0, 0, 1, 1, z), `#000000${Math.round(0x18 * strength).toString(16).padStart(2, "0")}`, { gradientTo: `#000000${Math.round(0x99 * strength).toString(16).padStart(2, "0")}` });
+
+  if (t === "presenter-depth") {
+    if (!co.usable(co.person)) return null;
+    const base = baseClip(ctx, co.clip);
+    const demo = ctx.picker.product(ctx.sb, "app_recording");
+    const layers: Layer[] = [base, { ...shade(2, 0.9), name: "Depth shade" } as Layer];
+    const mean = co.person!.meanBbox ?? { x: 0.3, y: 0.2, w: 0.4, h: 0.8 };
+    const personLeft = mean.x + mean.w / 2 < 0.5;
+    if (co.cutoutReady(co.person)) {
+      // Big word behind the presenter: reads as depth when the cutout sits in front of it.
+      const word = (app.name || head).toUpperCase().slice(0, 14);
+      const size = Math.round(Math.min(300 * f.u, (f.W * 0.92) / Math.max(3, word.length * 0.62)));
+      layers.push(
+        text(`${sceneId}_ghost`, word, box(0.02, f.portrait ? 0.2 : 0.16, 0.96, (size * 1.05) / f.H, 3), {
+          role: "label",
+          size,
+          weight: 860,
+          color: "#FFFFFF",
+          lineHeight: 0.95,
+          letterSpacing: -0.04,
+          enter: { preset: "blur-in", durationSec: 1.1, delaySec: 0.1 },
+        }),
+      );
+      layers[layers.length - 1]!.box.opacity = 0.92;
+      layers[layers.length - 1]!.name = "Word behind presenter";
+    }
+    if (demo) {
+      const cx = personLeft ? (f.landscape ? 0.72 : 0.74) : f.landscape ? 0.28 : 0.26;
+      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.38 : 0.2, f.portrait ? 0.46 : 0.66, 0.44);
+      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: personLeft ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: personLeft ? -6 : 6 }));
+      layers[layers.length - 1]!.name = "App demo (behind presenter)";
+    }
+    if (co.cutoutReady(co.person)) layers.push(cutoutLayer(`${sceneId}_presenter`, "Presenter (cutout, in front)", base, co.person!, 6));
+    layers.push(topHeadline(ctx, head, 8, 84));
+    return { template: t, layers, background: darkBg };
+  }
+
+  if (t === "object-spotlight") {
+    const target = co.usable(co.phone) ? co.phone! : co.usable(co.person) ? co.person! : null;
+    if (!target) return null;
+    const base = baseClip(ctx, co.clip);
+    const layers: Layer[] = [
+      base,
+      effect(`${sceneId}_spot`, "Spotlight", "spotlight", target, 2, { intensity: 0.8, enter: { preset: "fade", durationSec: 0.6 } }),
+      effect(`${sceneId}_ring`, "Highlight ring", "highlight-ring", target, 3, { intensity: 0.85, color: "theme.accent", enter: { preset: "scale-in", durationSec: 0.5, delaySec: 0.35, easing: "spring" } }),
+    ];
+    if (chipText) layers.push(anchoredChip(ctx, chipText, target, 5, "top"));
+    else layers.push(effect(`${sceneId}_arrow`, "Arrow", "follow-arrow", target, 5, { color: "theme.accent", enter: { preset: "pop", durationSec: 0.5, delaySec: 0.5 } }));
+    layers.push(topHeadline(ctx, head, 8, 80));
+    return { template: t, layers, background: darkBg };
+  }
+
+  // product-in-hand
+  const demo = ctx.picker.product(ctx.sb, "app_recording");
+  if (!co.usable(co.phone) || !demo) return null;
+  const base = baseClip(ctx, co.clip);
+  const layers: Layer[] = [
+    base,
+    effect(`${sceneId}_screen`, "App on the phone (real recording)", "screen-insert", co.phone!, 3, { assetId: demo.id, intensity: 1, enter: { preset: "fade", durationSec: 0.4, delaySec: 0.15 } }),
+  ];
+  const over = co.cutoutReady(co.hand) ? co.hand : co.cutoutReady(co.person) ? co.person : undefined;
+  if (over) layers.push(cutoutLayer(`${sceneId}_hand`, over === co.hand ? "Hand (over the screen)" : "Presenter (over the screen)", base, over, 4));
+  if (chipText) layers.push(anchoredChip(ctx, chipText, co.phone!, 5, (co.phone!.meanBbox?.x ?? 0.5) > 0.5 ? "left" : "right"));
+  layers.push(topHeadline(ctx, head, 8, 80));
+  void theme;
+  return { template: t, layers, background: darkBg };
 }
 
 export { frameFor as _frameFor, mix as mixColor };

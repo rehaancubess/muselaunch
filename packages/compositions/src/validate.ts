@@ -84,5 +84,7 @@ function layerErrors(layer: Layer, sceneDur: number): string[] {
     }
   }
   if (layer.type === "video" && layer.trimOutSec !== undefined && layer.trimOutSec <= layer.trimInSec) e.push(".trimOutSec: must be after trimInSec");
+  if (layer.type === "effect" && layer.effect === "screen-insert" && !layer.assetId) e.push(".assetId: screen-insert needs the real app media to place on the object");
+  if (layer.type === "effect" && layer.effect !== "screen-insert" && layer.assetId) e.push(".assetId: only screen-insert effects take media");
   return e;
 }

@@ -54,7 +54,7 @@ function carry(from: Layer, onto: Layer): Layer {
   if (from.type !== onto.type) return onto;
   const out = clone(onto) as Record<string, unknown>;
   const src = from as Record<string, unknown>;
-  const keep = ["name", "timing", "animation", "locked", "hidden"];
+  const keep = ["name", "timing", "animation", "locked", "hidden", "anchor"];
   const byType: Record<Layer["type"], string[]> = {
     text: ["text", "role", "claimIds"],
     image: ["assetId", "fit", "crop"],

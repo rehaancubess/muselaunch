@@ -1,4 +1,5 @@
-import type { Claim, CompositionDoc, Layer, MediaAsset, Segmentation } from "@muselaunch/contracts";
+import type { Claim, CompositionDoc, Layer, MediaAsset, Segmentation, TracksFile } from "@muselaunch/contracts";
+import { trackUsable } from "./objects";
 import { totalDuration } from "./validate";
 
 export interface LintIssue {
@@ -12,8 +13,10 @@ export interface LintContext {
   assets: Record<string, MediaAsset>;
   /** Optional: when provided, claim usage is checked (unknown/unverified claims are errors). */
   claims?: Record<string, Claim>;
-  /** Optional: when provided, masked layers are checked against their segmentation. */
+  /** Optional: when provided, masked layers, anchors and effects are checked against their segmentation. */
   segmentations?: Record<string, Segmentation>;
+  /** Optional: SAM tracks per segmentation id; anchors/effects without a usable track are flagged. */
+  tracks?: Record<string, TracksFile>;
 }
 
 const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
@@ -137,9 +140,35 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
           if (a && a.origin === "generated") out.push({ level: "error", ...where, message: "Generated media cannot be shown as the app's UI" });
           break;
         }
+        case "effect": {
+          const seg = ctx.segmentations?.[layer.target.segmentationId];
+          if (ctx.segmentations) {
+            const needsTrack = layer.effect !== "outline-glow" && layer.effect !== "focus-blur";
+            if (!seg) out.push({ level: "warning", ...where, message: `${layer.effect} targets a segmentation that doesn't exist; the effect is skipped` });
+            else if (needsTrack) {
+              const use = trackUsable(seg, ctx.tracks?.[seg.id], layer.target.objectId);
+              if (ctx.tracks && !use.ok) out.push({ level: "warning", ...where, message: `${layer.effect} is skipped: ${use.reason}` });
+            } else if (seg.status !== "succeeded" || (seg.trackingQuality ?? 1) < 0.5 || !(seg.objectOutputs?.[layer.target.objectId]?.cutoutAssetId ?? seg.cutoutAssetId))
+              out.push({ level: "warning", ...where, message: `${layer.effect} is skipped until the subject cutout is ready and reliable` });
+            if (seg && !scene.layers.some((l) => l.type === "video" && l.assetId === seg.sourceAssetId))
+              out.push({ level: "warning", ...where, message: `The clip this ${layer.effect} tracks isn't shown in this scene; positions assume a full-frame clip` });
+          }
+          if (layer.effect === "screen-insert" && layer.assetId) {
+            const a = checkAsset(layer.assetId, ["image", "video"], where, "Screen insert");
+            if (a && !a.isProductTruth) out.push({ level: "error", ...where, message: "Only real screenshots or recordings of the app can be placed on the phone" });
+          }
+          break;
+        }
         case "shape":
         case "block":
           break;
+      }
+      if (layer.anchor && ctx.segmentations) {
+        const seg = ctx.segmentations[layer.anchor.segmentationId];
+        const use = trackUsable(seg, seg ? ctx.tracks?.[seg.id] : undefined, layer.anchor.objectId);
+        if (!seg) out.push({ level: "warning", ...where, message: "Anchored to a segmentation that doesn't exist; the layer stays at its fixed position" });
+        else if (ctx.tracks && !use.ok) out.push({ level: "warning", ...where, message: `Can't follow the object (${use.reason}); the layer stays at its fixed position` });
+        if (layer.animation.keyframes?.length) out.push({ level: "warning", ...where, message: "Keyframes are ignored while the layer follows a tracked object" });
       }
     }
     const wps = words / Math.max(0.5, scene.durationSec);
