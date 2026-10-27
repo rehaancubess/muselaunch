@@ -1,0 +1,35 @@
+{
+  "_fixture": "Documented iTunes Lookup API response shape (https://performance-partners.apple.com/search-api). Fictional app; NOT a live response.",
+  "resultCount": 1,
+  "results": [
+    {
+      "wrapperType": "software",
+      "kind": "software",
+      "trackId": 1234567890,
+      "trackName": "Tidy Timer: Focus & Pomodoro",
+      "sellerName": "Tidy Labs Ltd",
+      "artistName": "Tidy Labs Ltd",
+      "primaryGenreName": "Productivity",
+      "genres": ["Productivity", "Utilities"],
+      "price": 0,
+      "formattedPrice": "Free",
+      "currency": "USD",
+      "averageUserRating": 4.7,
+      "userRatingCount": 1834,
+      "description": "Tidy Timer helps you focus in calm 25-minute sessions and see where your week went.\n\nFEATURES\n• Pomodoro timer with custom session lengths\n• Block distracting apps during focus sessions\n• Weekly focus reports with streaks\n• Home Screen and Lock Screen widgets\n\nTidy Timer Pro unlocks unlimited projects and themes with a monthly or yearly subscription.",
+      "releaseNotes": "New: Lock Screen widget.",
+      "currentVersionReleaseDate": "2026-09-30T07:00:00Z",
+      "version": "3.2.0",
+      "screenshotUrls": [
+        "https://is1-ssl.mzstatic.com/image/thumb/fixture/shot1.png/392x696bb.png",
+        "https://is1-ssl.mzstatic.com/image/thumb/fixture/shot2.png/392x696bb.png",
+        "https://is1-ssl.mzstatic.com/image/thumb/fixture/shot3.png/392x696bb.png"
+      ],
+      "ipadScreenshotUrls": [],
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/fixture/icon.png/100x100bb.png",
+      "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/fixture/icon.png/512x512bb.png",
+      "trackViewUrl": "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890?uo=4",
+      "supportedDevices": ["iPhone15-iPhone15"]
+    }
+  ]
+}

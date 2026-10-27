@@ -1,0 +1,33 @@
+{
+  "_fixture": "Muse Spark structured-output content for schema AppDna (documented Responses API shape is built by the test harness). $EV:<text> and $IMAGE<n> are resolved to ids from the request. NOT live output.",
+  "oneLiner": "A calm Pomodoro timer that blocks distracting apps and tracks weekly focus streaks.",
+  "description": "Tidy Timer is an iPhone focus app built around custom-length Pomodoro sessions. It blocks distracting apps during sessions, shows weekly focus reports with streaks, and offers Home Screen and Lock Screen widgets. A Pro subscription unlocks unlimited projects and themes.",
+  "category": "Productivity",
+  "screenshotObservations": [
+    { "key": "obs1", "assetId": "$IMAGE0", "kind": "feature", "fact": "Timer screen showing a 25:00 countdown with a Start button" },
+    { "key": "obs2", "assetId": "$IMAGE1", "kind": "feature", "fact": "Weekly report screen with a bar chart and a streak counter" },
+    { "key": "obsX", "assetId": "ast_not_a_real_asset", "kind": "feature", "fact": "Should be dropped: unknown image" }
+  ],
+  "features": [
+    { "name": "Pomodoro timer", "description": "Focus sessions with custom lengths.", "evidenceIds": ["$EV:Pomodoro timer with custom", "obs1"], "assetIds": ["$IMAGE0"] },
+    { "name": "Distraction blocking", "description": "Blocks distracting apps while a session runs.", "evidenceIds": ["$EV:Block distracting apps"], "assetIds": [] },
+    { "name": "Weekly focus reports", "description": "Weekly reports with streaks.", "evidenceIds": ["$EV:Weekly focus reports", "obs2"], "assetIds": [] },
+    { "name": "Teleportation", "description": "Invented feature with no evidence; must be dropped.", "evidenceIds": ["evd_doesnotexist"], "assetIds": ["ast_fake"] }
+  ],
+  "audiences": [
+    { "name": "Students", "description": "Students studying in focused blocks.", "painPoints": ["Phone distractions while studying"], "motivations": ["Finish revision faster"], "evidenceIds": [] },
+    { "name": "Remote workers", "description": "People working from home who lose focus.", "painPoints": ["Context switching"], "motivations": ["Protect deep work"], "evidenceIds": ["$EV:Block distracting apps"] }
+  ],
+  "problems": [{ "text": "Phones pull attention away during focused work.", "evidenceIds": ["$EV:Block distracting apps"] }],
+  "differentiators": [{ "text": "Calm design with Lock Screen widgets.", "evidenceIds": ["$EV:Lock Screen widgets"] }],
+  "monetization": { "model": "freemium", "notes": "Free download; Pro subscription monthly or yearly.", "evidenceIds": ["$EV:App Store price: Free", "$EV:Tidy Timer Pro unlocks"] },
+  "tone": { "voice": ["calm", "encouraging"], "vocabularyUse": ["focus", "calm"], "vocabularyAvoid": ["hustle"] },
+  "styleKeywords": ["minimal", "soft gradients"],
+  "preferredCtas": ["Start your first focus session"],
+  "claims": [
+    { "text": "Block distracting apps during focus sessions", "evidenceIds": ["$EV:Block distracting apps"], "support": "direct", "confidence": 0.95, "contexts": ["all"] },
+    { "text": "Weekly focus reports with streaks", "evidenceIds": ["$EV:Weekly focus reports"], "support": "direct", "confidence": 0.9, "contexts": ["all"] },
+    { "text": "The #1 focus app for students", "evidenceIds": ["$EV:Pomodoro timer with custom"], "support": "direct", "confidence": 0.6, "contexts": ["ads"] },
+    { "text": "Helps you get more done every week", "evidenceIds": [], "support": "inferred", "confidence": 0.5, "contexts": ["social"] }
+  ]
+}
