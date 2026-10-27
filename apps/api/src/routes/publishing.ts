@@ -1,4 +1,5 @@
-import { Id } from "@muselaunch/contracts";
+import { brandGate, reviewBrief } from "@muselaunch/agents";
+import { can, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
 import {
   calendar,
   CalendarQuery,
@@ -172,8 +173,26 @@ publishingRoutes.patch("/posts/:id", requireCap("content.write"), async (c) => {
   return c.json(await updatePost(p(c), wid(c), c.req.param("id"), input, actorOf(c)));
 });
 
+/**
+ * Brand Guardian gate (module G) for approval requests: attach the latest review of the exact
+ * post/draft content (reviewing it now if there is none). A `blocked` review needs
+ * `override.reason` from someone with content.approve; overrides are stored and audited.
+ */
+async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outreachDrafts"; id: string }) {
+  let raw: unknown = {};
+  try {
+    raw = await c.req.json();
+  } catch {
+    raw = {}; // body is optional
+  }
+  const input = GuardedApprovalRequest.parse(raw ?? {});
+  const gate = await brandGate(p(c), wid(c), { subject, override: input.override, actor: actorOf(c), canOverride: can(c.get("member"), "content.approve"), action: "request_approval" });
+  return { ...reviewBrief(gate.review), overridden: gate.overridden };
+}
+
 publishingRoutes.post("/posts/:id/request-approval", requireCap("content.write"), async (c) => {
-  return c.json(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c)));
+  const brandReview = await guardianGate(c, { entity: "scheduledPosts", id: c.req.param("id") });
+  return c.json({ ...(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
 });
 
 publishingRoutes.post("/posts/:id/publish", requireCap("publish"), async (c) => {
@@ -223,7 +242,10 @@ publishingRoutes.patch("/outreach/drafts/:id", requireCap("content.write"), asyn
 
 publishingRoutes.post("/outreach/drafts/:id/validate", requireCap("content.write"), async (c) => c.json({ draft: await revalidateDraft(p(c), wid(c), c.req.param("id"), actorOf(c)) }));
 
-publishingRoutes.post("/outreach/drafts/:id/request-approval", requireCap("content.write"), async (c) => c.json(await requestDraftApproval(p(c), wid(c), c.req.param("id"), actorOf(c))));
+publishingRoutes.post("/outreach/drafts/:id/request-approval", requireCap("content.write"), async (c) => {
+  const brandReview = await guardianGate(c, { entity: "outreachDrafts", id: c.req.param("id") });
+  return c.json({ ...(await requestDraftApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
+});
 
 publishingRoutes.post("/outreach/drafts/:id/send", requireCap("outreach.send"), async (c) => {
   const out = await enqueueSend(p(c), wid(c), c.req.param("id"), actorOf(c));

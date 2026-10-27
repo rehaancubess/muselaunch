@@ -3,6 +3,7 @@ import { generateConceptsHandler } from "./concepts";
 import { copyGenerateHandler } from "./copy";
 import { appAnalyzeHandler } from "./dna/analyze";
 import { compositionEditHandler } from "./edit";
+import { brandReviewHandler } from "./guardian";
 import { appImportHandler } from "./import/handler";
 import { memoryIngestHandler } from "./memory";
 import { researchRunHandler } from "./research/handler";
@@ -21,6 +22,7 @@ export { RunRecorder } from "./runs";
 export { runToolLoop, defineTool, type LoopTool } from "./loop";
 export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";
 export { paletteFromImages, dominantColors } from "./dna/palette";
+export * from "./guardian";
 
 /** Job handlers owned by this module (INTERFACES.md). Registered by apps/worker. */
 export const handlers: HandlerRegistry = {
@@ -33,4 +35,5 @@ export const handlers: HandlerRegistry = {
   "composition.edit": compositionEditHandler,
   "copy.generate": copyGenerateHandler,
   "memory.ingest": memoryIngestHandler,
+  "brand.review": brandReviewHandler,
 };
