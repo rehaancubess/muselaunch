@@ -167,7 +167,7 @@ mediaRoutes.post("/assets/:assetId/analyze-clip", requireCap("content.write"), a
 });
 
 /** Credits a clip analysis would reserve (cached prompts/transcripts are free). */
-mediaRoutes.post("/assets/:assetId/analyze-clip/estimate", async (c) => {
+mediaRoutes.post("/assets/:assetId/analyze-clip/estimate", requireCap("content.write"), async (c) => {
   const p = c.get("platform");
   const wid = c.get("workspaceId");
   const input = await body(c, AnalyzeClipRequest);

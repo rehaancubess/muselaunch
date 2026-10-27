@@ -11,13 +11,16 @@ import { trackingQuality, type FrameSize } from "./masks";
 
 const r4 = (n: number) => Math.round(n * 10_000) / 10_000;
 
+/** Contract `ObjectKey` charset (compositions interpolate object ids; SAM ids are decimal, but never trust input). */
+export const SAFE_OBJECT_ID = /^[A-Za-z0-9_.:-]{1,40}$/;
+
 export function buildTracks(result: SamResult, meta: { width: number; height: number; fps?: number; frameCount: number }, labels: Record<string, string>, sam?: FrameSize): TracksFile {
   const W = meta.width;
   const H = meta.height;
   const fps = meta.fps && meta.fps > 0 ? meta.fps : 1;
   const sx = sam && sam.width !== W ? W / sam.width : 1;
   const sy = sam && sam.height !== H ? H / sam.height : 1;
-  const tracks: ObjectTrack[] = result.objectIds.map((objectId) => ({
+  const tracks: ObjectTrack[] = result.objectIds.filter((id) => SAFE_OBJECT_ID.test(id)).map((objectId) => ({
     objectId,
     label: (labels[objectId] ?? objectId).slice(0, 80),
     frames: Array.from({ length: meta.frameCount }, (_, i) => ({ t: r4(i / fps), visible: false })),

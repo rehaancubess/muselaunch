@@ -5,7 +5,7 @@ import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { deleteMetaFile, parseSamOutput, runSam, uploadMetaFile, type BuildObjectPromptOptions, type SamPrompt, type SamResult } from "@muselaunch/providers";
 import { countVideoFrames, probeMedia, type MediaProbe } from "./ffmpeg";
 import { samFrameSize, selectDetections, trackingQuality, writeImageCutout, writeImageMatte, writePreview, writeVideoCutout, writeVideoMatte, type FrameSize } from "./masks";
-import { buildTracks } from "./tracks";
+import { buildTracks, SAFE_OBJECT_ID } from "./tracks";
 import { callCtx, derivedId, EXT_BY_MIME, inheritFrom, usageEventIdsForJob, withWorkdir } from "./util";
 
 /** SAM 3.1 video limit per request (≈10 min). */
@@ -78,7 +78,8 @@ export function samPromptFor(seg: Pick<Segmentation, "prompt" | "corrections" | 
 /** Object list for the selection UI (all detections, regardless of the current selection). */
 export function objectsFromResult(result: SamResult, label: string, size: FrameSize): Segmentation["objects"] {
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
-  return result.objectIds.slice(0, 16).map((objectId) => {
+  // Only ids in the contract's safe ObjectKey charset (they end up in compositions); SAM emits decimals.
+  return result.objectIds.filter((id) => SAFE_OBJECT_ID.test(id)).slice(0, 16).map((objectId) => {
     const dets = result.detections.filter((d) => d.objectId === objectId);
     const first = dets.reduce((a, b) => (b.frame < a.frame ? b : a), dets[0]!);
     const scores = dets.map((d) => d.confidence).filter((c): c is number => typeof c === "number");
