@@ -141,4 +141,28 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
       if (i === 1) execFileSync("cp", [file, join(FIXTURES_DIR, "samples", "integration-carousel-slide-2.png")]);
     }
   });
+
+  it("renders object-aware scenes (depth sandwich, phone screen insert, spotlight + anchored callout) to MP4", async () => {
+    const { seedPresenter } = await import("./test-seed");
+    const seed = await seedPresenter(p, wid);
+    await p.credits.grant(wid, 40, { reason: "test credits", idempotencyKey: "grant:presenter", actor: "system" });
+    const ws = p.db.ws(wid);
+    await p.jobs.create(wid, "composition.build", { appId: seed.appId, storyboardId: seed.presenterStoryboardId, compositionId: "cmp_presenter" }, { actor: "u1", idempotencyKey: "bp" });
+    await p.inline!.drain();
+    const v1 = await getVersion(ws, "cmp_presenter", 1);
+    expect(v1.doc.scenes.map((s) => s.template)).toEqual(["presenter-depth", "product-in-hand", "object-spotlight", "cta-endcard"]);
+    const job = await p.jobs.create(wid, "render.final", { appId: seed.appId, compositionId: "cmp_presenter", version: 1 }, { actor: "u1", idempotencyKey: "fp", credits: { operation: "render.final", params: { durationSec: 11.5 } } });
+    await p.inline!.drain();
+    const done = await p.jobs.get(wid, job.id);
+    expect(done?.status, JSON.stringify(done?.error)).toBe("succeeded");
+    const asset = await ws.collection("mediaAssets").getOrThrow(done!.output!.data!.assetId as string);
+    const file = join(tmp, "presenter.mp4");
+    await p.storage.downloadToFile(asset.storagePath, file);
+    const info = await probe(file);
+    expect([info.width, info.height]).toEqual([1080, 1920]);
+    expect(Math.abs(info.durationSec! - 11.5)).toBeLessThan(0.15);
+    const frames = [1.8, 4.6, 7.6].map((t) => join(FIXTURES_DIR, "samples", `object-aware-${t}.png`));
+    for (const [i, t] of [1.8, 4.6, 7.6].entries()) await extractFrame(file, t, frames[i]!);
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...frames.flatMap((f) => ["-i", f]), "-filter_complex", "[0]scale=480:-1[a];[1]scale=480:-1[b];[2]scale=480:-1[c];[a][b][c]hstack=3", "-frames:v", "1", "-update", "1", join(FIXTURES_DIR, "samples", "object-aware-sheet.png")]);
+  });
 });

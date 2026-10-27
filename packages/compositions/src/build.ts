@@ -1152,7 +1152,7 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
       const word = (app.name || head).toUpperCase().slice(0, 14);
       const size = Math.round(Math.min(300 * f.u, (f.W * 0.92) / Math.max(3, word.length * 0.62)));
       layers.push(
-        text(`${sceneId}_ghost`, word, box(0.02, f.portrait ? 0.2 : 0.16, 0.96, (size * 1.05) / f.H, 3), {
+        text(`${sceneId}_ghost`, word, box(0.02, f.portrait ? 0.175 : 0.14, 0.96, (size * 1.05) / f.H, 3), {
           role: "label",
           size,
           weight: 860,
@@ -1169,7 +1169,8 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
       // The phone is on the right when personLeft === false (we keep the demo away from it).
       const demoRight = phoneMean ? phoneMean.x + phoneMean.w / 2 < 0.5 : personLeft;
       const cx = demoRight ? (f.landscape ? 0.76 : 0.8) : f.landscape ? 0.24 : 0.2;
-      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.24 : 0.16, f.portrait ? 0.52 : 0.72, 0.5);
+      // Below the wordmark band so both read; the presenter overlaps the device's inner edge.
+      const devB = deviceBox(f, app, demo, cx, f.portrait ? 0.335 : 0.3, f.portrait ? 0.5 : 0.64, 0.5);
       layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: demoRight ? 6 : -6 }));
       layers[layers.length - 1]!.name = "App demo (behind presenter)";
     }

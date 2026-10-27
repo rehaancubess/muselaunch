@@ -251,4 +251,36 @@ describe("composition routes", () => {
     expect((await vic.post(`/v1/workspaces/${wid}/compositions/${compId}/patch`, { baseVersion: 4, ops: [{ op: "remove_scene", sceneId: "sc_s3" }] })).status).toBe(403);
     expect((await vic.post(`/v1/workspaces/${wid}/compositions/${compId}/render`, { quality: "final" })).status).toBe(403);
   });
+
+  it("lists clip intelligence for a composition and forwards clip analyses to AI edits; hooks variants are queued", async () => {
+    const ws = p.db.ws(wid);
+    const comp = await ws.collection("compositions").getOrThrow(compId);
+    const key = workspaceKey(wid, "uploads", "ast_founder", "founder.mp4");
+    await p.storage.put(key, readFileSync(join(FIXTURES, "presenter", "presenter.mp4")), { contentType: "video/mp4" });
+    await ws.collection("mediaAssets").create({ id: "ast_founder", appId: comp.appId, kind: "video", role: "founder_clip", origin: "upload", storagePath: key, mimeType: "video/mp4", bytes: 1, status: "ready", isProductTruth: false }, { actor: "alice" });
+    const tKey = workspaceKey(wid, "derived", "tracks.json");
+    await p.storage.put(tKey, readFileSync(join(FIXTURES, "presenter", "tracks-phone.json")), { contentType: "application/json" });
+    await ws.collection("mediaAssets").create({ id: "ast_tracks", appId: comp.appId, kind: "json", role: "other", origin: "derived", storagePath: tKey, mimeType: "application/json", bytes: 1, status: "ready", isProductTruth: false }, { actor: "alice" });
+    await ws.collection("segmentations").create({ id: "seg_phone", appId: comp.appId, sourceAssetId: "ast_founder", prompt: "phone", status: "succeeded", mediaType: "video", tracksAssetId: "ast_tracks", trackingQuality: 0.95 }, { actor: "alice" });
+    await ws.collection("clipAnalyses").create({ id: "cla_1", appId: comp.appId, sourceAssetId: "ast_founder", status: "succeeded", prompts: ["phone"], segmentationIds: { phone: "seg_phone" }, objects: [{ key: "phone", label: "phone", segmentationId: "seg_phone", objectId: "0", presence: [{ startSec: 0, endSec: 6 }] }] }, { actor: "alice" });
+    const clips = await alice.get(`/v1/workspaces/${wid}/compositions/${compId}/clips`);
+    expect(clips.status).toBe(200);
+    const item = clips.body.items.find((x: J) => x.asset.id === "ast_founder");
+    expect(item.analysis.id).toBe("cla_1");
+    expect(item.segmentations[0]).toMatchObject({ id: "seg_phone", hasTracks: true });
+    expect(item.url).toContain("/v1/storage/local/");
+    expect(clips.body.tracks.seg_phone.tracks[0].frames.length).toBeLessThan(180); // thinned for the overlay
+    // another workspace can't see it, and can't smuggle its analysis id into an edit
+    expect((await bob.get(`/v1/workspaces/${widBob}/compositions/${compId}/clips`)).status).toBe(404);
+    const cur = (await alice.get(`/v1/workspaces/${wid}/compositions/${compId}`)).body.composition.currentVersion;
+    const edit = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: cur, instruction: "Spotlight my phone", clipAnalysisIds: ["cla_1"] });
+    expect(edit.status).toBe(202);
+    expect(edit.body.job.payload.clipAnalysisIds).toEqual(["cla_1"]);
+    expect((await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: cur, instruction: "x", clipAnalysisIds: ["cla_bobs"] })).status).toBe(404);
+    await p.inline!.drain();
+    const hooks = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/variants`, { mode: "hooks", targets: ["3"] });
+    expect(hooks.status).toBe(202);
+    expect(hooks.body.job.payload).toMatchObject({ mode: "hooks", targets: ["3"] });
+    expect(hooks.body.job.reservation.credits).toBe(3 * 3);
+  });
 });

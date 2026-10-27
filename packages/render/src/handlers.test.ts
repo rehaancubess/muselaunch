@@ -80,4 +80,33 @@ describe("render module handlers (no rendering)", () => {
     expect(done?.error?.code).toBe("NOT_FOUND");
     expect(await p.db.ws("ws_other").collection("compositions").get("cmp_x")).toBeNull();
   });
+
+  it("composition.variants hooks: N copies, each with an auto-applied composition.edit scoped to the opening scene + clip context", async () => {
+    const { seedPresenter } = await import("./test-seed");
+    const seed = await seedPresenter(p, wid);
+    await p.jobs.create(wid, "composition.build", { appId: seed.appId, storyboardId: seed.presenterStoryboardId, compositionId: "cmp_founder" }, { actor: "u1", idempotencyKey: "bf" });
+    await p.inline!.drain();
+    const job = await p.jobs.create(wid, "composition.variants", { appId: seed.appId, compositionId: "cmp_founder", mode: "hooks", targets: ["3"] }, { actor: "u1", idempotencyKey: "hooks" });
+    await p.inline!.drain();
+    const done = await p.jobs.get(wid, job.id);
+    expect(done?.status).toBe("succeeded");
+    const hooks = done!.output!.data!.hooks as { compositionId: string; brief: string; patchId: string; jobId: string }[];
+    expect(hooks).toHaveLength(3);
+    expect(new Set(hooks.map((h) => h.brief)).size).toBe(3);
+    for (const h of hooks) {
+      const c = await p.db.ws(wid).collection("compositions").getOrThrow(h.compositionId);
+      expect(c.derivedFromCompositionId).toBe("cmp_founder");
+      expect(h.compositionId).toMatch(/^cmp_founder_hook_/);
+      const edit = await p.jobs.get(wid, h.jobId);
+      expect(edit?.type).toBe("composition.edit");
+      expect(edit?.payload).toMatchObject({ compositionId: h.compositionId, baseVersion: 1, sceneIds: ["sc_p1"], patchId: h.patchId, autoApply: true, clipAnalysisIds: [seed.clipAnalysisId] });
+      expect(String(edit?.payload.instruction)).toContain(h.brief);
+      const patch = await p.db.ws(wid).collection("compositionPatches").getOrThrow(h.patchId);
+      expect(patch).toMatchObject({ status: "proposed", source: "ai", affectedSceneIds: ["sc_p1"] });
+    }
+    // idempotent: same request → same compositions
+    const again = await p.jobs.create(wid, "composition.variants", { appId: seed.appId, compositionId: "cmp_founder", mode: "hooks", targets: ["3"] }, { actor: "u1", idempotencyKey: "hooks2" });
+    await p.inline!.drain();
+    expect(((await p.jobs.get(wid, again.id))!.output!.data!.hooks as { compositionId: string }[]).map((h) => h.compositionId)).toEqual(hooks.map((h) => h.compositionId));
+  });
 });
