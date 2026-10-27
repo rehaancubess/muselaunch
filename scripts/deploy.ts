@@ -155,11 +155,17 @@ deploy(SVC.render, "render", `--no-allow-unauthenticated --cpu=4 --memory=8Gi --
 for (const svc of [SVC.worker, SVC.render]) {
   sh(`gcloud run services add-iam-policy-binding ${svc} --region=${REGION} --member=serviceAccount:${TASKS_SA} --role=roles/run.invoker --project=${PROJECT} --quiet`, { quiet: true });
 }
-// Every-minute cron: publish approved posts whose scheduled time has arrived.
-const cronUri = `${url(SVC.worker)}/tasks/cron/publish-due`;
-const cronFlags = `--schedule="* * * * *" --uri=${cronUri} --http-method=POST --oidc-service-account-email=${TASKS_SA} --oidc-token-audience=${url(SVC.worker)} --location=${REGION} --project=${PROJECT}`;
-if (!sh(`gcloud scheduler jobs update http muselaunch-publish-due ${cronFlags}`, { allowFail: true, quiet: true }) && !DRY) {
-  sh(`gcloud scheduler jobs create http muselaunch-publish-due ${cronFlags}`, { allowFail: true });
+// Crons: publish approved posts whose scheduled time has arrived (every minute); wake Growth
+// Autopilot loops whose measurement window ended and repair missed job-completion resumes (every 5 min).
+for (const [name, schedule] of [
+  ["publish-due", "* * * * *"],
+  ["autopilot-wake", "*/5 * * * *"],
+] as const) {
+  const cronUri = `${url(SVC.worker)}/tasks/cron/${name}`;
+  const cronFlags = `--schedule="${schedule}" --uri=${cronUri} --http-method=POST --oidc-service-account-email=${TASKS_SA} --oidc-token-audience=${url(SVC.worker)} --location=${REGION} --project=${PROJECT}`;
+  if (!sh(`gcloud scheduler jobs update http muselaunch-${name} ${cronFlags}`, { allowFail: true, quiet: true }) && !DRY) {
+    sh(`gcloud scheduler jobs create http muselaunch-${name} ${cronFlags}`, { allowFail: true });
+  }
 }
 deploy(SVC.api, "api", `--allow-unauthenticated --cpu=1 --memory=1Gi --timeout=3600 --concurrency=80 --min-instances=0 --max-instances=10 ${envFlag()} ${secretFlags}`);
 deploy(SVC.web, "web", `--allow-unauthenticated --cpu=1 --memory=1Gi --concurrency=80 --min-instances=0 --max-instances=10`);

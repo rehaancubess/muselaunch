@@ -3,7 +3,7 @@ import { sceneHash, validateDoc } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform, type JobContext } from "@muselaunch/platform";
 import { describe, expect, it } from "vitest";
-import { decideStrategy, handlers, rememberPreference, retrieveMemory } from "./index";
+import { autoCampaignName, decideStrategy, handlers, rememberPreference, retrieveMemory, truncateWords } from "./index";
 import {
   fixtureJson,
   installFakeGlimmer,
@@ -60,6 +60,18 @@ async function newCampaign(s: Awaited<ReturnType<typeof setup>>) {
   const campaign = await s.ws.collection("campaigns").create({ appId: s.seed.appId, name: "Exam season", goal: "installs", request: "Create three Reels for students using my real app", channels: ["instagram", "tiktok"], deliverables: [{ kind: "short_video", aspectRatio: "9:16", durationSec: 15, count: 3 }] }, { actor: "u1" });
   return campaign.id;
 }
+
+describe("campaign names", () => {
+  it("cut at a word boundary with an ellipsis, never mid-word", () => {
+    const req = "Create five promotional Reels introducing my productivity app, using a premium Apple-style aesthetic.";
+    const name = autoCampaignName(req);
+    expect(name.length).toBeLessThanOrEqual(60);
+    expect(name).toBe("Create five promotional Reels introducing my productivity…");
+    expect(autoCampaignName("Three Reels for students")).toBe("Three Reels for students");
+    expect(autoCampaignName("Launch week.\nMore details below")).toBe("Launch week");
+    expect(truncateWords("Supercalifragilisticexpialidocious-and-more", 20)).toBe("Supercalifragilisti…");
+  });
+});
 
 describe("campaign.generate_concepts", () => {
   it("creates a brief and ≥3 strategically distinct concepts grounded in verified claims + memory", async () => {

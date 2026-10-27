@@ -1,5 +1,5 @@
 {
-  "_fixture": "Muse Spark structured-output content for schema CampaignConcepts. $ID:clm:0 resolves to the first claim id in the request. NOT live output. $ID:prf:0 resolves to the first memory item id in the request.",
+  "_fixture": "Muse Spark structured-output content for schema CampaignConcepts. $ID:clm:0 resolves to the first claim id in the request. NOT live output. $ID:prf:0 resolves to the first memory item id in the request. $ID:fnd:N resolves to the N-th research finding id in the request (left unresolved, and dropped, when no research ran).",
   "brief": {
     "audienceDescription": "Students and remote workers who lose focus to their phones.",
     "segmentIds": [],
@@ -14,7 +14,8 @@
     },
     "approvedClaimIds": [
       "$ID:clm:0"
-    ]
+    ],
+    "campaignName": "Calm focus for exam season"
   },
   "variants": [
     {
@@ -24,7 +25,9 @@
       "audience": "Students during exam season",
       "keyMessage": "Your phone isn't the problem; the lack of a calm boundary is.",
       "rationale": "Problem-first hooks match the study-with-me finding.",
-      "findingIds": [],
+      "findingIds": [
+        "$ID:fnd:0"
+      ],
       "claimIds": [
         "$ID:clm:0"
       ],
@@ -54,7 +57,10 @@
       "audience": "Remote workers",
       "keyMessage": "Tidy Timer turns focus into a single tap.",
       "rationale": "Shows the real product immediately.",
-      "findingIds": [],
+      "findingIds": [
+        "$ID:fnd:0",
+        "$ID:fnd:1"
+      ],
       "claimIds": [
         "$ID:clm:0"
       ],
@@ -81,7 +87,10 @@
       "audience": "Indie-curious productivity fans",
       "keyMessage": "A maker's honest reason for building something calmer.",
       "rationale": "Founder stories build trust for a small app.",
-      "findingIds": [],
+      "findingIds": [
+        "$ID:fnd:0",
+        "$ID:fnd:2"
+      ],
       "claimIds": [],
       "scriptOutline": [
         "Founder intro",

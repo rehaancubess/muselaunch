@@ -1,35 +1,27 @@
 "use client";
 /**
- * Growth Autopilot route. Module B owns the page body: when `features/autopilot` lands, replace the
- * placeholder below with `<AutopilotRoot appId={appId} initialGoal={goal} />` (keep the shell wrapper).
- * `?goal=` is passed from the Creator home card and the ⌘K palette.
+ * Growth Autopilot route (module B owns the body). `?goal=` is passed from the Creator home card and
+ * the ⌘K palette and pre-fills the start card; `?loop=<id>` opens a specific loop.
  */
-import { EmptyState, PageHeader } from "@muselaunch/ui";
-import { Rocket } from "lucide-react";
+import { PageHeader } from "@muselaunch/ui";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { PageContainer } from "@/components/page-container";
+import AutopilotRoot from "@/features/autopilot";
+import { useCurrentApp } from "@/lib/workspace";
 
-function AutopilotPlaceholder() {
-  const goal = useSearchParams().get("goal");
-  return (
-    <div className="rounded-2xl border border-dashed border-line-strong bg-surface">
-      <EmptyState
-        size="lg"
-        icon={<Rocket aria-hidden />}
-        title="Growth Autopilot isn’t in this build yet"
-        description={goal ? `Your goal “${goal}” will start a bounded loop here once the Autopilot service is deployed.` : "Muse Wonder will research, pick an audience, test a hypothesis, produce and check the creative, and draft posts for your approval, within a credit budget you set."}
-      />
-    </div>
-  );
+function AutopilotBody({ appId }: { appId: string }) {
+  const goal = useSearchParams().get("goal") ?? undefined;
+  return <AutopilotRoot appId={appId} initialGoal={goal} />;
 }
 
 export default function AutopilotPage() {
+  const { appId } = useCurrentApp();
   return (
     <PageContainer width="wide">
       <PageHeader title="Growth Autopilot" description="A bounded, approval-gated marketing loop: research, hypothesis, creative, checks, posting drafts and measurement, with every decision logged and cited." />
       <Suspense>
-        <AutopilotPlaceholder />
+        <AutopilotBody appId={appId} />
       </Suspense>
     </PageContainer>
   );

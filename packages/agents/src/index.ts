@@ -14,12 +14,16 @@ export { retrieveMemory, rememberPreference, ingestMemory, rankPreferences, type
 export { validateClaims, unsupportedSpecifics, initialClaimState } from "./claims";
 export { decideStrategy, planSnapshot } from "./strategy";
 export { distinctnessProblems } from "./concepts";
+export { installCampaignHooks, syncCampaignProduction } from "./campaign-status";
+export { autoCampaignName, truncateWords } from "./util";
 export { checkStoryboard, fitDurations } from "./storyboard";
 export { checkEdit } from "./edit";
 export { CHANNEL_RULES, copyLimitProblems } from "./copy";
 export { installFetcher, fetcherFor, fetchResult, type Fetcher } from "./fetcher";
 export { RunRecorder } from "./runs";
-export { runToolLoop, defineTool, type LoopTool } from "./loop";
+export { runToolLoop, defineTool, type LoopTool, type LoopOutcome } from "./loop";
+export { searchTool, SourceRegistry, type ResearchOutputs } from "./research/tools";
+export { loadAppContext, dnaSummary, productAssets, requireDna, type AppContextData } from "./context";
 export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";
 export { paletteFromImages, dominantColors } from "./dna/palette";
 export * from "./guardian";

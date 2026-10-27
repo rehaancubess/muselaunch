@@ -26,6 +26,7 @@
     "@hono/node-server": "^2.1.5",
     "zod": "^4.6.7",
     "dotenv": "^17.2.3",
-    "@muselaunch/worker": "workspace:*"
+    "@muselaunch/worker": "workspace:*",
+    "@muselaunch/autopilot": "workspace:*"
   }
 }

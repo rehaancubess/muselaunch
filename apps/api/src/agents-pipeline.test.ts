@@ -1,4 +1,5 @@
 import { sceneHash } from "@muselaunch/compositions";
+import { installCampaignHooks } from "@muselaunch/agents";
 import { fixtureJson, installFakeMeta, jsonRoute, requestText, resolvePlaceholders, seedApp } from "@muselaunch/agents/testing";
 import { createTestPlatform } from "@muselaunch/platform";
 import { handlers as workerHandlers } from "@muselaunch/worker/registry";
@@ -16,6 +17,7 @@ type J = any;
 describe("B → C pipeline: storyboard → composition → AI scene edit → apply", () => {
   it("edits only the targeted scene of a composition built from a Spark storyboard", async () => {
     const p = createTestPlatform({ META_API_KEY: "test-key" }, { ...workerHandlers, "render.preview": async () => ({ creditsUsed: 0 }) });
+    installCampaignHooks(p);
     const app = buildApp(p);
     const auth = { authorization: "Bearer dev:alice:alice@example.com", "content-type": "application/json" };
     const call = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: J }> => {
@@ -43,9 +45,16 @@ describe("B → C pipeline: storyboard → composition → AI scene edit → app
     expect(created.status).toBe(202);
     await p.inline!.drain();
     const campaign = (await call("GET", `${W}/campaigns/${created.body.campaign.id}`)).body;
+    // Spark's short name replaces the provisional one; the full request stays on the campaign.
+    expect(campaign.campaign).toMatchObject({ name: "Calm focus for exam season", request: "Three Reels for students", status: "concepts_ready" });
+    // Concepts cite the research findings they build on when research exists (none ran here → none cited, honestly).
+    for (const v of campaign.variants) expect(v.findingIds).toEqual([]);
     const variant = campaign.variants.find((v: J) => v.angleType === "practical_demo");
     expect((await call("POST", `${W}/campaigns/${campaign.campaign.id}/variants/${variant.id}/produce`, { aspectRatio: "9:16", targetDurationSec: 15 })).status).toBe(202);
     await p.inline!.drain();
+    // storyboard → build → preview finished → the campaign leaves "producing" (status hook).
+    expect(await p.db.ws(wid).collection("campaigns").getOrThrow(campaign.campaign.id)).toMatchObject({ status: "review" });
+    expect((await p.db.ws(wid).collection("campaignVariants").getOrThrow(variant.id)).status).toBe("produced");
 
     const after = (await call("GET", `${W}/campaigns/${campaign.campaign.id}`)).body;
     expect(after.compositions).toHaveLength(1);

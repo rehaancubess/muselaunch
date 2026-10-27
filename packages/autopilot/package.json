@@ -1,0 +1,24 @@
+{
+  "name": "@muselaunch/autopilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@muselaunch/agents": "workspace:*",
+    "@muselaunch/analytics": "workspace:*",
+    "@muselaunch/compositions": "workspace:*",
+    "@muselaunch/contracts": "workspace:*",
+    "@muselaunch/db": "workspace:*",
+    "@muselaunch/growth": "workspace:*",
+    "@muselaunch/platform": "workspace:*",
+    "@muselaunch/providers": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

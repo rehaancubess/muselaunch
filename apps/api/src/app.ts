@@ -9,6 +9,7 @@ import { analyticsRoutes } from "./routes/analytics";
 import { appDnaRoutes } from "./routes/app-dna";
 import { appRoutes } from "./routes/apps";
 import { assetRoutes } from "./routes/assets";
+import { autopilotRoutes } from "./routes/autopilot";
 import { adminRoutes, billingRoutes } from "./routes/billing";
 import { campaignRoutes } from "./routes/campaigns";
 import { compositionRoutes } from "./routes/compositions";
@@ -75,6 +76,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", appDnaRoutes);
   ws.route("/jobs", jobRoutes);
   ws.route("/", campaignRoutes);
+  ws.route("/", autopilotRoutes);
   ws.route("/", compositionRoutes);
   ws.route("/", mediaRoutes);
   ws.route("/", discoverRoutes);

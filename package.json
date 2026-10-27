@@ -24,6 +24,7 @@
   "devDependencies": {
     "@muselaunch/agents": "workspace:*",
     "@muselaunch/analytics": "workspace:*",
+    "@muselaunch/autopilot": "workspace:*",
     "@muselaunch/compositions": "workspace:*",
     "@muselaunch/contracts": "workspace:*",
     "@muselaunch/db": "workspace:*",

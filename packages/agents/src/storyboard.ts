@@ -47,6 +47,8 @@ type Hint = StoryboardOutput["scenes"][number]["assets"][number];
 const PRODUCT_KINDS = new Set(["screenshot", "app_recording"]);
 const DEMO_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after"]);
 const PROOF_TEMPLATES = new Set<TemplateId>(["quote-proof", "stat-card"]);
+/** Object-aware templates need real presenter footage (SAM tracks it); never generated media. */
+const OBJECT_TEMPLATES = new Set<TemplateId>(["presenter-depth", "object-spotlight", "product-in-hand"]);
 const UI_WORDS = /\b(screenshot|app (?:ui|interface|screen)|user interface|\bui\b|dashboard of the app|the app's screen|phone screen showing)\b/i;
 
 export interface StoryboardCheckContext {
@@ -100,8 +102,8 @@ export function checkStoryboard(sb: StoryboardOutput, c: StoryboardCheckContext)
         problems.push(`Scene ${n} (${s.template}) must show the real app, but no screenshot or recording is available; use a template that needs no product media.`);
       }
     }
-    if (s.template === "founder-cutout" && !assets.some((h) => h.kind === "founder_clip")) {
-      problems.push(`Scene ${n}: founder-cutout needs a founder_clip asset from the list (none chosen/available).`);
+    if ((s.template === "founder-cutout" || OBJECT_TEMPLATES.has(s.template)) && !assets.some((h) => h.kind === "founder_clip")) {
+      problems.push(`Scene ${n}: ${s.template} needs a real founder_clip asset from the list (none chosen/available); use another template.`);
     }
     const claimIds = s.claimIds.filter((id) => c.verifiedClaimIds.has(id));
     if (claimIds.length !== s.claimIds.length) fixes.push(`Scene ${n}: removed unverified claim ids`);
@@ -243,7 +245,8 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       )
     ).entity;
     await ws.collection("campaignVariants").update(variantId, { storyboardId, status: variant.status === "proposed" ? "selected" : variant.status, compositionIds: [...new Set([...variant.compositionIds, compositionId])] }, { actor: ctx.actor });
-    if (campaign.status === "planning" || campaign.status === "concepts_ready") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
+    // Producing (again): the campaign returns to `review` when every production chain has finished (campaign-status.ts).
+    if (campaign.status === "planning" || campaign.status === "concepts_ready" || campaign.status === "review") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
     await ctx.progress(90, "queueing composition build");
     const build = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
     await rec.finish("succeeded", { outputRefs: [{ entity: "storyboards", id: storyboard.id }], memoryRefs: memory.items.map((m) => m.id) });

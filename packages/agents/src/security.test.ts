@@ -37,10 +37,15 @@ const screenInsert = (assetId: string) => ({
 
 describe("AI edit validation of model-chosen ids", () => {
   it("screen-insert effects may only use this app's real screenshots/recordings", () => {
-    expect(checkEdit(doc, screenInsert("ast_real"), { sceneIds: ["sc_a"], assets }).problems).toEqual([]);
-    expect(checkEdit(doc, screenInsert("ast_generated"), { sceneIds: ["sc_a"], assets }).problems.join(" ")).toMatch(/real screenshot or recording/);
+    // The tracked phone comes from an analysed clip attached to the edit (module B: effects direction).
+    const clipTargets = new Set(["seg_1/1"]);
+    expect(checkEdit(doc, screenInsert("ast_real"), { sceneIds: ["sc_a"], assets, clipTargets }).problems).toEqual([]);
+    expect(checkEdit(doc, screenInsert("ast_generated"), { sceneIds: ["sc_a"], assets, clipTargets }).problems.join(" ")).toMatch(/real screenshot or recording/);
     // An id from another workspace/app is simply unknown to this run.
-    expect(checkEdit(doc, screenInsert("ast_from_other_workspace"), { sceneIds: ["sc_a"], assets }).problems.join(" ")).toMatch(/unknown asset/);
+    expect(checkEdit(doc, screenInsert("ast_from_other_workspace"), { sceneIds: ["sc_a"], assets, clipTargets }).problems.join(" ")).toMatch(/unknown asset/);
+    // Tracked-object ids are model output too: only objects of the attached clip are accepted.
+    expect(checkEdit(doc, screenInsert("ast_real"), { sceneIds: ["sc_a"], assets }).problems.join(" ")).toMatch(/no analysed clip is attached/);
+    expect(checkEdit(doc, screenInsert("ast_real"), { sceneIds: ["sc_a"], assets, clipTargets: new Set(["seg_other/1"]) }).problems.join(" ")).toMatch(/not one of the attached clip's objects/);
   });
 
   it("scene-scoped edits can't touch other scenes", () => {

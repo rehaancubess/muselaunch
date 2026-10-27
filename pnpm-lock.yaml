@@ -14,6 +14,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:packages/autopilot
       '@muselaunch/compositions':
         specifier: workspace:*
         version: link:packages/compositions
@@ -71,6 +74,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:../../packages/autopilot
       '@muselaunch/compositions':
         specifier: workspace:*
         version: link:../../packages/compositions
@@ -180,6 +186,9 @@ importers:
       '@muselaunch/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
+      '@muselaunch/autopilot':
+        specifier: workspace:*
+        version: link:../../packages/autopilot
       '@muselaunch/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -249,6 +258,36 @@ importers:
       '@muselaunch/db':
         specifier: workspace:*
         version: link:../db
+      '@muselaunch/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@muselaunch/providers':
+        specifier: workspace:*
+        version: link:../providers
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/autopilot:
+    dependencies:
+      '@muselaunch/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@muselaunch/analytics':
+        specifier: workspace:*
+        version: link:../analytics
+      '@muselaunch/compositions':
+        specifier: workspace:*
+        version: link:../compositions
+      '@muselaunch/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@muselaunch/db':
+        specifier: workspace:*
+        version: link:../db
+      '@muselaunch/growth':
+        specifier: workspace:*
+        version: link:../growth
       '@muselaunch/platform':
         specifier: workspace:*
         version: link:../platform

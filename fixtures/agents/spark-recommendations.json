@@ -1,0 +1,9 @@
+{
+  "_fixture": "Module F recommendations.generate model outputs (GrowthInterpretation by Muse Spark, GrowthRecommendations by Muse Wonder) for an app with no measured data. NOT live output.",
+  "interpretation": { "insights": [], "dataGaps": ["No installs data is connected", "No per-post views yet"] },
+  "proposal": {
+    "recommendations": [
+      { "title": "Add tracked links to both Reels before posting", "rationale": "Without per-variant links we can't tell which hook drove installs.", "kind": "next_experiment", "observationIds": [], "resultIds": [], "preferenceIds": [], "proposedExperiment": null, "confidence": "low" }
+    ]
+  }
+}
