@@ -135,7 +135,7 @@ describe("media API", () => {
     expect(assets[seg.objectOutputs["0"].cutoutAssetId]).toMatchObject({ kind: "video", role: "other", mimeType: "video/webm" });
     expect(assets[seg.objectOutputs["1"].matteAssetId]).toMatchObject({ kind: "mask" });
     expect(tracksUrls[seg.id]).toMatch(/\/v1\/storage\/local\//);
-    const tracks = await (await app.request(new URL(tracksUrls[seg.id]).pathname)).json();
+    const tracks = (await (await app.request(new URL(tracksUrls[seg.id]).pathname)).json()) as Json;
     expect(tracks).toMatchObject({ fps: 10, frameCount: 20, width: 160, height: 120 });
     expect(tracks.tracks[0].frames[3].centroid.x).toBeCloseTo((10 + 9 + 20) / 160, 2);
     expect(got.json.transcript).toMatchObject({ status: "succeeded", purpose: "captions" });
