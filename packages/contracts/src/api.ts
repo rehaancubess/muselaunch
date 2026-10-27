@@ -4,6 +4,7 @@ import { CreditBalance, CreditLedgerEntry, Plan } from "./billing";
 import { CampaignGoal, Deliverable } from "./campaign";
 import { AspectRatio, Channel, ErrorInfo, HttpUrl, Id } from "./common";
 import { PatchOp } from "./composition";
+import { GuardianOverride } from "./guardian";
 import { Job } from "./jobs";
 import { MediaAsset, MediaRole } from "./media";
 import { Role, UserProfile, Workspace, WorkspaceMember } from "./tenancy";
@@ -87,7 +88,12 @@ export const ProduceVariantRequest = z.object({
 
 export const ApplyPatchRequest = z.object({ baseVersion: z.number().int().min(1), ops: z.array(PatchOp).min(1).max(100), summary: z.string().max(500).default("Manual edit") });
 export const AiEditRequest = z.object({ baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).max(30).default([]), autoApply: z.boolean().default(false), clipAnalysisIds: z.array(Id).max(4).default([]) });
-export const RenderRequest = z.object({ version: z.number().int().min(1).optional(), quality: z.enum(["preview", "final"]).default("preview") });
+export const RenderRequest = z.object({
+  version: z.number().int().min(1).optional(),
+  quality: z.enum(["preview", "final"]).default("preview"),
+  /** Final renders: required to proceed when the Brand Guardian review of this version is `blocked`. */
+  override: GuardianOverride.optional(),
+});
 
 export const EstimateRequest = z.object({ operation: z.string().max(80), params: z.record(z.string(), z.unknown()).default({}) });
 export const EstimateResponse = z.object({ credits: z.number().int().nonnegative(), breakdown: z.array(z.object({ label: z.string(), credits: z.number().int() })), available: z.number().int() });
