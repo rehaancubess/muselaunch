@@ -6,7 +6,7 @@
 import type { Approval } from "@muselaunch/contracts";
 import { Badge, Button, EmptyState, IconButton, List, ListRow, Notice, Section, SegmentedControl, Sheet, Skeleton, StatusPill, useToast } from "@muselaunch/ui";
 import { BellRing, CalendarDays, ChevronLeft, ChevronRight, Link2, Plus } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { QueryState } from "@/components/states";
 import { wsPath } from "@/lib/api";
@@ -39,7 +39,6 @@ const matches = (f: Filter, i: CalendarItem) =>
 export default function CalendarRoot({ appId }: CalendarRootProps) {
   const { workspaceId } = useWorkspace();
   const router = useRouter();
-  const search = useSearchParams();
   const toast = useToast();
   const invalidate = useInvalidate();
   const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
@@ -59,13 +58,14 @@ export default function CalendarRoot({ appId }: CalendarRootProps) {
 
   // Returning from an OAuth connection.
   useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
     if (search.get("connections") !== "1") return;
     setConnections(true);
     const status = search.get("status");
     if (status === "connected") toast.success("Account connected", search.get("provider") ?? undefined);
     else if (status) toast.error("Connection didn’t complete", search.get("message") ?? undefined);
     router.replace(window.location.pathname);
-  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = () => invalidate(calPath, wsPath(workspaceId, "/approvals"));
   const label = useMemo(() => `${new Date(anchor).toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${new Date(anchor + 41 * DAY).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`, [anchor]);
