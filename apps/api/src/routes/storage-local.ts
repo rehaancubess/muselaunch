@@ -28,6 +28,10 @@ localStorageRoutes.get("/:token", async (c) => {
     "accept-ranges": "bytes",
     "cache-control": "private, max-age=300",
     "x-content-type-options": "nosniff",
+    // SECURITY: objects are user-controlled (uploaded SVG/text, imported listing icons, stock files)
+    // and are served from the API origin. A sandboxed, script-less CSP keeps an SVG or HTML-ish file
+    // opened directly from running script on this origin; <img>/<video> embedding is unaffected.
+    "content-security-policy": "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
   };
   if (grant.n) headers["content-disposition"] = `attachment; filename="${safeFilename(grant.n)}"`;
   const range = c.req.header("range")?.match(/^bytes=(\d*)-(\d*)$/);
