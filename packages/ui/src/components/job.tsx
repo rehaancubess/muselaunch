@@ -69,7 +69,7 @@ export function JobProgress({ job, title, onCancel, onRetry, cancelling, retryin
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
           <p className={cn("truncate font-medium text-ink", variant === "block" ? "text-body" : "text-body-sm")}>{label}</p>
-          <p className="truncate text-footnote text-ink-2">{failed ? (job?.error?.userMessage ?? job?.error?.message ?? "Something went wrong") : stage}</p>
+          <p className={cn("text-footnote", failed ? "text-danger" : "text-ink-2", !failed ? "truncate" : variant === "row" ? "line-clamp-2" : "text-pretty")}>{failed ? (job?.error?.userMessage ?? job?.error?.message ?? "Something went wrong") : stage}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {running && status === "running" ? <span className="text-footnote tabular text-ink-2">{Math.round(pct)}%</span> : null}

@@ -62,7 +62,7 @@ export function SegmentedControl<T extends string>({ items, value, onChange, lab
       {items.map((item) => {
         const active = item.value === value;
         const cls = cn(
-          "relative z-[1] inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 font-medium transition-colors duration-200",
+          "relative z-[1] inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3.5 font-medium transition-colors duration-200",
           "focus-visible:outline-none focus-visible:shadow-focus [&_svg]:size-3.5",
           h,
           fullWidth && "flex-1",
