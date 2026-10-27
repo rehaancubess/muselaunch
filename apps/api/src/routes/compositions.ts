@@ -284,8 +284,9 @@ compositionRoutes.post("/compositions/:id/render", requireCap("content.write"), 
     const errors = issues.filter((i) => i.level === "error");
     if (errors.length) throw new AppError("VALIDATION_FAILED", `${errors.length} blocking issue(s) must be fixed before the final render`, { userMessage: "Fix the flagged issues before the final render.", details: { issues: errors } });
     // Brand Guardian gate (module G): attach the latest review of this exact version (reviewing it
-    // now if there is none). A `blocked` review needs `override.reason` (content.approve; audited).
-    const gate = await brandGate(p, wid, { subject: { entity: "compositions", id: comp.id }, version, override: input.override, actor, canOverride: can(c.get("member"), "content.approve"), action: "render_final" });
+    // now if there is none). A `blocked` review needs `override.reason` from someone with this
+    // route's own capability (content.write); overrides are stored on the review + audit log.
+    const gate = await brandGate(p, wid, { subject: { entity: "compositions", id: comp.id }, version, override: input.override, actor, canOverride: can(c.get("member"), "content.write"), action: "render_final" });
     const format = ver.doc.kind === "video" ? "mp4" : "png";
     const job = await p.jobs.create(
       wid,

@@ -138,6 +138,11 @@ describe("Brand Guardian with Muse Glimmer (fake local server, fixture answers)"
     const { p, ws, seeded, create } = await setup();
     const pref = await rememberPreference(p, { workspaceId: WS, appId: seeded.appId, kind: "tone", text: "Keep the voice calm; no hype words", source: { type: "explicit" }, actor: "alice" });
     const comp = await create({ text: "Blazing fast focus sessions", color: "#FF2D55" });
+    const generated = await ws.collection("mediaAssets").create(
+      { appId: seeded.appId, kind: "image", role: "generated_image", origin: "generated", storagePath: `workspaces/${WS}/gen.png`, mimeType: "image/png", status: "ready", isProductTruth: false, generation: { provider: "openai", model: "gpt-image-1", prompt: "app ui" } },
+      { actor: "seed" },
+    );
+    const swap = (assetId: string, message: string) => ({ severity: "info", category: "consistency", message, ops: [{ op: "update_layer", sceneId: "sc_demo", layerId: "ly_demo_device", set: { screenAssetId: assetId } }] });
     const fake = installFakeGlimmer(p, (messages) => {
       const sys = messages[0]!.content;
       if (sys.includes("brand-memory curator")) return JSON.stringify({ selectedIds: [pref.id], summary: "- Keep the voice calm" });
@@ -151,6 +156,10 @@ describe("Brand Guardian with Muse Glimmer (fake local server, fixture answers)"
             { severity: "warn", category: "consistency", message: "CTA should be lowercase", location: { layerId: "ly_cta" }, ops: [{ op: "update_layer", sceneId: "sc_cta", layerId: "ly_missing", set: { text: "x" } }] },
             { severity: "info", category: "consistency", message: "Remove the hook scene", ops: [{ op: "remove_scene", sceneId: "sc_hook" }] },
             { severity: "nope", category: "tone" },
+            // Model-chosen media ids: only this app's real screenshots/recordings survive.
+            swap(seeded.screenshotIds[1]!, "Show the weekly report screen"),
+            swap(generated.id, "Show a generated mockup"),
+            swap("ast_from_another_workspace", "Show another app"),
           ],
         }) +
         "\n```"
@@ -175,7 +184,10 @@ describe("Brand Guardian with Muse Glimmer (fake local server, fixture answers)"
     const cta = done.findings.find((f) => f.message === "CTA should be lowercase")!;
     expect(cta.suggestedOps).toBeUndefined();
     expect(done.findings.find((f) => f.message === "Remove the hook scene")!.suggestedOps).toBeUndefined();
-    expect(done.summary).toMatch(/failed validation and were dropped/);
+    expect(done.findings.find((f) => f.message === "Show the weekly report screen")!.suggestedOps).toEqual([{ op: "update_layer", sceneId: "sc_demo", layerId: "ly_demo_device", set: { screenAssetId: seeded.screenshotIds[1] } }]);
+    expect(done.findings.find((f) => f.message === "Show a generated mockup")!.suggestedOps).toBeUndefined();
+    expect(done.findings.find((f) => f.message === "Show another app")!.suggestedOps).toBeUndefined();
+    expect(done.summary).toMatch(/6 Glimmer suggestion\(s\) failed validation and were dropped/);
     // Rules ran too and say so.
     expect(done.findings.find((f) => f.rule === "palette.off_brand")!.source).toBe("rules");
 

@@ -8,4 +8,5 @@ export { requestBrandReview, brandGate, dismissFinding, applyFinding, listReview
 export { runRules, validOps, fingerprintOf, PLATFORM_VIDEO, type BrandContext, type DraftFinding } from "./rules";
 export { glimmerReview, buildPacket, normaliseGlimmerFindings, GUARDIAN_SYSTEM, type GlimmerReviewResult } from "./glimmer";
 export { loadSubject, describeSubject, isSubjectEntity, SUBJECT_ENTITIES, type LoadedSubject, type SubjectText } from "./subject";
+export { newAssetProblems, isRealProductMedia, appAssetsById, assetIdsIn } from "./assets";
 export { contrastRatio, colorDistance, deltaE2000, parseHex, resolveColor } from "./color";

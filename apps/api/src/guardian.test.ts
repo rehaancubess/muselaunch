@@ -69,7 +69,8 @@ describe("Brand Guardian API (module G)", () => {
   const app = buildApp(p);
   const alice = client(app, "alice");
   const bob = client(app, "bob");
-  const carol = client(app, "carol");
+  const carol = client(app, "carol"); // editor
+  const vic = client(app, "vic"); // viewer
   let wsA = "";
   let wsB = "";
   let seeded: SeededApp;
@@ -98,7 +99,8 @@ describe("Brand Guardian API (module G)", () => {
     wsA = (await alice.post("/v1/workspaces", { name: "Alice Apps" })).body.workspace.id;
     wsB = (await bob.post("/v1/workspaces", { name: "Bob Studio" })).body.workspace.id;
     seeded = await seedApp(p, wsA);
-    await p.db.ws(wsA).collection("members").create({ id: "carol", userId: "carol", email: "carol@example.com", role: "editor", canPublish: false, canManageAccounts: false, status: "active" }, { actor: "alice" });
+    for (const [uid, role] of [["carol", "editor"], ["vic", "viewer"]] as const)
+      await p.db.ws(wsA).collection("members").create({ id: uid, userId: uid, email: `${uid}@example.com`, role, canPublish: false, canManageAccounts: false, status: "active" }, { actor: "alice" });
   });
 
   let toneReviewId = "";
@@ -174,7 +176,24 @@ describe("Brand Guardian API (module G)", () => {
     expect(prefs.some((x) => x.text.startsWith("Accepted Brand Guardian fix (brand colour use)") && x.source.type === "user_edit")).toBe(true);
   });
 
-  it("a blocked review gates the final render until an owner/admin overrides it with a reason (audited)", async () => {
+  it("refuses to apply a fix from a stale review (409) — the composition moved on", async () => {
+    const comp = await compFor({ text: "Calm focus, every day", color: "#FF2D55" });
+    const created = await alice.post(`${W()}/reviews`, { subject: { entity: "compositions", id: comp.id } });
+    await p.inline!.drain();
+    const review = (await alice.get(`${W()}/reviews/${created.body.review.id}`)).body.review;
+    const palette = review.findings.find((f: J) => f.rule === "palette.off_brand");
+    const edit = await alice.post(`${W()}/compositions/${comp.id}/patch`, { baseVersion: 1, ops: [{ op: "update_layer", sceneId: "sc_cta", layerId: "ly_cta", set: { text: "Start your first focus session today" } }] });
+    expect(edit.status).toBe(200);
+    const stale = await alice.post(`${W()}/reviews/${review.id}/findings/${palette.id}/apply`);
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.details).toMatchObject({ reason: "brand_review_stale", reviewedVersion: 1, currentVersion: 2 });
+    expect((await alice.get(`${W()}/compositions/${comp.id}`)).body.composition.currentVersion).toBe(2);
+    // Viewers can't apply or dismiss at all.
+    expect((await vic.post(`${W()}/reviews/${review.id}/findings/${palette.id}/apply`)).status).toBe(403);
+    expect((await vic.post(`${W()}/reviews/${review.id}/findings/${palette.id}/dismiss`, { reason: "x" })).status).toBe(403);
+  });
+
+  it("a blocked review gates the final render until someone with the render capability overrides it with a reason (audited)", async () => {
     const comp = await compFor({ text: "Works offline, anywhere" });
     // Preview renders are never gated.
     const preview = await alice.post(`${W()}/compositions/${comp.id}/render`, { quality: "preview" });
@@ -188,19 +207,20 @@ describe("Brand Guardian API (module G)", () => {
     expect(blocked.body.error.details.review.blocking[0]).toMatchObject({ category: "prohibited" });
     const reviewId = blocked.body.error.details.review.id;
 
-    // Editors can't override; an empty reason is rejected.
-    expect((await carol.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: "ship it" } })).status).toBe(403);
-    expect((await alice.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: " " } })).status).toBe(422);
+    // Viewers can't render at all; an empty reason is rejected.
+    expect((await vic.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: "ship it" } })).status).toBe(403);
+    expect((await carol.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: " " } })).status).toBe(422);
 
-    const ok = await alice.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: "Legal confirmed offline mode ships in v2.1" } });
+    // The override needs the gated action's own capability (content.write), so an editor may proceed.
+    const ok = await carol.post(`${W()}/compositions/${comp.id}/render`, { quality: "final", override: { reason: "Legal confirmed offline mode ships in v2.1" } });
     expect(ok.status).toBe(202);
     expect(ok.body.brandReview).toMatchObject({ id: reviewId, status: "blocked", overridden: true });
     await p.inline!.drain();
     expect(rendered).toContain(comp.id);
     const review = (await alice.get(`${W()}/reviews/${reviewId}`)).body.review;
-    expect(review.overrides).toEqual([expect.objectContaining({ by: "alice", action: "render_final", reason: "Legal confirmed offline mode ships in v2.1" })]);
+    expect(review.overrides).toEqual([expect.objectContaining({ by: "carol", action: "render_final", reason: "Legal confirmed offline mode ships in v2.1" })]);
     const audit = (await p.db.ws(wsA).collection("auditLog").list({ limit: 100 })).items.filter((a) => a.action === "brand_review.override");
-    expect(audit[0]).toMatchObject({ createdBy: "alice", target: { entity: "brandReviews", id: reviewId }, data: { gate: "render_final", version: 1 } });
+    expect(audit[0]).toMatchObject({ createdBy: "carol", target: { entity: "brandReviews", id: reviewId }, data: { gate: "render_final", version: 1, reason: "Legal confirmed offline mode ships in v2.1" } });
   });
 
   it("approval requests for posts are gated on the review of the exact caption", async () => {

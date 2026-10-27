@@ -176,7 +176,8 @@ publishingRoutes.patch("/posts/:id", requireCap("content.write"), async (c) => {
 /**
  * Brand Guardian gate (module G) for approval requests: attach the latest review of the exact
  * post/draft content (reviewing it now if there is none). A `blocked` review needs
- * `override.reason` from someone with content.approve; overrides are stored and audited.
+ * `override.reason` from someone with this route's capability (content.write); overrides are stored
+ * on the review and audited. Publishing/sending still needs an approver's decision afterwards.
  */
 async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outreachDrafts"; id: string }) {
   let raw: unknown = {};
@@ -186,7 +187,7 @@ async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outre
     raw = {}; // body is optional
   }
   const input = GuardedApprovalRequest.parse(raw ?? {});
-  const gate = await brandGate(p(c), wid(c), { subject, override: input.override, actor: actorOf(c), canOverride: can(c.get("member"), "content.approve"), action: "request_approval" });
+  const gate = await brandGate(p(c), wid(c), { subject, override: input.override, actor: actorOf(c), canOverride: can(c.get("member"), "content.write"), action: "request_approval" });
   return { ...reviewBrief(gate.review), overridden: gate.overridden };
 }
 

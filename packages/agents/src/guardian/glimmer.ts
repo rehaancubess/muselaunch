@@ -1,10 +1,12 @@
-import type { BrandPreference, PatchOp } from "@muselaunch/contracts";
+import type { BrandPreference, MediaAsset, PatchOp } from "@muselaunch/contracts";
+import { applyPatch } from "@muselaunch/compositions";
 import { PatchOp as PatchOpSchema } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import { extractJson, glimmerClient, untrusted, type CallContext } from "@muselaunch/providers";
 import { z } from "zod";
 import { unsupportedSpecifics } from "../claims";
 import { clip, normalizeText } from "../util";
+import { appAssetsById, assetIdsIn, newAssetProblems } from "./assets";
 import { fingerprintOf, validOps, type BrandContext, type DraftFinding } from "./rules";
 import { describeSubject, findLayer, type LoadedSubject } from "./subject";
 
@@ -101,6 +103,8 @@ export function normaliseGlimmerFindings(
   s: LoadedSubject,
   b: BrandContext,
   memory: BrandPreference[],
+  /** This app's media referenced by the model's ops (preloaded; anything else is unknown). */
+  appAssets: Map<string, MediaAsset> = new Map(),
 ): { findings: DraftFinding[]; dropped: { findings: number; ops: number } } {
   const dropped = { findings: 0, ops: 0 };
   const findings: DraftFinding[] = [];
@@ -154,11 +158,18 @@ export function normaliseGlimmerFindings(
       } else if (g.replacementText && layerHit?.layer.type === "text" && !layerHit.layer.locked) {
         candidate.push({ op: "update_layer", sceneId: layerHit.scene.id, layerId: layerHit.layer.id, set: { text: g.replacementText } });
       }
-      // A fix must not introduce unverified figures or prohibited phrases.
+      // A fix must not introduce unverified figures, prohibited phrases or media that isn't this
+      // app's real product media (model-chosen asset ids are untrusted).
       const safe = candidate.filter((op) => {
+        const applied = validOps(doc, [op]);
+        if (!applied || newAssetProblems(doc, applyPatch(doc, applied).doc, appAssets).length) {
+          dropped.ops++;
+          return false;
+        }
         const text = op.op === "update_layer" && typeof op.set.text === "string" ? op.set.text : "";
         if (!text) return true;
-        const before = layerHit?.layer.type === "text" ? layerHit.layer.text : "";
+        const target = op.op === "update_layer" ? findLayer(doc, op.layerId)?.layer : undefined;
+        const before = target?.type === "text" ? target.text : "";
         const added = unsupportedSpecifics(text, `${b.supportText}\n${before}`);
         const banned = prohibited.some((pc) => normalizeText(text).includes(pc));
         if (added.length || banned) dropped.ops++;
@@ -212,6 +223,7 @@ export async function glimmerReview(
     parsed = GlimmerReviewOutput.safeParse(extractJson(res.content));
   }
   if (!parsed.success) throw new AppError("PROVIDER_ERROR", "Muse Glimmer returned an answer that isn't valid review JSON");
-  const { findings, dropped } = normaliseGlimmerFindings(parsed.data.findings, input.subject, input.brand, input.memory);
+  const appAssets = await appAssetsById(p.db.ws(ctx.workspaceId), input.subject.appId, assetIdsIn(parsed.data.findings));
+  const { findings, dropped } = normaliseGlimmerFindings(parsed.data.findings, input.subject, input.brand, input.memory, appAssets);
   return { findings, summary: clip(parsed.data.summary.trim(), 1200), model: res.model, dropped, runtimeMs: Date.now() - started };
 }

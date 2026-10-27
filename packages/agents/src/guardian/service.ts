@@ -6,6 +6,7 @@ import { AppError, type Platform } from "@muselaunch/platform";
 import { glimmerClient } from "@muselaunch/providers";
 import { rememberPreference } from "../memory";
 import { clip, hashId } from "../util";
+import { appAssetsById, assetIdsIn, newAssetProblems } from "./assets";
 import { countsLine, executeReview, GUARDIAN_ALLOW_TAG, isTerminalReview, statusOf } from "./review";
 import { loadSubject, type LoadedSubject } from "./subject";
 
@@ -79,21 +80,17 @@ export async function requestBrandReview(p: Platform, workspaceId: string, input
   return { review: withJob, job, reused: false };
 }
 
-/** Run a review synchronously (gates). Charges the same `brand.review` credits as the job. */
+/**
+ * Run a review synchronously (gates). The mandatory pre-render / pre-approval check is not billed
+ * in credits (it isn't part of the render/approval estimate the user saw); Glimmer calls are still
+ * metered as usage events (provider `glimmer`, self_hosted). Explicit reviews (`POST /reviews`, the
+ * Autopilot verify stage) reserve the `brand.review` credit through their job.
+ */
 async function reviewInline(p: Platform, workspaceId: string, s: LoadedSubject, actor: string): Promise<BrandReview> {
   const repo = p.db.ws(workspaceId).collection("brandReviews");
   const id = repo.newId();
-  const credits = p.credits.estimate("brand.review").credits;
-  const rsv = credits > 0 ? await p.credits.reserve(workspaceId, credits, { operation: "brand.review", idempotencyKey: `brand.review.gate:${id}`, actor }) : null;
-  try {
-    await repo.create({ id, appId: s.appId, subject: s.ref, subjectVersion: s.version, contentHash: s.contentHash, status: "running", reviewer: provisionalReviewer(p), findings: [], summary: "", memoryRefs: [], claimIds: [], overrides: [] }, { actor });
-    const done = await executeReview(p, workspaceId, id, { actor, glimmerTimeoutMs: GATE_GLIMMER_TIMEOUT_MS });
-    if (rsv) await p.credits.settle(workspaceId, rsv.reservationId, rsv.credits, { actor, reason: "Brand Guardian review" });
-    return done;
-  } catch (err) {
-    if (rsv) await p.credits.release(workspaceId, rsv.reservationId, { actor, reason: "Brand Guardian review failed" }).catch(() => {});
-    throw err;
-  }
+  await repo.create({ id, appId: s.appId, subject: s.ref, subjectVersion: s.version, contentHash: s.contentHash, status: "running", reviewer: provisionalReviewer(p), findings: [], summary: "", memoryRefs: [], claimIds: [], overrides: [] }, { actor });
+  return executeReview(p, workspaceId, id, { actor, glimmerTimeoutMs: GATE_GLIMMER_TIMEOUT_MS });
 }
 
 /** Short review shape for error details / gate responses. */
@@ -116,7 +113,7 @@ export interface GateInput {
   version?: number;
   override?: { reason: string };
   actor: string;
-  /** Overriding a blocked review needs `content.approve` (owners/admins). */
+  /** Whether the caller holds the gated action's own capability (overrides need the same capability). */
   canOverride: boolean;
   action: "render_final" | "request_approval";
 }
@@ -124,7 +121,8 @@ export interface GateInput {
 /**
  * Gate for final renders and approval requests: attach the latest finished review of this exact
  * version/content (reviewing inline when there is none). A `blocked` review needs `override.reason`
- * from someone with `content.approve`; the override is stored on the review and in the audit log.
+ * from someone holding the gated action's capability; the override is stored on the review and
+ * written to the audit log. (The approval itself is still decided by an approver later.)
  */
 export async function brandGate(p: Platform, workspaceId: string, input: GateInput): Promise<{ review: BrandReview; overridden: boolean }> {
   const ws = p.db.ws(workspaceId);
@@ -146,7 +144,7 @@ export async function brandGate(p: Platform, workspaceId: string, input: GateInp
       details: { reason: "brand_review_blocked", requiresOverride: true, review: reviewBrief(review) },
     });
   }
-  if (!input.canOverride) throw new AppError("FORBIDDEN", "Overriding a blocked Brand Guardian review needs the content.approve capability", { userMessage: "Only workspace owners and admins can override Brand Guardian." });
+  if (!input.canOverride) throw new AppError("FORBIDDEN", "Overriding a blocked Brand Guardian review needs the capability of the gated action", { userMessage: "You don't have permission to override Brand Guardian here." });
   const entry = { at: new Date().toISOString(), by: input.actor, reason: clip(input.override.reason.trim(), 500), action: input.action, findingIds: blocking.map((f) => f.id).slice(0, 100) };
   review = await ws.collection("brandReviews").update(review.id, { overrides: [...review.overrides, entry].slice(-50) }, { actor: input.actor });
   await ws.collection("auditLog").create(
@@ -196,8 +194,9 @@ async function loadFinding(ws: WorkspaceDb, reviewId: string, findingId: string)
 
 /**
  * Dismiss a finding and remember the decision (e.g. `Allowed: "blazing fast" is acceptable tone`),
- * tagged so future reviews of this app skip the same issue. Dismissing a blocking finding needs
- * `content.approve` and is audited.
+ * tagged so future reviews of this app skip the same issue. Dismissing a BLOCKING finding changes
+ * policy for every future review (not one action, unlike a gate override), so it needs
+ * `content.approve` (owners/admins) and is audited.
  */
 export async function dismissFinding(
   p: Platform,
@@ -245,15 +244,26 @@ export async function applyFinding(
   }
   if (finding.resolution?.state === "dismissed") throw new AppError("CONFLICT", "This finding was dismissed");
   const comp = await ws.collection("compositions").getOrThrow(compId);
-  // Ops address stable scene/layer ids, so a fix found on an older version can still apply cleanly.
+  // The fix was validated against the reviewed version: a review of an older version is stale (409),
+  // and the ops are re-validated with applyPatch against the CURRENT version before committing.
+  const stale = () =>
+    new AppError("CONFLICT", `Review is of version ${review.subjectVersion}; the composition is at version ${comp.currentVersion}`, {
+      userMessage: "The composition changed since this review. Run the review again.",
+      details: { reason: "brand_review_stale", reviewedVersion: review.subjectVersion, currentVersion: comp.currentVersion },
+    });
+  if (review.subjectVersion !== comp.currentVersion) throw stale();
   const cur = await getVersion(ws, compId, comp.currentVersion);
+  if (review.contentHash && cur.contentHash !== review.contentHash) throw stale();
   let result: ReturnType<typeof applyPatch>;
   try {
     result = applyPatch(cur.doc, finding.suggestedOps);
   } catch (err) {
-    if (err instanceof PatchError) throw new AppError("VALIDATION_FAILED", "This fix no longer applies to the current version", { userMessage: "The composition changed since this review. Run the review again.", details: { errors: err.errors } });
+    if (err instanceof PatchError) throw new AppError("CONFLICT", "This fix no longer applies to the current version", { userMessage: "The composition changed since this review. Run the review again.", details: { reason: "brand_review_stale", errors: err.errors } });
     throw err;
   }
+  // Defence in depth: media a fix introduces must be this app's real product media.
+  const assetProblems = newAssetProblems(cur.doc, result.doc, await appAssetsById(ws, review.appId, assetIdsIn(finding.suggestedOps)));
+  if (assetProblems.length) throw new AppError("VALIDATION_FAILED", `Fix rejected: ${assetProblems.join("; ")}`, { userMessage: "This fix uses media that isn't a real screenshot or recording of your app." });
   const patches = ws.collection("compositionPatches");
   const patchId = patches.newId();
   const summary = clip(`Brand Guardian fix: ${finding.suggestion ?? finding.message}`, 500);
