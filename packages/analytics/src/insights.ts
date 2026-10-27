@@ -30,14 +30,15 @@ export interface Range {
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** `from`/`to` accept YYYY-MM-DD (whole UTC days, `to` inclusive) or ISO datetimes. Default: last 28 days. */
+/** `from`/`to` accept YYYY-MM-DD (whole UTC days, `to` inclusive) or ISO datetimes. Default: the last 28 UTC days incl. today. */
 export function resolveRange(q: Pick<InsightsQuery, "from" | "to">, now = Date.now()): Range {
   const parse = (s: string, end: boolean) => {
     const ms = DATE_ONLY.test(s) ? Date.parse(`${s}T00:00:00Z`) + (end ? DAY_MS : 0) : Date.parse(s);
     if (!Number.isFinite(ms)) throw new AppError("BAD_REQUEST", `Invalid date ${s}`);
     return ms;
   };
-  const to = q.to ? parse(q.to, true) : now;
+  // Default: the last 28 UTC days including today (today's partial day counts as measured so far).
+  const to = q.to ? parse(q.to, true) : Math.floor(now / DAY_MS) * DAY_MS + DAY_MS;
   const from = q.from ? parse(q.from, false) : to - 28 * DAY_MS;
   if (!(from < to)) throw new AppError("BAD_REQUEST", "`from` must be before `to`");
   if (to - from > 400 * DAY_MS) throw new AppError("BAD_REQUEST", "Range can be at most 400 days");

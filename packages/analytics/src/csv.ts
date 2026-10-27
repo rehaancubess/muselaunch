@@ -526,7 +526,9 @@ export function parseImport(input: { bytes: Uint8Array; filename?: string; forma
       if (proceeds !== 0 && units !== 0) {
         if (!currency) reject(rowNo, "Currency of Proceeds missing.");
         else {
-          addDraft({ metric: "revenue", value: round(units * proceeds), currency, channel: "app_store", windowStart: win.start, windowEnd: win.end, definition: `App Store Connect Summary Sales Report${fileLabel}: developer proceeds (Units × Developer Proceeds, after Apple's commission and taxes), in currency of proceeds; refunds negative${userNote}` }, rowNo);
+          // Refunds: Apple marks them with negative Units and/or negative prices; either way they reduce proceeds.
+          const amount = (units < 0 || proceeds < 0 ? -1 : 1) * Math.abs(units) * Math.abs(proceeds);
+          addDraft({ metric: "revenue", value: round(amount), currency, channel: "app_store", windowStart: win.start, windowEnd: win.end, definition: `App Store Connect Summary Sales Report${fileLabel}: developer proceeds (Units × Developer Proceeds, after Apple's commission and taxes), in currency of proceeds; refunds negative${userNote}` }, rowNo);
           used = true;
         }
       }
