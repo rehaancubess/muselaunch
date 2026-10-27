@@ -204,7 +204,27 @@ export function shouldThrottle(clientKey: string | undefined, slug: string, perM
  * per-UTC-day `clicks` observation (attribution `link`) change in one transaction.
  * Bots and throttled repeats are tallied by class only and never counted as clicks.
  */
-export async function resolveAndCount(p: Platform, slug: string, opts: { method: string; userAgent?: string; throttled?: boolean; now?: number }): Promise<{ redirectUrl: string; external: boolean } | null> {
+/** Only official store pages get a direct 302; everything else goes through the interstitial. */
+export const STORE_HOSTS: ReadonlySet<string> = new Set(["apps.apple.com", "itunes.apple.com", "play.google.com"]);
+
+export function isStoreUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && STORE_HOSTS.has(u.hostname.toLowerCase()) && !u.username && !u.password && (!u.port || u.port === "443");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * - `redirect`: 302 to an App Store / Google Play page (fixed, trusted hosts)
+ * - `own_site`: the app's own (user-entered) website → neutral "Continue to <host>" page
+ * - `external`: user-confirmed outside destination → "You're leaving to <host>" page
+ * `/r/*` therefore never redirects silently to a user-controlled host.
+ */
+export type LinkServeMode = "redirect" | "own_site" | "external";
+
+export async function resolveAndCount(p: Platform, slug: string, opts: { method: string; userAgent?: string; throttled?: boolean; now?: number }): Promise<{ redirectUrl: string; mode: LinkServeMode } | null> {
   if (!SLUG_RE.test(slug)) return null;
   const reg = await p.db.global(registryKey(slug), LinkRegistry).get();
   if (!reg || !reg.active) return null;
@@ -214,7 +234,8 @@ export async function resolveAndCount(p: Platform, slug: string, opts: { method:
     const link = await p.db.ws(reg.workspaceId).collection("attributionLinks").get(reg.linkId);
     external = !link || link.destinationKind === "other" || !link.destinationKind;
   }
-  const out = { redirectUrl: reg.redirectUrl, external };
+  const mode: LinkServeMode = isStoreUrl(reg.redirectUrl) ? "redirect" : external ? "external" : "own_site";
+  const out = { redirectUrl: reg.redirectUrl, mode };
   if (opts.method !== "GET") return out;
   const cls: UaClass | "throttled" = opts.throttled ? "throttled" : classifyUserAgent(opts.userAgent);
   const human = cls === "mobile" || cls === "desktop" || cls === "other";
@@ -282,12 +303,13 @@ const INTERSTITIAL_STYLE_HASH = `sha256-${createHash("sha256").update(INTERSTITI
 export const INTERSTITIAL_CSP = `default-src 'none'; style-src '${INTERSTITIAL_STYLE_HASH}'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 /**
- * "You're leaving to <host>" page for user-confirmed external destinations, so `/r/*` can't be
- * used as an open redirector. Shows only the destination host (punycode, so look-alike Unicode
- * hosts are visible) and the full URL: no workspace, app or campaign data. Returns null for
- * anything that isn't a plain http(s) URL.
+ * Interstitial for any non-store destination, so `/r/*` can't be used as an open redirector:
+ * "Continue to <host>" for the app's own website, "You're leaving to <host>" (with a trust warning)
+ * for user-confirmed outside sites. Shows only the destination host (punycode, so look-alike
+ * Unicode hosts are visible) and the full URL: no workspace, app or campaign data. Returns null
+ * for anything that isn't a plain http(s) URL.
  */
-export function renderInterstitial(redirectUrl: string): { html: string; host: string } | null {
+export function renderInterstitial(redirectUrl: string, kind: "own_site" | "external" = "external"): { html: string; host: string } | null {
   let url: URL;
   try {
     url = new URL(redirectUrl);
@@ -297,6 +319,6 @@ export function renderInterstitial(redirectUrl: string): { html: string; host: s
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   const host = url.hostname;
   const href = escapeHtml(url.toString());
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>Leaving for ${escapeHtml(host)}</title><style>${INTERSTITIAL_STYLE}</style></head><body><main><h1>You’re leaving to ${escapeHtml(host)}</h1><p>${href}</p><a class="c" href="${href}" rel="noopener noreferrer nofollow">Continue</a><small>This link was shared through MuseLaunch. Only continue if you trust the site.${url.protocol === "http:" ? " The connection to this site isn’t encrypted." : ""}</small></main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>${kind === "external" ? "Leaving for" : "Continue to"} ${escapeHtml(host)}</title><style>${INTERSTITIAL_STYLE}</style></head><body><main><h1>${kind === "external" ? "You’re leaving to" : "Continue to"} ${escapeHtml(host)}</h1><p>${href}</p><a class="c" href="${href}" rel="noopener noreferrer nofollow">Continue</a><small>${kind === "external" ? "This link was shared through MuseLaunch. Only continue if you trust the site." : "This link was shared through MuseLaunch."}${url.protocol === "http:" ? " The connection to this site isn’t encrypted." : ""}</small></main></body></html>`;
   return { html, host };
 }

@@ -346,8 +346,11 @@ describe("tracked-link redirects only go to the stored destination", () => {
     const link = (await s.alice.post(`${s.A}/campaigns/${campaign.id}/links`, { destination: "website", slug: "launch-week", utm: { source: "tiktok", medium: "social" } })).body.link;
     for (const path of ["/r/launch-week?url=https://evil.example.com", "/r/launch-week?redirect=//evil.example.com"]) {
       const res = await s.app.request(path);
-      expect(res.status).toBe(302);
-      expect(new URL(res.headers.get("location")!).hostname).toBe("focusly.app");
+      // Website destinations are served via a "Continue to <host>" page (never a silent 302); only store pages redirect.
+      expect(res.status).toBe(200);
+      expect(res.headers.get("location")).toBeNull();
+      const href = /<a class="c" href="([^"]+)"/.exec(await res.text())![1]!.replace(/&amp;/g, "&");
+      expect(new URL(href).hostname).toBe("focusly.app");
     }
     expect((await s.app.request("/r/launch-week%2F%2Fevil.example.com")).status).toBe(404);
     expect((await s.app.request("/r/..%2Fv1%2Fme")).status).toBe(404);
