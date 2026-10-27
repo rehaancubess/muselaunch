@@ -66,6 +66,11 @@ export const MediaAsset = BaseEntity.extend({
   labels: z.array(z.string().max(60)).max(30).default([]),
   /** True only for real screenshots/recordings of the product (never generated media). */
   isProductTruth: z.boolean().default(false),
+  /**
+   * Provenance label the UI must show next to the asset, e.g. `external_tts` (AI voice from an
+   * external TTS provider), `ai_generated_image`, `stock`, `sam_matte`, `sam_cutout`, `sam_preview`.
+   */
+  sourceLabel: z.string().max(60).optional(),
   license: AssetLicense.optional(),
   generation: z
     .object({
@@ -124,6 +129,12 @@ export const Segmentation = BaseEntity.extend({
   trackingQuality: Percent01.optional(),
   /** User corrections (re-prompt points/boxes) applied. */
   corrections: z.array(z.object({ at: IsoDateTime, kind: z.enum(["prompt", "box", "point"]), value: z.string().max(200) })).default([]),
+  /** Objects included in the matte/cutout (empty = all detected objects). */
+  selectedObjectIds: z.array(z.string().max(40)).max(16).default([]),
+  /** Raw SAM output (special-token text) kept so object re-selection never re-calls SAM. */
+  outputAssetId: Id.optional(),
+  /** Set when the result came from an earlier identical request (same content hash + prompt): no new SAM call. */
+  reusedFromSegmentationId: Id.optional(),
   usageEventIds: z.array(Id).default([]),
   error: z.string().max(1000).optional(),
 });
@@ -148,7 +159,125 @@ export const Transcript = BaseEntity.extend({
   text: z.string().max(100_000).default(""),
   turns: z.array(TranscriptTurn).max(5000).default([]),
   durationSec: z.number().nonnegative().optional(),
+  /** Muse Voice Transcribe mode used: DIARIZATION gives speaker-attributed turns; PUSH_TO_TALK gives text only. */
+  mode: z.enum(["PUSH_TO_TALK", "ENDPOINTING", "DIARIZATION"]).optional(),
+  /** Set when copied from an earlier transcript of identical audio (same content hash): no new provider call. */
+  reusedFromTranscriptId: Id.optional(),
   usageEventIds: z.array(Id).default([]),
   error: z.string().max(1000).optional(),
 });
 export type Transcript = z.infer<typeof Transcript>;
+
+// ---------------------------------------------------------------------------
+// Media API requests/responses (module D routes: apps/api/src/routes/media.ts)
+// ---------------------------------------------------------------------------
+
+/** Explicit consent for processing a recording of a person (stored on the asset licence). */
+export const ConsentInput = z.object({ scope: z.string().min(3).max(300) });
+
+export const SegmentRequest = z.object({
+  /** SAM concept prompt: a short noun phrase naming one concrete thing ("person", "phone"). */
+  prompt: z.string().trim().min(1).max(200),
+  consent: ConsentInput.optional(),
+});
+export type SegmentRequest = z.infer<typeof SegmentRequest>;
+
+const NormPoint = z.object({ x: Percent01, y: Percent01, label: z.enum(["positive", "negative"]).default("positive") });
+export const SegmentCorrectionRequest = z.discriminatedUnion("kind", [
+  /** Re-run with a different concept prompt. */
+  z.object({ kind: z.literal("prompt"), prompt: z.string().trim().min(1).max(200) }),
+  /** Refine with a box around the subject (normalised 0..1 of the displayed frame) on a given frame. */
+  z.object({ kind: z.literal("box"), frame: z.number().int().min(0).default(0), box: z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 }) }),
+  /** Refine with positive/negative clicks (normalised) on a given frame. */
+  z.object({ kind: z.literal("point"), frame: z.number().int().min(0).default(0), points: z.array(NormPoint).min(1).max(8) }),
+  /** Choose which detected objects the cutout includes (no new SAM call). */
+  z.object({ kind: z.literal("objects"), objectIds: z.array(z.string().max(40)).max(16) }),
+]);
+export type SegmentCorrectionRequest = z.infer<typeof SegmentCorrectionRequest>;
+
+export const TranscribeRequest = z.object({
+  purpose: z.enum(["founder_brief", "voice_command", "captions", "upload"]).default("upload"),
+  /** Language names, e.g. ["English", "Hindi"]; steers recognition, does not force it. */
+  languageBias: z.array(z.string().min(2).max(40)).max(5).optional(),
+  /** Terms to bias recognition toward (app name, features). */
+  keywords: z.array(z.string().min(1).max(60)).max(50).optional(),
+  consent: ConsentInput.optional(),
+});
+export type TranscribeRequest = z.infer<typeof TranscribeRequest>;
+
+export const ImageGenerateRequest = z.object({
+  appId: Id.optional(),
+  campaignId: Id.optional(),
+  prompt: z.string().trim().min(3).max(4000),
+  count: z.number().int().min(1).max(4).default(1),
+  size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).default("1024x1536"),
+  /** Revise an earlier generated image (keeps revision history). */
+  parentAssetId: Id.optional(),
+});
+export type ImageGenerateRequest = z.infer<typeof ImageGenerateRequest>;
+
+/** Which image provider a request goes to; always named in API responses and stored on assets. */
+export const ImageProviderInfo = z.object({
+  id: z.enum(["openai", "muse"]),
+  label: z.string(),
+  model: z.string(),
+  /** Why Muse Image was or was not used (geographic policy / deployment setting). */
+  museImage: z.object({ eligible: z.boolean(), reason: z.string() }),
+});
+export type ImageProviderInfo = z.infer<typeof ImageProviderInfo>;
+
+export const StockProviderId = z.enum(["openverse", "pexels", "pixabay"]);
+export type StockProviderId = z.infer<typeof StockProviderId>;
+
+export const StockSearchQuery = z.object({
+  q: z.string().trim().min(1).max(100),
+  kind: z.enum(["image", "video"]).default("image"),
+  provider: StockProviderId.optional(),
+  orientation: z.enum(["portrait", "landscape", "square"]).optional(),
+  page: z.coerce.number().int().min(1).max(50).default(1),
+  perPage: z.coerce.number().int().min(1).max(30).default(20),
+});
+export type StockSearchQuery = z.infer<typeof StockSearchQuery>;
+
+export const StockItem = z.object({
+  provider: StockProviderId,
+  /** Provider's id for the item (used to re-fetch details server-side on import). */
+  id: z.string().max(120),
+  kind: z.enum(["image", "video"]),
+  title: z.string().max(300).optional(),
+  previewUrl: HttpUrl,
+  pageUrl: HttpUrl,
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  durationSec: z.number().nonnegative().optional(),
+  creator: z.string().max(200).optional(),
+  creatorUrl: HttpUrl.optional(),
+  license: z.object({
+    type: z.enum(["creative_commons", "stock_license"]),
+    /** e.g. "CC BY 4.0", "CC0 1.0", "Pexels License". */
+    name: z.string().max(80),
+    url: HttpUrl.optional(),
+    /** Ready-to-use attribution text (always shown; required for CC BY). */
+    attribution: z.string().max(500),
+    attributionRequired: z.boolean(),
+  }),
+});
+export type StockItem = z.infer<typeof StockItem>;
+
+export const StockImportRequest = z.object({
+  provider: StockProviderId,
+  id: z.string().min(1).max(120),
+  kind: z.enum(["image", "video"]),
+  appId: Id.optional(),
+  campaignId: Id.optional(),
+});
+export type StockImportRequest = z.infer<typeof StockImportRequest>;
+
+export const TtsRequest = z.object({
+  appId: Id.optional(),
+  text: z.string().trim().min(1).max(4000),
+  /** One of the provider's built-in voices. Custom/cloned voices are never accepted. */
+  voice: z.string().max(60).optional(),
+  compositionId: Id.optional(),
+});
+export type TtsRequest = z.infer<typeof TtsRequest>;
