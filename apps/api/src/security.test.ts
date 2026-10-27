@@ -74,6 +74,7 @@ const GRANT_GATED: string[] = [
   "POST /v1/workspaces/:workspaceId/outreach/drafts/:id/mark-sent",
   "POST /v1/workspaces/:workspaceId/outreach/drafts/:id/reset-send",
   "POST /v1/workspaces/:workspaceId/connections/:provider/start",
+  "POST /v1/workspaces/:workspaceId/connections/finish",
   "DELETE /v1/workspaces/:workspaceId/connections/:id",
   "POST /v1/workspaces/:workspaceId/apps/:appId/analytics/revenuecat",
   "DELETE /v1/workspaces/:workspaceId/analytics/connections/:id",
