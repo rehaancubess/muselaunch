@@ -68,7 +68,7 @@ export function BrandGuardianPanel({ subject, version, onApplied, onFocus, class
             </span>
             <div className="min-w-0">
               <h2 className="text-headline font-semibold text-ink">Brand Guardian</h2>
-              <p className="text-caption text-ink-2">Checks {subject.entity === "compositions" ? `version ${latest?.subjectVersion ?? version ?? ""}` : "this content"} against your brand kit, claims and memory.</p>
+              <p className="text-caption text-ink-2">Checks {subject.entity === "compositions" && (latest?.subjectVersion ?? version) ? `version ${latest?.subjectVersion ?? version}` : "this content"} against your brand kit, claims and memory.</p>
             </div>
           </div>
           {latest && !isRunning(latest) && canWrite ? (
@@ -258,10 +258,7 @@ function FindingCard({
   };
 
   return (
-    <article
-      className={cn("space-y-2 rounded-lg border bg-surface p-3 transition-colors", f.severity === "block" ? "border-danger/30" : "border-line", focusable && "hover:border-line-strong")}
-      onMouseEnter={focusable ? () => onFocus!(loc!) : undefined}
-    >
+    <article className={cn("space-y-2 rounded-lg border bg-surface p-3 transition-colors", f.severity === "block" ? "border-danger/30" : "border-line", focusable && "hover:border-line-strong")}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-caption font-semibold text-ink-2">{CATEGORY_LABEL[f.category]}</span>
         <SourceTag source={f.source} />
