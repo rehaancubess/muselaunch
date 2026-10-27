@@ -1,0 +1,9 @@
+{
+  "_fixture": "Documented X API v2 media upload + posts shapes; synthetic values",
+  "_source": ["https://docs.x.com/x-api/media/quickstart/media-upload-chunked", "https://docs.x.com/x-api/posts/create-post"],
+  "initialize": { "data": { "id": "1880000000000000001", "media_key": "7_1880000000000000001", "expires_after_secs": 86400 } },
+  "finalize": { "data": { "id": "1880000000000000001", "media_key": "7_1880000000000000001", "processing_info": { "state": "pending", "check_after_secs": 1 } } },
+  "statusSucceeded": { "data": { "id": "1880000000000000001", "processing_info": { "state": "succeeded", "progress_percent": 100 } } },
+  "tweet": { "data": { "id": "1880000000000000999", "text": "Plan your week in 15 seconds" } },
+  "me": { "data": { "id": "2244994945", "name": "Fixture Apps", "username": "fixtureapps" } }
+}

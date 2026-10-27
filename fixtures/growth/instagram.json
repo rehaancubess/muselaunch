@@ -1,0 +1,12 @@
+{
+  "_fixture": "Documented Instagram API with Instagram Login shapes; synthetic values",
+  "_source": ["https://developers.facebook.com/docs/instagram-platform/content-publishing/", "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login"],
+  "shortToken": { "data": [{ "access_token": "IGAA_FIXTURE_SHORT", "user_id": "17841400000000001", "permissions": "instagram_business_basic,instagram_business_content_publish" }] },
+  "longToken": { "access_token": "IGAA_FIXTURE_LONG", "token_type": "bearer", "expires_in": 5183944 },
+  "me": { "user_id": "17841400000000001", "username": "fixtureapps", "account_type": "BUSINESS" },
+  "container": { "id": "17900000000000001" },
+  "statusInProgress": { "status_code": "IN_PROGRESS", "id": "17900000000000001" },
+  "statusFinished": { "status_code": "FINISHED", "id": "17900000000000001" },
+  "publish": { "id": "17950000000000001" },
+  "media": { "permalink": "https://www.instagram.com/reel/FIXTURE01/", "timestamp": "2026-10-27T10:00:00+0000", "media_product_type": "REELS", "id": "17950000000000001" }
+}

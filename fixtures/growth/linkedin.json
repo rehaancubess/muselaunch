@@ -1,0 +1,8 @@
+{
+  "_fixture": "Documented LinkedIn Videos/Posts API shapes; synthetic values",
+  "_source": ["https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api", "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api"],
+  "initialize": { "value": { "uploadUrlsExpireAt": 1793000000000, "video": "urn:li:video:C5505FIXTURE", "uploadInstructions": [{ "uploadUrl": "https://www.linkedin.com/dms-uploads/C5505FIXTURE/uploadedVideo?sau=fixture", "firstByte": 0, "lastByte": 15 }], "uploadToken": "" } },
+  "partEtag": "/ambry-videoei/signedId/FIXTUREpart0.bin",
+  "videoAvailable": { "id": "urn:li:video:C5505FIXTURE", "status": "AVAILABLE", "owner": "urn:li:person:FIXTUREsub" },
+  "postUrn": "urn:li:share:7000000000000000001"
+}

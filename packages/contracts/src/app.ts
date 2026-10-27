@@ -298,9 +298,28 @@ export const TrackedCreator = BaseEntity.extend({
   notes: z.string().max(2000).default(""),
   /** Latest observations gathered from permitted sources. */
   observations: z
-    .array(z.object({ text: z.string().max(600), source: SourceRef }))
+    .array(
+      z.object({
+        text: z.string().max(600),
+        source: SourceRef,
+        /** What the observation is about (Discover groups by this). */
+        kind: z.enum(["positioning", "hook", "format", "audience", "offer", "cadence", "other"]).optional(),
+        confidence: Percent01.optional(),
+        observedAt: IsoDateTime.optional(),
+      }),
+    )
     .max(50)
     .default([]),
+  /**
+   * Competitor comparison against the user's VERIFIED claims only: `them` is sourced (`evidence`),
+   * `us` must reference verified claim ids. Rows without both are never stored.
+   */
+  comparison: z
+    .array(z.object({ topic: z.string().max(120), them: z.string().max(400), us: z.string().max(400), usClaimIds: z.array(Id).min(1), evidence: z.array(SourceRef).min(1) }))
+    .max(20)
+    .default([]),
   lastObservedAt: IsoDateTime.optional(),
+  /** Last refresh failure shown on the tracker (never replaced by placeholder observations). */
+  lastRefreshError: z.string().max(1000).optional(),
 });
 export type TrackedCreator = z.infer<typeof TrackedCreator>;

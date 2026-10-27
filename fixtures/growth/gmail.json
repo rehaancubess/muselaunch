@@ -1,0 +1,7 @@
+{
+  "_fixture": "Documented Gmail users.messages.send + OpenID userinfo shapes; synthetic values",
+  "_source": ["https://developers.google.com/gmail/api/reference/rest/v1/users.messages/send", "https://developers.google.com/identity/openid-connect/openid-connect#obtainuserinfo"],
+  "token": { "access_token": "ya29.FIXTURE_GMAIL", "expires_in": 3599, "refresh_token": "1//FIXTURE_GMAIL_REFRESH", "scope": "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.send", "token_type": "Bearer" },
+  "userinfo": { "sub": "100000000000000000001", "email": "founder@fixture.example", "email_verified": true },
+  "send": { "id": "18f0FIXTUREmsg", "threadId": "18f0FIXTUREthr", "labelIds": ["SENT"] }
+}

@@ -12,3 +12,5 @@ export * from "./stock";
 export * from "./tts";
 // Module F (analytics) adapters
 export * from "./analytics";
+// Module E (publishing / outreach) adapters
+export * from "./publishing";

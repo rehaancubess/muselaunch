@@ -1,0 +1,9 @@
+{
+  "_fixture": "Documented TikTok Content Posting API shapes; synthetic values",
+  "_source": ["https://developers.tiktok.com/doc/content-posting-api-reference-direct-post", "https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status", "https://developers.tiktok.com/doc/oauth-user-access-token-management"],
+  "token": { "access_token": "act.FIXTURE", "expires_in": 86400, "open_id": "FIXTURE-open-id", "refresh_expires_in": 31536000, "refresh_token": "rft.FIXTURE", "scope": "user.info.basic,video.publish", "token_type": "Bearer" },
+  "creatorInfo": { "data": { "creator_avatar_url": "https://p16.tiktokcdn.com/fixture.jpg", "creator_username": "fixtureapps", "creator_nickname": "Fixture Apps", "privacy_level_options": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"], "comment_disabled": false, "duet_disabled": false, "stitch_disabled": true, "max_video_post_duration_sec": 300 }, "error": { "code": "ok", "message": "", "log_id": "FIXTURElog1" } },
+  "init": { "data": { "publish_id": "v_pub_file~v2-1.FIXTURE", "upload_url": "https://open-upload.tiktokapis.com/video/?upload_id=FIXTURE&upload_token=FIXTURE" }, "error": { "code": "ok", "message": "", "log_id": "FIXTURElog2" } },
+  "statusProcessing": { "data": { "status": "PROCESSING_UPLOAD", "uploaded_bytes": 1024 }, "error": { "code": "ok", "message": "", "log_id": "FIXTURElog3" } },
+  "statusComplete": { "data": { "status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [] }, "error": { "code": "ok", "message": "", "log_id": "FIXTURElog4" } }
+}

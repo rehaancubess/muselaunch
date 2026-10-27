@@ -102,5 +102,7 @@ export const Opportunity = BaseEntity.extend({
   status: z.enum(["new", "saved", "dismissed", "used"]).default("new"),
   campaignId: Id.optional(),
   runId: Id.optional(),
+  /** Follow-up research runs started from Discover ("investigate"). */
+  investigationRunIds: z.array(Id).max(20).default([]),
 });
 export type Opportunity = z.infer<typeof Opportunity>;
