@@ -150,8 +150,19 @@ describe("composition routes", () => {
     expect((await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/redo`)).status).toBe(409);
     const versions = await alice.get(`/v1/workspaces/${wid}/compositions/${compId}/versions`);
     expect(versions.body.items.map((v: J) => v.version)).toEqual([2, 1]);
+    expect(versions.body.items[0].current).toBe(true);
     expect(versions.body.items[0].doc).toBeUndefined();
     expect((await alice.get(`/v1/workspaces/${wid}/compositions/${compId}/versions/1`)).body.version.version).toBe(1);
+  });
+
+  it("restores an old version as a new version and can undo the restore", async () => {
+    const r = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/versions/1/restore`);
+    expect(r.status).toBe(200);
+    expect(r.body.version.version).toBe(3);
+    expect(r.body.version.source).toBe("revert");
+    expect(r.body.version.contentHash).toBe((await alice.get(`/v1/workspaces/${wid}/compositions/${compId}/versions/1`)).body.version.contentHash);
+    const u = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/undo`);
+    expect(u.body.composition.currentVersion).toBe(2);
   });
 
   it("runs the AI edit flow: propose (202) → job fills ops → preview → apply", async () => {
@@ -171,17 +182,17 @@ describe("composition routes", () => {
     expect(got.body.preview).toEqual({ applicable: true, affectedSceneIds: ["sc_s2"], errors: [] });
     const applied = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/patches/${r.body.patch.id}/apply`);
     expect(applied.status).toBe(200);
-    expect(applied.body.version.version).toBe(3);
+    expect(applied.body.version.version).toBe(4);
     expect(applied.body.version.source).toBe("ai_edit");
     expect(applied.body.patch.status).toBe("applied");
     const after = (await alice.get(`/v1/workspaces/${wid}/billing/credits`)).body.balance.available;
     expect(before - after).toBe(1);
-    const unknownScene = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: 3, instruction: "x", sceneIds: ["sc_nope"] });
+    const unknownScene = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: 4, instruction: "x", sceneIds: ["sc_nope"] });
     expect(unknownScene.status).toBe(400);
   });
 
   it("rejects a proposed patch", async () => {
-    const r = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: 3, instruction: "Try something else" });
+    const r = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/ai-edit`, { baseVersion: 4, instruction: "Try something else" });
     await p.inline!.drain();
     const rej = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/patches/${r.body.patch.id}/reject`);
     expect(rej.body.patch.status).toBe("rejected");
@@ -195,7 +206,7 @@ describe("composition routes", () => {
     const r = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/render`, { quality: "final" });
     expect(r.status).toBe(202);
     expect(r.body.job.type).toBe("render.final");
-    expect(r.body.job.payload).toMatchObject({ compositionId: compId, version: 3, format: "mp4" });
+    expect(r.body.job.payload).toMatchObject({ compositionId: compId, version: 4, format: "mp4" });
     expect(r.body.job.reservation.credits).toBe(r.body.estimate.credits);
     expect(r.body.estimate.credits).toBe(8); // 9 s → one 15 s block
     await p.inline!.drain(); // no render worker registered in this test → job fails → hold released
@@ -210,7 +221,7 @@ describe("composition routes", () => {
     const ws = p.db.ws(wid);
     const comp = await ws.collection("compositions").getOrThrow(compId);
     const claim = await ws.collection("claims").create({ appId: comp.appId, text: "Saves 2 hours a day", confidence: 0.5, state: "needs_review", origin: "agent" }, { actor: "alice" });
-    const patched = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/patch`, { baseVersion: 3, ops: [{ op: "update_layer", sceneId: "sc_s1", layerId: "sc_s1_headline", set: { claimIds: [claim.id] } }] });
+    const patched = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/patch`, { baseVersion: 4, ops: [{ op: "update_layer", sceneId: "sc_s1", layerId: "sc_s1_headline", set: { claimIds: [claim.id] } }] });
     expect(patched.status).toBe(200);
     const r = await alice.post(`/v1/workspaces/${wid}/compositions/${compId}/render`, { quality: "final" });
     expect(r.status).toBe(422);
@@ -237,7 +248,7 @@ describe("composition routes", () => {
     const vic = client(app, "vic", "vic@example.com");
     await vic.post(`/v1/invites/${inv.acceptUrl.split("/").pop()}/accept`);
     expect((await vic.get(`/v1/workspaces/${wid}/compositions/${compId}`)).status).toBe(200);
-    expect((await vic.post(`/v1/workspaces/${wid}/compositions/${compId}/patch`, { baseVersion: 3, ops: [{ op: "remove_scene", sceneId: "sc_s3" }] })).status).toBe(403);
+    expect((await vic.post(`/v1/workspaces/${wid}/compositions/${compId}/patch`, { baseVersion: 4, ops: [{ op: "remove_scene", sceneId: "sc_s3" }] })).status).toBe(403);
     expect((await vic.post(`/v1/workspaces/${wid}/compositions/${compId}/render`, { quality: "final" })).status).toBe(403);
   });
 });

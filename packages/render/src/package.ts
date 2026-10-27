@@ -23,7 +23,7 @@ const CHANNEL_SPECS: Record<string, string> = {
   reddit: "Reddit: follow each community's self-promotion rules; post text in copy/reddit.txt.",
 };
 
-const slug = (s: string) => safeFilename(s.toLowerCase().replace(/\s+/g, "-")).slice(0, 60) || "video";
+const slug = (s: string) => safeFilename(s.toLowerCase().replace(/[^a-z0-9]+/g, "-")).replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
 
 function licenseLine(a: MediaAsset): string {
   const lic = a.license;

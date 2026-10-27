@@ -24,6 +24,7 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
 
   it("composition.build → render.preview produces a real low-res MP4", async () => {
     const seed = await seedSample(p, wid);
+    await p.credits.grant(wid, 100, { reason: "test credits", idempotencyKey: "grant:render-test", actor: "system" });
     await p.jobs.create(wid, "composition.build", { appId: seed.appId, storyboardId: seed.storyboardId, compositionId: "cmp_r" }, { actor: "u1", idempotencyKey: "b1" });
     await p.inline!.drain();
     const comp = await p.db.ws(wid).collection("compositions").getOrThrow("cmp_r");

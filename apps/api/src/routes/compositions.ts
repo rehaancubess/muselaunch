@@ -1,7 +1,7 @@
 import { AiEditRequest, ApplyPatchRequest, AspectRatio, RenderRequest, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
 import { applyPatch, collectAssetRefs, compileToHtml, docHash, lintDoc, PatchError, totalDuration } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
-import { commitVersion, getVersion, redo, undo } from "@muselaunch/compositions/store";
+import { commitVersion, getVersion, redo, revertTo, undo } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
 import { AppError, assertKeyInWorkspace, type Platform } from "@muselaunch/platform";
 import { Hono } from "hono";
@@ -240,6 +240,15 @@ compositionRoutes.post("/compositions/:id/undo", requireCap("content.write"), as
 compositionRoutes.post("/compositions/:id/redo", requireCap("content.write"), async (c) => {
   const comp = await redo(ws(c), c.req.param("id"), actorOf(c));
   return c.json({ composition: comp, version: await getVersion(ws(c), comp.id, comp.currentVersion) });
+});
+
+/** Restore an older version by committing its doc as a new version (history stays linear). */
+compositionRoutes.post("/compositions/:id/versions/:v/restore", requireCap("content.write"), async (c) => {
+  const comp = await loadComposition(c);
+  const v = z.coerce.number().int().min(1).parse(c.req.param("v"));
+  if (v === comp.currentVersion) return c.json({ composition: comp, version: await getVersion(ws(c), comp.id, v) });
+  const committed = await revertTo(ws(c), comp.id, v, actorOf(c));
+  return c.json(committed);
 });
 
 compositionRoutes.post("/compositions/:id/approve", requireCap("content.approve"), async (c) => {
