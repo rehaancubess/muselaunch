@@ -12,7 +12,6 @@ const MODELS = [
   { name: "Muse Voice Transcribe", role: "Turns founder recordings and spoken instructions into briefs, edits and captions." },
   { name: "Muse Glimmer", role: "Self-hosted Brand Guardian and memory: reviews creative against your brand privately, and remembers your preferences between campaigns." },
   { name: "Muse Image", role: "Used where Meta permits it. This deployment is in a restricted region, so campaign images come from OpenAI’s image model and are labelled that way." },
-  { name: "Muse Code", role: "Used to build and test MuseLaunch itself. It isn’t a feature inside the product." },
 ];
 
 const PRINCIPLES = [
