@@ -43,6 +43,8 @@ function describeLayer(l: Layer): string {
       return `${head} ${l.shape} fill=${l.fill}${l.gradientTo ? `→${l.gradientTo}` : ""}${l.blurPx ? ` blur=${l.blurPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "block":
       return `${head} block=${l.blockId} params=${JSON.stringify(l.params)} ${box(l)} ${t}${anim(l)}${flags}`;
+    case "effect":
+      return `${head} effect=${l.effect} target=seg ${l.target.segmentationId}/${l.target.objectId}${l.assetId ? ` asset=${l.assetId}` : ""} intensity=${l.intensity} ${box(l)} ${t}${anim(l)}${flags}`;
   }
 }
 

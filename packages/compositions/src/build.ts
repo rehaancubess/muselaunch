@@ -980,6 +980,12 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
       return ctaEndcard(ctx, txt);
     case "carousel-slide":
       return carouselSlide(ctx, textOr(ctx.app.name), picker.product(sb));
+    // Object-aware templates: placeholder layouts until module C implements tracked compositing
+    // (presenter cutout in front of the demo, spotlight on the tracked phone, screen insert).
+    case "presenter-depth":
+    case "object-spotlight":
+    case "product-in-hand":
+      return buildScene(ctx, "founder-cutout", txt);
   }
 }
 

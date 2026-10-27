@@ -1,6 +1,6 @@
 "use client";
 import { IconButton, Tooltip, cn } from "@muselaunch/ui";
-import { AudioLines, Box, Captions, Copy, Eye, EyeOff, Image as ImageIcon, Minus, Plus, Scissors, Shapes, Smartphone, Trash2, Type, Video } from "lucide-react";
+import { AudioLines, Box, Captions, Copy, Eye, EyeOff, Image as ImageIcon, Minus, Plus, Scissors, Shapes, Smartphone, Sparkles, Trash2, Type, Video } from "lucide-react";
 import { useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { TEMPLATE_LABELS, duplicateSceneOps, fmtTime, sceneAt, sceneStarts, splitSceneOps, totalDuration } from "./ops";
 import type { CompositionDoc, Layer, LintIssue, PatchOp } from "./types";
@@ -12,6 +12,7 @@ const LAYER_ICON: Record<Layer["type"], ReactNode> = {
   device: <Smartphone className="size-3.5" aria-hidden />,
   shape: <Shapes className="size-3.5" aria-hidden />,
   block: <Box className="size-3.5" aria-hidden />,
+  effect: <Sparkles className="size-3.5" aria-hidden />,
 };
 
 export function layerLabel(l: Layer): string {
