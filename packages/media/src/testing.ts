@@ -39,7 +39,7 @@ export interface RecordedCall {
 export interface FakeMetaOptions {
   /** SAM special-token output for each /responses call (called per request). */
   samOutput?: (body: Record<string, unknown>) => string;
-  transcribe?: (form: FormData) => unknown;
+  transcribe?: (form: FormData) => unknown | Promise<unknown>;
   images?: (path: string, body: Record<string, unknown>) => unknown;
 }
 
@@ -59,7 +59,7 @@ export function fakeMetaFetch(opts: FakeMetaOptions) {
     if (path === "/files" && method === "POST") return json({ id: `file-${++fileSeq}`, object: "file", bytes: 1, created_at: 1792000000, filename: "source.mp4", purpose: "user_data", status: "uploaded" });
     if (path.startsWith("/files/") && method === "DELETE") return json({ id: path.split("/").pop(), object: "file", deleted: true });
     if (path === "/responses" && opts.samOutput) return new Response(samSse(opts.samOutput(call.json ?? {})), { status: 200, headers: { "content-type": "text/event-stream" } });
-    if (path === "/asr/transcribe" && opts.transcribe) return json(opts.transcribe(call.form!));
+    if (path === "/asr/transcribe" && opts.transcribe) return json(await opts.transcribe(call.form!));
     if (path.startsWith("/images/") && opts.images) return json(opts.images(path, call.json ?? {}));
     return json({ error: { message: `fixture server: no route for ${method} ${path}`, type: "invalid_request_error", code: "not_found" } }, 404);
   }) as typeof fetch;
