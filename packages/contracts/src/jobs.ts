@@ -15,7 +15,7 @@ export const JobPayloads = {
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
   "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).default(15) }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
-  "composition.edit": z.object({ appId: Id, compositionId: Id, baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).default([]), patchId: Id }),
+  "composition.edit": z.object({ appId: Id, compositionId: Id, baseVersion: z.number().int().min(1), instruction: z.string().min(1).max(2000), sceneIds: z.array(Id).default([]), patchId: Id, autoApply: z.boolean().default(false) }),
   "composition.variants": z.object({ appId: Id, compositionId: Id, mode: z.enum(["aspect", "audience"]), targets: z.array(z.string().max(200)).min(1).max(5) }),
   "copy.generate": z.object({ appId: Id, campaignId: Id, variantId: Id.optional(), channels: z.array(z.string()).min(1) }),
   "render.preview": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1) }),
