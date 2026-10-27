@@ -18,7 +18,7 @@ export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "
 export { ffmpeg, ffmpegPath, ffprobePath, ffmpegWriter, probeMedia, countVideoFrames, type MediaProbe } from "./ffmpeg";
 export { trackingQuality, samFrameSize, paintDetection } from "./masks";
 export { LOW_QUALITY_THRESHOLD, SAM_MAX_FRAMES, encodeCorrection, decodeCorrection, samPromptFor } from "./segment";
-export { modeForPurpose, MAX_TRANSCRIBE_SECONDS } from "./transcribe";
+export { modeForPurpose, MAX_TRANSCRIBE_SECONDS, toWav } from "./transcribe";
 export { needsVideoNormalisation, MAX_LONG_EDGE } from "./probe";
 export { requestSegmentation, correctSegmentation, requestTranscript, waitForTranscript, importStock, ensureConsent, PERSON_PROMPT } from "./service";
 export { installMediaDeps, mediaDeps, type MediaDeps } from "./util";
