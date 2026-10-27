@@ -1,5 +1,5 @@
 "use client";
-import type { CaptionCue, Job, MediaAsset, Segmentation, Transcript } from "@muselaunch/contracts";
+import type { CaptionCue, ClipAnalysis, Job, MediaAsset, Segmentation, TracksFile, Transcript } from "@muselaunch/contracts";
 import { TERMINAL_JOB_STATUSES } from "@muselaunch/contracts";
 import { api, wsPath } from "@/lib/api";
 import type { EstimateResponse, JobResponse, SignedUrl } from "@/lib/api-types";
@@ -51,3 +51,25 @@ export function fmtClock(sec: number): string {
 
 /** Strip codec parameters so the declared upload type matches the API allowlist (e.g. `audio/webm`). */
 export const baseMime = (t: string) => t.split(";")[0]!.trim().toLowerCase();
+
+/** Clip analysis routes (object-aware editing). */
+export type AnalyzeClipResponse = { job: Job | null; analysis: ClipAnalysis };
+export type ClipAnalysisView = {
+  analysis: ClipAnalysis;
+  segmentations: Segmentation[];
+  /** Signed URLs (1 h) for the source clip and every cutout/matte/preview/tracks asset. */
+  assets: Record<string, { url: string; kind: MediaAsset["kind"]; role: MediaAsset["role"]; mimeType?: string }>;
+  tracksUrls: Record<string, string>;
+  transcript?: Transcript | null;
+};
+export type ClipEstimate = { credits: number; breakdown: { label: string; credits: number }[]; available: number };
+
+/** Fetch a tracks JSON via its signed URL (no auth header: the URL itself is the short-lived grant). */
+export async function fetchTracks(url: string, signal?: AbortSignal): Promise<TracksFile> {
+  const res = await fetch(url, { signal, credentials: "omit" });
+  if (!res.ok) throw new Error(`Tracks unavailable (${res.status})`);
+  return (await res.json()) as TracksFile;
+}
+
+/** Distinct, accessible object colours (overlay boxes + chips). */
+export const OBJECT_COLORS = ["#3355ff", "#e5484d", "#12a594", "#f5a524", "#8e4ec6", "#0090ff", "#d6409f", "#46a758"] as const;
