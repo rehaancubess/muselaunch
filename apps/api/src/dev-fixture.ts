@@ -109,7 +109,18 @@ const textRoutes = [
   ...extraMeta,
   jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req)),
   jsonRoute("CampaignConcepts", (req) => resolvePlaceholders(fixtureJson("spark-concepts.json"), req)),
-  jsonRoute("Storyboard", (req) => resolvePlaceholders(fixtureJson("spark-storyboard-repaired.json"), req)),
+  // Same scene plan for every concept, but titled and hooked from the concept in the request so
+  // storyboards for different concepts are distinguishable.
+  jsonRoute("Storyboard", (req) => {
+    const sb = resolvePlaceholders(fixtureJson<{ title: string; scenes: { purpose: string; onScreenText: string }[] }>("spark-storyboard-repaired.json"), req);
+    const text = requestText(req);
+    const concept = text.match(/^Concept: (.+?) \([\w-]+\)$/m)?.[1];
+    const hook = text.match(/^Hook: (.+)$/m)?.[1]?.replace(/^["“]|["”]$/g, "");
+    if (concept) sb.title = concept.slice(0, 80);
+    const first = sb.scenes.find((s) => s.purpose === "hook");
+    if (first && hook && hook.length <= 60) first.onScreenText = hook;
+    return sb;
+  }),
   jsonRoute("CopyPacks", (req) => resolvePlaceholders(fixtureJson<{ repaired: unknown }>("spark-copy.json").repaired, req)),
   jsonRoute("ClaimValidation", (req) => ({ results: requestText(req).split("\n").filter((l) => l.startsWith('{"id":')).map((l) => ({ id: JSON.parse(l).id, issues: [] })) })),
   // Scene-scoped edit: retitle the first text layer of the first requested scene.

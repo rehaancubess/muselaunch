@@ -137,7 +137,7 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     const dialog = page.getByRole("dialog", { name: "New post" });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Channel").selectOption("instagram");
-    await expect(dialog.getByLabel("Media")).not.toHaveValue("");
+    await expect(dialog.getByLabel("Media", { exact: true })).not.toHaveValue("");
     await dialog.getByLabel("Caption").fill("Forward. Focus. Done. Tidy Timer blocks distractions for 25 calm minutes.");
     await shot(page, "new-post");
     await dialog.getByRole("button", { name: "Create draft" }).click();

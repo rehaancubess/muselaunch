@@ -21,6 +21,13 @@ const toLocalInput = (iso: string) => {
 };
 
 /** Create a post from a rendered composition (or other media) and a copy pack. Starts as a draft. */
+/** Render assets are usually titled "<composition> — v<n> final"; only add the version when the title lacks it. */
+function finalLabel(a: MediaAsset): string {
+  const v = a.render?.version;
+  if (!a.title) return `${a.render?.compositionId ?? a.id}${v ? ` v${v}` : ""}`;
+  return v && !new RegExp(`\\bv${v}\\b`).test(a.title) ? `${a.title} v${v}` : a.title;
+}
+
 export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCampaignId, initialAssetId }: { appId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (postId: string) => void; initialCampaignId?: string; initialAssetId?: string }) {
   const { workspaceId, app } = useWorkspace();
   const linkDests = destinationsFor(app);
@@ -145,7 +152,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
             {({ id }) => <Select id={id} value={channel} onChange={(e) => setChannel(e.target.value as Channel)} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))} />}
           </Field>
         </div>
-        <Field label="Media" hint={media.finals.length ? "Final renders first. Render the final video in the studio to see it here." : "No final renders yet: render a composition in the studio, or pick uploaded media."}>
+        <Field label="Media" hint={media.finals.length ? "Final renders are listed first. Newer renders from the studio appear here too." : "No final renders yet: render a composition in the studio, or pick uploaded media."}>
           {({ id }) => (
             <Select
               id={id}
@@ -153,7 +160,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
               onChange={(e) => setAssetId(e.target.value)}
               placeholder="Choose media"
               options={[
-                ...media.finals.map((a) => ({ value: a.id, label: `Final render · ${a.title ?? a.render?.compositionId} v${a.render?.version}` })),
+                ...media.finals.map((a) => ({ value: a.id, label: `Final render · ${finalLabel(a)}` })),
                 ...media.others.map((a) => ({ value: a.id, label: `${a.role.replace(/_/g, " ")} · ${a.title ?? a.originalFilename ?? a.id}` })),
               ]}
             />
