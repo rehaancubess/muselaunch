@@ -1,8 +1,9 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ffmpeg, toWav } from "@muselaunch/media";
-import { museImageEligible, type Platform } from "@muselaunch/platform";
+import { ffmpeg, handlers, loadTracks, requestClipAnalysis, toWav } from "@muselaunch/media";
+import { makeTestClip, storeUpload } from "@muselaunch/media/testing";
+import { createPlatform, createRunner, museImageEligible, type Platform } from "@muselaunch/platform";
 import { chooseImageProvider, deleteMetaFile, guardImagePrompt, OpenAiImageProvider, runSam, synthesizeSpeech, transcribeFile, uploadMetaFile } from "@muselaunch/providers";
 import { saveLive } from "./_save";
 
@@ -12,6 +13,9 @@ import { saveLive } from "./_save";
  *  2. SAM 3.1 on a 2 s generated MP4 via the Files API (input_video.file_id) — billed 50 frames ($0.01)
  *  3. Muse Voice Transcribe on a short WAV (spoken via OpenAI TTS when OPENAI_API_KEY is set, else a tone)
  *  4. OpenAI Images, 1 image (only if OPENAI_API_KEY is set; Muse Image is never called when ineligible)
+ *  5. Clip analysis (person + phone, ≤3 s, with transcript) through the real job pipeline.
+ *     Set SMOKE_CLIP=/path/to/clip.mp4 to a short recording of you holding a phone; without it a
+ *     synthetic shapes clip is used (SAM may honestly find no person/phone in it).
  * Redacted responses are saved under fixtures/live/ for parser checks.
  */
 export async function run(p: Platform): Promise<string> {
@@ -68,8 +72,35 @@ export async function run(p: Platform): Promise<string> {
       } else out.push(`image provider=${choice.id} (skipped: smoke only exercises OpenAI)`);
     } else out.push("image skipped (OPENAI_API_KEY not set)");
     out.push(`museImage eligible=${gate.eligible} (${gate.reason})`);
+
+    // 5) Clip analysis end-to-end (probe → SAM per prompt → tracks + per-object cutouts → transcript).
+    out.push(await clipAnalysis(p, dir));
     return out.join(" | ");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function clipAnalysis(p: Platform, dir: string): Promise<string> {
+  // Own inline runner with the media handlers, sharing the smoke run's DB/storage.
+  const q = createPlatform({ cfg: p.cfg, db: p.db, storage: p.storage });
+  createRunner(q, handlers, "smoke-media");
+  const wid = "smoke";
+  await q.credits.ensureAccount(wid, { grant: 300, reason: "smoke" });
+  const clip = join(dir, "analyze.mp4");
+  const supplied = process.env.SMOKE_CLIP;
+  if (supplied) await ffmpeg(["-i", supplied, "-t", "3", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", clip]);
+  else await makeTestClip(clip);
+  const uploaded = await storeUpload(q, wid, clip, { kind: "video", role: "founder_clip", mimeType: "video/mp4", consent: true, actor: "smoke-owner" });
+  await q.jobs.create(wid, "media.probe", { assetId: uploaded.id }, { actor: "smoke-owner", idempotencyKey: `probe:${uploaded.id}` });
+  await q.inline!.drain();
+  const asset = await q.db.ws(wid).collection("mediaAssets").getOrThrow(uploaded.id);
+  const { analysis } = await requestClipAnalysis(q, wid, { asset, prompts: ["person", "phone"], transcribe: true, actor: "smoke-owner" });
+  await q.inline!.drain();
+  const a = await q.db.ws(wid).collection("clipAnalyses").getOrThrow(analysis.id);
+  const tracks = await Promise.all(Object.values(a.segmentationIds).map((id) => loadTracks(q, q.db.ws(wid), id)));
+  saveLive("clip-analysis", { source: supplied ? "SMOKE_CLIP" : "synthetic shapes", analysis: a, tracks: tracks.map((t) => t && { ...t, tracks: t.tracks.map((tr) => ({ ...tr, frames: tr.frames.slice(0, 10) })) }) });
+  const transcript = a.transcriptId ? await q.db.ws(wid).collection("transcripts").get(a.transcriptId) : null;
+  const objs = a.objects.map((o) => `${o.key} q=${o.trackingQuality ?? "?"} ${o.presence.map((r) => `${r.startSec}-${r.endSec}s`).join(",")}`).join("; ");
+  return `clip(${supplied ? "your clip" : "synthetic"}) status=${a.status} objects=[${objs || "none"}]${a.error ? ` error="${a.error}"` : ""} transcript="${transcript?.text.slice(0, 60) ?? "-"}"`;
 }

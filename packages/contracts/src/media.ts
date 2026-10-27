@@ -319,6 +319,8 @@ export const ClipAnalysis = BaseEntity.extend({
   sourceAssetId: Id,
   status: z.enum(["queued", "running", "succeeded", "partial", "failed"]),
   prompts: z.array(z.string().min(1).max(60)).min(1).max(6),
+  /** Whether a Voice transcript was requested (skipped without error when the clip has no audio). */
+  transcribe: z.boolean().default(true),
   /** prompt → segmentation id */
   segmentationIds: z.record(z.string(), Id).default({}),
   transcriptId: Id.optional(),
@@ -342,3 +344,12 @@ export const ClipAnalysis = BaseEntity.extend({
   error: z.string().max(1000).optional(),
 });
 export type ClipAnalysis = z.infer<typeof ClipAnalysis>;
+
+export const AnalyzeClipRequest = z.object({
+  /** SAM concept prompts (short noun phrases). */
+  prompts: z.array(z.string().trim().min(1).max(60)).min(1).max(6).default(["person", "phone"]),
+  transcribe: z.boolean().default(true),
+  /** Consent for processing a recording of a person (required unless already on the asset). */
+  consent: ConsentInput.optional(),
+});
+export type AnalyzeClipRequest = z.infer<typeof AnalyzeClipRequest>;

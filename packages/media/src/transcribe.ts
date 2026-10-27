@@ -35,13 +35,32 @@ export async function transcribeHandler(ctx: JobContext<"media.transcribe">) {
   const t = await repo.getOrThrow(ctx.payload.transcriptId);
   if (t.status === "succeeded") return { refs: [{ entity: "transcripts", id: t.id }], data: { alreadyDone: true, text: t.text.slice(0, 4000) }, creditsUsed: 0 };
   const asset = await ctx.ws.collection("mediaAssets").getOrThrow(t.sourceAssetId);
-  if (asset.status !== "ready") throw new AppError("CONFLICT", `Source asset is ${asset.status}`, { retryable: false });
-  if (asset.kind !== "audio" && asset.kind !== "video") throw new AppError("BAD_REQUEST", "Only audio or video can be transcribed", { retryable: false });
-  if (asset.hasAudio === false) throw new AppError("BAD_REQUEST", "This video has no audio track", { retryable: false, userMessage: "That video has no sound to transcribe." });
-  await repo.update(t.id, { status: "running", error: undefined }, { actor: ctx.actor });
+  const { refs, data } = await withWorkdir((dir) =>
+    runTranscriptionSafely(ctx, t, asset, dir, { languageBias: ctx.payload.languageBias, keywords: ctx.payload.keywords, progress: (pct, stage, msg) => ctx.progress(pct, stage, msg), usageBefore: new Set() }),
+  );
+  await ctx.progress(100, "done");
+  return { refs, data };
+}
+
+export interface TranscribeRunOptions {
+  languageBias?: string[];
+  keywords?: string[];
+  progress: (pct: number, stage: string, message?: string) => Promise<void> | void;
+  /** Usage events already on this job before this run (excluded from the transcript's usageEventIds). */
+  usageBefore: Set<string>;
+  /** Already-downloaded source (clip analysis). */
+  localFile?: string;
+}
+
+/** Validate, run, and record failure on the transcript (status `failed`) before rethrowing. */
+export async function runTranscriptionSafely(ctx: JobContext, t: Transcript, asset: MediaAsset, dir: string, opts: TranscribeRunOptions) {
+  const repo = ctx.ws.collection("transcripts");
   try {
-    const result = await withWorkdir((dir) => run(ctx, t, asset, dir));
-    return result;
+    if (asset.status !== "ready") throw new AppError("CONFLICT", `Source asset is ${asset.status}`, { retryable: false });
+    if (asset.kind !== "audio" && asset.kind !== "video") throw new AppError("BAD_REQUEST", "Only audio or video can be transcribed", { retryable: false });
+    if (asset.hasAudio === false) throw new AppError("BAD_REQUEST", "This video has no audio track", { retryable: false, userMessage: "That video has no sound to transcribe." });
+    await repo.update(t.id, { status: "running", error: undefined }, { actor: ctx.actor });
+    return await runTranscription(ctx, t, asset, dir, opts);
   } catch (err) {
     const e = err instanceof AppError ? err : new AppError("INTERNAL", (err as Error).message, { retryable: false, cause: err });
     if (!e.retryable || e.code === "CANCELLED") await repo.update(t.id, { status: "failed", error: e.message.slice(0, 1000) }, { actor: ctx.actor }).catch(() => {});
@@ -49,11 +68,14 @@ export async function transcribeHandler(ctx: JobContext<"media.transcribe">) {
   }
 }
 
-async function run(ctx: JobContext<"media.transcribe">, t: Transcript, asset: MediaAsset, dir: string) {
+async function runTranscription(ctx: JobContext, t: Transcript, asset: MediaAsset, dir: string, opts: TranscribeRunOptions) {
   const p = ctx.platform;
-  const src = join(dir, `source.${EXT_BY_MIME[asset.mimeType] ?? "bin"}`);
-  await ctx.progress(5, "preparing audio");
-  await p.storage.downloadToFile(asset.storagePath, src);
+  let src = opts.localFile;
+  if (!src) {
+    src = join(dir, `source.${EXT_BY_MIME[asset.mimeType] ?? "bin"}`);
+    await opts.progress(5, "preparing audio");
+    await p.storage.downloadToFile(asset.storagePath, src);
+  }
   const info = await probeMedia(src, { signal: ctx.signal });
   if (!info.hasAudio) throw new AppError("BAD_REQUEST", "No audio track", { retryable: false, userMessage: "That file has no sound to transcribe." });
   const total = info.durationSec ?? asset.durationSec ?? 0;
@@ -66,16 +88,16 @@ async function run(ctx: JobContext<"media.transcribe">, t: Transcript, asset: Me
   let processedMs = 0;
   for (let i = 0; i < chunks; i++) {
     ctx.throwIfCancelled();
-    const wav = join(dir, `chunk-${i}.wav`);
+    const wav = join(dir, `${t.id}-chunk-${i}.wav`);
     const start = i * chunkLen;
     await toWav(src, wav, { startSec: chunks > 1 ? start : undefined, durationSec: chunks > 1 ? chunkLen : undefined, signal: ctx.signal });
-    await ctx.progress(10 + (80 * i) / chunks, "transcribing", chunks > 1 ? `part ${i + 1} of ${chunks}` : undefined);
+    await opts.progress(10 + (80 * i) / chunks, "transcribing", chunks > 1 ? `part ${i + 1} of ${chunks}` : undefined);
     const res = await transcribeFile(p, callCtx(ctx, `transcribe.${t.purpose}`), {
       wav: { path: wav },
       durationSec: Math.min(chunkLen, Math.max(0.1, total - start)),
       mode,
-      languageBias: ctx.payload.languageBias,
-      keywords: ctx.payload.keywords,
+      languageBias: opts.languageBias,
+      keywords: opts.keywords,
       sessionId: `${t.id}-${i}`.slice(0, 100),
     });
     if (res.transcript.trim()) texts.push(res.transcript.trim());
@@ -92,7 +114,7 @@ async function run(ctx: JobContext<"media.transcribe">, t: Transcript, asset: Me
     processedMs += res.audioDurationMs;
   }
   const text = texts.join(" ").slice(0, 100_000);
-  const usageEventIds = await usageEventIdsForJob(ctx);
+  const usageEventIds = (await usageEventIdsForJob(ctx)).filter((id) => !opts.usageBefore.has(id));
   const updated = await ctx.ws.collection("transcripts").update(
     t.id,
     { status: "succeeded", text, turns: turns.slice(0, 5000), durationSec: Math.round(processedMs) / 1000 || total, mode, usageEventIds: [...new Set([...t.usageEventIds, ...usageEventIds])].slice(-200), error: undefined },
@@ -100,8 +122,7 @@ async function run(ctx: JobContext<"media.transcribe">, t: Transcript, asset: Me
   );
   const refs = [{ entity: "transcripts", id: t.id }];
   if (t.purpose === "founder_brief" && t.appId && text) refs.push(...(await storeFounderEvidence(ctx.ws, ctx.actor, updated, asset)));
-  await ctx.progress(100, "done");
-  return { refs, data: { text: text.slice(0, 4000), turns: updated.turns.length, durationSec: updated.durationSec, mode } };
+  return { refs, transcript: updated, data: { text: text.slice(0, 4000), turns: updated.turns.length, durationSec: updated.durationSec, mode } };
 }
 
 /**

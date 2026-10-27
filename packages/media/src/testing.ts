@@ -37,8 +37,8 @@ export interface RecordedCall {
 }
 
 export interface FakeMetaOptions {
-  /** SAM special-token output for each /responses call (called per request). */
-  samOutput?: (body: Record<string, unknown>) => string;
+  /** SAM special-token output for each /responses call, or an HTTP error to return instead. */
+  samOutput?: (body: Record<string, unknown>) => string | { status: number; error: { message: string; type?: string; code?: string } };
   transcribe?: (form: FormData) => unknown | Promise<unknown>;
   images?: (path: string, body: Record<string, unknown>) => unknown;
 }
@@ -58,7 +58,11 @@ export function fakeMetaFetch(opts: FakeMetaOptions) {
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
     if (path === "/files" && method === "POST") return json({ id: `file-${++fileSeq}`, object: "file", bytes: 1, created_at: 1792000000, filename: "source.mp4", purpose: "user_data", status: "uploaded" });
     if (path.startsWith("/files/") && method === "DELETE") return json({ id: path.split("/").pop(), object: "file", deleted: true });
-    if (path === "/responses" && opts.samOutput) return new Response(samSse(opts.samOutput(call.json ?? {})), { status: 200, headers: { "content-type": "text/event-stream" } });
+    if (path === "/responses" && opts.samOutput) {
+      const out = opts.samOutput(call.json ?? {});
+      if (typeof out !== "string") return json({ error: out.error }, out.status);
+      return new Response(samSse(out), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }
     if (path === "/asr/transcribe" && opts.transcribe) return json(await opts.transcribe(call.form!));
     if (path.startsWith("/images/") && opts.images) return json(opts.images(path, call.json ?? {}));
     return json({ error: { message: `fixture server: no route for ${method} ${path}`, type: "invalid_request_error", code: "not_found" } }, 404);
@@ -83,6 +87,29 @@ export async function makeTestVideo(out: string, opts: { audio?: boolean; codec?
     "-filter_complex", "[0:v][1:v]overlay=x='10+n*3':y=30:shortest=1[v]",
     "-map", "[v]", ...(opts.audio ? ["-map", "2:a", "-c:a", opts.codec === "vp9" ? "libopus" : "aac"] : []),
     ...vcodec, "-r", "10",
+    out,
+  ]);
+}
+
+/** The concept prompt text of a recorded SAM request. */
+export function samPromptOf(body: Record<string, unknown>): string {
+  const input = body.input as { content?: { type: string; text?: string }[] }[] | undefined;
+  return input?.[0]?.content?.find((c) => c.type === "input_text")?.text ?? "";
+}
+
+/**
+ * 320x240 @10fps, 3 s clip for clip analysis (matches sam-clip-*.json): grey background, a blue
+ * 80x140 "person" moving right 4 px/frame, and a red 24x40 "phone" moving diagonally (+5,+3 px/frame)
+ * visible in frames 5–24, with a tone on the audio track.
+ */
+export async function makeTestClip(out: string) {
+  await ffmpeg([
+    "-f", "lavfi", "-i", "color=c=0x808080:s=320x240:r=10:d=3",
+    "-f", "lavfi", "-i", "color=c=0x2050E0:s=80x140:r=10:d=3",
+    "-f", "lavfi", "-i", "color=c=0xE03020:s=24x40:r=10:d=3",
+    "-f", "lavfi", "-i", "sine=frequency=330:duration=3",
+    "-filter_complex", "[0:v][1:v]overlay=x='20+4*n':y=60:shortest=1[a];[a][2:v]overlay=x='40+5*n':y='30+3*n':enable='between(n,5,24)':shortest=1[v]",
+    "-map", "[v]", "-map", "3:a", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-r", "10",
     out,
   ]);
 }

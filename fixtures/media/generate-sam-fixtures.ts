@@ -57,4 +57,20 @@ const LABEL = "SYNTHETIC fixture in the documented SAM 3.1 output format (masks 
   const lines = Array.from({ length: 20 }, (_, i) => `<${i}f>${record(1, 10 + 3 * i, 30, 40, 60, W, H, 0.99)}`);
   writeFileSync(join(here, "sam-video-box-prompt.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 20, prompt: "box", rawOutput: `${lines.join("\n")}\n` }, null, 2));
 }
+// Clip analysis: 320x240 @10fps, 30 frames (see makeTestClip in packages/media/src/testing.ts).
+// "person": one 80x140 subject moving right 4 px/frame, visible in all frames.
+// "phone": object 0 = 24x40 phone moving diagonally (+5,+3 px/frame), visible frames 5–24;
+//          object 1 = 20x30 static second phone at (270,10), visible in all frames.
+{
+  const W = 320, H = 240;
+  const person = Array.from({ length: 30 }, (_, i) => `<${i}f>${record(0, 20 + 4 * i, 60, 80, 140, W, H, 0.97)}`);
+  writeFileSync(join(here, "sam-clip-person.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 30, prompt: "person", rawOutput: `${person.join("\n")}\n` }, null, 2));
+  const phone = Array.from({ length: 30 }, (_, i) => {
+    const recs = [];
+    if (i >= 5 && i <= 24) recs.push(record(0, 40 + 5 * i, 30 + 3 * i, 24, 40, W, H, 0.9));
+    recs.push(record(1, 270, 10, 20, 30, W, H, 0.55));
+    return `<${i}f>${recs.join(",")}`;
+  });
+  writeFileSync(join(here, "sam-clip-phone.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 30, prompt: "phone", rawOutput: `${phone.join("\n")}\n` }, null, 2));
+}
 console.log("wrote SAM fixtures");
