@@ -1,26 +1,18 @@
 import { Film } from "lucide-react";
 import Link from "next/link";
+import { DEMO_SEQUENCE, Differentiators } from "@/components/landing/differentiators";
 import { HeroLinkForm, NavAuthButtons } from "@/components/landing/hero-form";
 import { TabsShowcase } from "@/components/landing/tabs-showcase";
 import { Logo } from "@/components/logo";
 
-const PIPELINE = [
-  { name: "Research", text: "Wonder studies your market, competitors and audiences, with citations." },
-  { name: "Concepts", text: "Spark proposes three or more genuinely different angles." },
-  { name: "Storyboard", text: "Scenes, scripts and on-screen text using only verified claims." },
-  { name: "Assets", text: "Your real screenshots and recordings, plus licensed or generated media." },
-  { name: "Composition", text: "An editable timeline of scenes and layers, not a flat file." },
-  { name: "Render", text: "HyperFrames and FFmpeg produce the actual MP4s and stills." },
-  { name: "Review", text: "You approve, edit by conversation, and export to post." },
-];
-
 const MODELS = [
-  { name: "Muse Wonder", role: "Plans the growth strategy, coordinates research with web search, and orchestrates campaigns and experiments." },
-  { name: "Muse Spark 1.3", role: "Reads your listing and screenshots, finds positioning and audiences, writes concepts, scripts and storyboards, and makes scene-level edits." },
-  { name: "SAM 3.1", role: "Segments and tracks you or objects in real footage so you can appear in front of your app." },
+  { name: "Muse Wonder", role: "The strategist. Plans research with web search, runs Growth Autopilot, and orchestrates campaigns and experiments." },
+  { name: "Muse Spark 1.3", role: "Reads your listing and screenshots, finds positioning and audiences, writes concepts, scripts and storyboards, directs object-aware effects, and makes scene-level edits." },
+  { name: "SAM 3.1", role: "Segments and tracks people and objects in your footage, like you and the phone in your hand, so effects can follow them." },
   { name: "Muse Voice Transcribe", role: "Turns founder recordings and spoken instructions into briefs, edits and captions." },
-  { name: "Muse Image", role: "Campaign imagery where Meta permits access. Elsewhere a separately licensed image provider is used, and every image says which." },
-  { name: "Muse Glimmer", role: "Self-hosted memory of your brand preferences and past decisions, so each campaign learns from the last." },
+  { name: "Muse Glimmer", role: "Self-hosted Brand Guardian and memory: reviews creative against your brand privately, and remembers your preferences between campaigns." },
+  { name: "Muse Image", role: "Used where Meta permits it. This deployment is in a restricted region, so campaign images come from OpenAI’s image model and are labelled that way." },
+  { name: "Muse Code", role: "Used to build and test MuseLaunch itself. It isn’t a feature inside the product." },
 ];
 
 const PRINCIPLES = [
@@ -50,31 +42,41 @@ export default function Landing() {
             Build your app. MuseLaunch helps the world discover it.
           </h1>
           <p className="mt-7 max-w-[58ch] animate-rise-in text-headline font-normal text-ink-2 text-pretty [animation-delay:120ms]">
-            Paste your store link. Muse learns your product, researches your market, and produces campaigns with real, editable videos, all traced back to evidence you can check.
+            Paste your store link. Muse learns your app, researches who it’s for, and makes real videos with edits that understand what’s in the frame. A local brand guardian checks every claim before you approve.
           </p>
           <div className="mt-10 w-full max-w-[560px] animate-rise-in [animation-delay:180ms]">
             <HeroLinkForm />
           </div>
         </section>
 
-        {/* Pipeline (a real sequence) */}
-        <section aria-labelledby="pipeline-title" className="border-t border-line bg-mist/50">
+        {/* Three differentiators */}
+        <section aria-labelledby="diff-title" className="border-t border-line">
+          <div className="mx-auto max-w-[1120px] px-5 py-24 md:py-32">
+            <div className="mb-16 max-w-2xl md:mb-20">
+              <h2 id="diff-title" className="text-title-1 font-semibold text-balance md:text-display">
+                Better marketing, because it understands your app.
+              </h2>
+              <p className="mt-4 text-headline font-normal text-ink-2">Not more ads. Three things a generic generator can’t do.</p>
+            </div>
+            <Differentiators />
+          </div>
+        </section>
+
+        {/* First session (a real sequence) */}
+        <section aria-labelledby="session-title" className="border-t border-line bg-mist/50">
           <div className="mx-auto max-w-[1120px] px-5 py-20 md:py-28">
             <div className="mb-14 max-w-2xl">
-              <h2 id="pipeline-title" className="text-title-1 font-semibold text-balance md:text-display">
-                From a link to finished videos, in seven steps you can see.
+              <h2 id="session-title" className="text-title-1 font-semibold text-balance md:text-display">
+                One sitting, from a link to an approved campaign.
               </h2>
               <p className="mt-4 text-headline font-normal text-ink-2">Every step runs as a background job with live progress. Stop it, retry it, or edit what it made.</p>
             </div>
-            <ol className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-7 lg:gap-x-4">
-              {PIPELINE.map((s, i) => (
-                <li key={s.name} className="relative lg:pt-10">
-                  <div className="mb-3 flex items-center gap-3 lg:absolute lg:inset-x-0 lg:top-0 lg:mb-0">
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-caption font-semibold tabular text-white">{i + 1}</span>
-                    {i < PIPELINE.length - 1 ? <span aria-hidden className="hidden h-px flex-1 bg-line-strong lg:block" /> : null}
-                  </div>
-                  <p className="text-body font-semibold">{s.name}</p>
-                  <p className="mt-1 text-body-sm text-ink-2 text-pretty">{s.text}</p>
+            <ol className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+              {DEMO_SEQUENCE.map((s, i) => (
+                <li key={s.title} className="border-t border-ink pt-4">
+                  <span className="text-footnote font-semibold tabular text-ink-3">{String(i + 1).padStart(2, "0")}</span>
+                  <p className="mt-1 text-headline font-semibold">{s.title}</p>
+                  <p className="mt-1.5 text-body-sm text-ink-2 text-pretty">{s.text}</p>
                 </li>
               ))}
             </ol>
@@ -113,9 +115,9 @@ export default function Landing() {
         <section aria-labelledby="models-title" className="mx-auto max-w-[1120px] px-5 py-24 md:py-32">
           <div className="mb-12 max-w-2xl">
             <h2 id="models-title" className="text-title-1 font-semibold text-balance md:text-display">
-              Powered by Meta’s models, each doing the job it’s best at.
+              Meta’s models, working together.
             </h2>
-            <p className="mt-4 text-headline font-normal text-ink-2">Which providers are live for your account, and where a licensed alternative is used instead, is shown in Integrations after you sign in.</p>
+            <p className="mt-4 text-headline font-normal text-ink-2">Cloud agents create; the local guardian checks. Which providers are live for your account, and where an alternative is used instead, is shown in Integrations after you sign in.</p>
           </div>
           <ul className="divide-y divide-line border-y border-line">
             {MODELS.map((m) => (

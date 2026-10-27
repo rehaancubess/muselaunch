@@ -332,9 +332,9 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
         </DnaSection>
 
         {canEdit ? (
-          <DnaSection id="founder" title="Founder brief" description="Explain your app in your own words. Muse Voice Transcribe turns it into evidence you can review here.">
+          <section id="founder" aria-label="Founder brief" className="scroll-mt-24">
             <FounderBrief workspaceId={workspaceId} appId={appId} />
-          </DnaSection>
+          </section>
         ) : null}
 
         <DnaSection id="features" title="Features" description="Each feature links to the real screenshots or recordings that show it. Generated media is never used as proof.">

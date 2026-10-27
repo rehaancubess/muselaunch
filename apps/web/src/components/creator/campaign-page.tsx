@@ -25,7 +25,7 @@ import { NewPostDialog } from "@/features/publishing/new-post";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
-import { api, errorMessage, isRouteMissing, newIdempotencyKey, wsPath } from "@/lib/api";
+import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { AppDnaResponse, CampaignDetailResponse, JobResponse, Page } from "@/lib/api-types";
 import { isActive, useJob } from "@/lib/jobs";
 import { CHANNEL_LABEL, GOAL_LABEL, relativeTime } from "@/lib/labels";
@@ -143,7 +143,7 @@ function ExportButton({ workspaceId, campaignId, onJob, disabled, packageAssetId
             onJob(r.job);
             idem.current = newIdempotencyKey("export");
           } catch (e) {
-            toast.error(isRouteMissing(e) ? "Export isn’t available in this build yet" : "Couldn’t start the export", isRouteMissing(e) ? undefined : errorMessage(e));
+            toast.error("Couldn’t start the export", errorMessage(e));
           } finally {
             setBusy(false);
           }

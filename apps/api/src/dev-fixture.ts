@@ -11,8 +11,12 @@
  *
  *   pnpm dev:fixture            (API on :8080)
  *   Sample listing that imports: https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890
+ *
+ * Extending (other modules): drop a file into ./fixture-routes/ (see fixture-routes/_types.ts).
+ * Each file's default export returns extra Meta routes and/or a Glimmer reply; they are tried BEFORE
+ * the built-in routes below, so a module can add or override fixtures without editing this file.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 if (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production") {
@@ -87,7 +91,22 @@ function loopRoute(turns: { name: string; args: unknown }[][], match: (req: J) =
 }
 const idsIn = (text: string, prefix: string) => [...new Set([...text.matchAll(new RegExp(`\\b${prefix}_[A-Za-z0-9_-]+`, "g"))].map((m) => m[0]))];
 
+// ---------------------------------------------------------------- module extensions (./fixture-routes/*.ts)
+type FixtureModule = import("./fixture-routes/_types").FixtureModule;
+const helpers = { jsonRoute, loopRoute, responsesBody, requestText, schemaName, toolNames, idsIn, fixtureJson, resolvePlaceholders } as import("./fixture-routes/_types").FixtureHelpers;
+const extensionDir = new URL("./fixture-routes/", import.meta.url);
+const extraMeta: ((req: J, i: number) => unknown)[] = [];
+const extraGlimmer: ((m: { role: string; content: string }[]) => string | undefined)[] = [];
+for (const file of readdirSync(extensionDir).filter((f) => /\.ts$/.test(f) && !f.startsWith("_")).sort()) {
+  const mod = (await import(new URL(file, extensionDir).href)) as { default?: FixtureModule };
+  const out = mod.default?.(helpers) ?? {};
+  extraMeta.push(...(out.meta ?? []));
+  if (out.glimmer) extraGlimmer.push(out.glimmer);
+  console.log(`  fixture routes: ${file}`);
+}
+
 const textRoutes = [
+  ...extraMeta,
   jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req)),
   jsonRoute("CampaignConcepts", (req) => resolvePlaceholders(fixtureJson("spark-concepts.json"), req)),
   jsonRoute("Storyboard", (req) => resolvePlaceholders(fixtureJson("spark-storyboard-repaired.json"), req)),
@@ -186,6 +205,10 @@ installMetaClient(p, new MetaClient(p, { fetch: metaFetch, apiKey: "fixture-mode
 
 // ---------------------------------------------------------------- fake Glimmer (memory ranking)
 agentsT.installFakeGlimmer(p, (messages) => {
+  for (const g of extraGlimmer) {
+    const out = g(messages);
+    if (out !== undefined) return out;
+  }
   const text = messages.map((m) => m.content).join("\n");
   const prefs = [...text.matchAll(/"id":"(prf_[A-Za-z0-9_-]+)"[^}]*?"text":"([^"]+)"/g)].slice(0, 3);
   return JSON.stringify({ selectedIds: prefs.map((m) => m[1]), summary: prefs.map((m) => `- ${m[2]}`).join("\n") || "- No saved preferences apply." });

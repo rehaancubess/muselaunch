@@ -59,6 +59,10 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
     return { finals, others };
   }, [assets.data, campaignId]);
   const chosen = [...media.finals, ...media.others].find((a) => a.id === assetId);
+  // Default to the newest final render so posting right after rendering is one click.
+  useEffect(() => {
+    if (open && !assetId && media.finals[0]) setAssetId(media.finals[0].id);
+  }, [open, assetId, media.finals]);
   const accounts = (conns.data?.items ?? []).filter((a) => a.status === "connected" && a.provider === PROVIDER_FOR[channel]);
   const packs = (detail.data?.copyPacks ?? []).filter((p) => p.channel === channel);
 

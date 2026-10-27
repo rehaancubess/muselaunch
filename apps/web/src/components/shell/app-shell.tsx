@@ -14,6 +14,7 @@ import {
   LogOut,
   Plug,
   Plus,
+  Rocket,
   Search,
   Settings,
   Sparkles,
@@ -73,6 +74,9 @@ function AppSwitcher({ app, section }: { app: App | null; section?: string }) {
         {r ? (
           <>
             <MenuLabel>{app?.name}</MenuLabel>
+            <MenuLink href={r.autopilot} icon={<Rocket />} active={section === "autopilot"} onNavigate={(h) => router.push(h)}>
+              Growth Autopilot
+            </MenuLink>
             <MenuLink href={r.brand} icon={<Dna />} active={section === "brand"} onNavigate={(h) => router.push(h)}>
               App DNA &amp; brand
             </MenuLink>

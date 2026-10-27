@@ -124,6 +124,7 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     await page.getByRole("button", { name: "Render final" }).click();
     await expect(page.getByText("Final render ready")).toBeVisible({ timeout: 300_000 });
     await shot(page, "studio-final-render");
+    await page.getByRole("button", { name: "Close" }).last().click();
   });
 
   await test.step("export package + post with tracked link", async () => {
@@ -135,6 +136,7 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     const dialog = page.getByRole("dialog", { name: "New post" });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Channel").selectOption("instagram");
+    await expect(dialog.getByLabel("Media")).not.toHaveValue("");
     await dialog.getByLabel("Caption").fill("Forward. Focus. Done. Tidy Timer blocks distractions for 25 calm minutes.");
     await shot(page, "new-post");
     await dialog.getByRole("button", { name: "Create draft" }).click();
@@ -153,6 +155,8 @@ test("indie founder journey (fixture mode)", async ({ page, request }) => {
     await shot(page, "post-approved");
     const manual = page.getByRole("button", { name: "Post manually instead" });
     if (await manual.isVisible()) await manual.click();
+    // The founder posts it themselves, then pastes the live URL (test value).
+    await page.getByLabel("Link to the published post").fill("https://www.instagram.com/p/E2E-TEST-POST/");
     await page.getByRole("button", { name: "Mark as posted" }).click();
     await page.waitForTimeout(1000);
     await shot(page, "post-marked-posted");

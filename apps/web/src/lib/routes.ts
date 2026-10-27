@@ -22,6 +22,8 @@ export const routes = {
       campaign: (campaignId: string) => `${base}/creator/campaigns/${campaignId}`,
       studio: (compositionId: string) => `${base}/creator/studio/${compositionId}`,
       insights: `${base}/insights`,
+      /** Growth Autopilot (module B owns the page body: features/autopilot). */
+      autopilot: `${base}/autopilot`,
       brand: `${base}/brand`,
       library: `${base}/library`,
       calendar: `${base}/calendar`,

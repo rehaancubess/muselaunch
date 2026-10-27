@@ -1,7 +1,7 @@
 "use client";
 import type { Campaign } from "@muselaunch/contracts";
 import { Button, EmptyState, List, ListRow, Notice, Section, Skeleton, StatusPill, humanizeStatus, statusKindOf } from "@muselaunch/ui";
-import { ArrowUp, Clapperboard, Dna, Plus } from "lucide-react";
+import { ArrowUp, Clapperboard, Dna, Plus, Rocket } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -119,6 +119,24 @@ export default function CreatorPage() {
           <Notice>You have view access in this workspace. Ask an owner or admin for editor access to create campaigns.</Notice>
         )}
       </div>
+
+      <Link
+        href={r.autopilot}
+        className="group mb-10 flex flex-col gap-4 rounded-2xl bg-mist/70 p-5 transition-colors hover:bg-mist sm:flex-row sm:items-center sm:p-6"
+      >
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-white">
+          <Rocket className="size-5" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1 space-y-1">
+          <span className="block text-headline font-semibold text-ink">Or let Growth Autopilot run the loop</span>
+          <span className="block text-body-sm text-ink-2 text-pretty">
+            Give Muse Wonder a goal. It researches, picks an audience with sources, tests a hypothesis, produces and checks the creative, and drafts posts for your approval, within a credit budget you set.
+          </span>
+        </span>
+        <span className="inline-flex h-9 shrink-0 items-center gap-2 self-start rounded-full bg-ink px-4 text-body-sm font-medium text-white transition-colors group-hover:bg-ink/85 sm:self-center">
+          Start Growth Autopilot
+        </span>
+      </Link>
 
       {!dnaReady ? (
         <Notice
