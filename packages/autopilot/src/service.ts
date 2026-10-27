@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, Autopilot, BrandReview, Job, StartAutopilotRequest } from "@muselaunch/contracts";
+import type { AgentRun, Approval, Autopilot, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost, StartAutopilotRequest } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import type { z } from "zod";
 import { enqueueStep } from "./step";
@@ -123,18 +123,28 @@ export interface AutopilotDetail {
   runs: Pick<AgentRun, "id" | "kind" | "status" | "goal" | "model" | "usage" | "createdAt">[];
   jobs: Pick<Job, "id" | "type" | "status" | "progress" | "error" | "creditsCharged" | "reservation" | "createdAt" | "finishedAt">[];
   checkpoint: Approval | null;
-  reviews: Pick<BrandReview, "id" | "subject" | "subjectVersion" | "status" | "reviewer" | "findings" | "summary">[];
+  reviews: Pick<BrandReview, "id" | "subject" | "subjectVersion" | "status" | "reviewer" | "findings" | "summary" | "overrides">[];
+  /** Research findings the loop's decisions cite (with their real sources), for citation chips. */
+  findings: Pick<ResearchFinding, "id" | "kind" | "statement" | "confidence" | "evidence">[];
+  compositions: Pick<Composition, "id" | "title" | "currentVersion" | "variantId">[];
+  posts: Pick<ScheduledPost, "id" | "status" | "channel" | "scheduledAt" | "compositionId">[];
+  experiment: Pick<Experiment, "id" | "title" | "status" | "launchWindow" | "variants" | "primaryMetric"> | null;
 }
 
 export async function autopilotDetail(p: Platform, workspaceId: string, id: string): Promise<AutopilotDetail> {
   const ws = p.db.ws(workspaceId);
   const autopilot = await load(p, workspaceId, id);
   const jobIds = [...new Set([...delegatedJobIds(autopilot.log), ...autopilot.waitingOn.jobIds])].slice(-150);
-  const [runs, jobs, checkpoint, reviews] = await Promise.all([
+  const findingIds = [...new Set(autopilot.log.flatMap((e) => e.refs.filter((r) => r.entity === "researchFindings").map((r) => r.id)).concat(autopilot.audience?.findingIds ?? []))].slice(-60);
+  const [runs, jobs, checkpoint, reviews, findings, compositions, posts, experiment] = await Promise.all([
     ws.collection("agentRuns").getMany(autopilot.agentRunIds.slice(-50)),
     ws.collection("jobs").getMany(jobIds),
     autopilot.waitingOn.approvalId ? ws.collection("approvals").get(autopilot.waitingOn.approvalId) : Promise.resolve(null),
     ws.collection("brandReviews").getMany(autopilot.reviewIds.slice(-30)),
+    ws.collection("researchFindings").getMany(findingIds),
+    ws.collection("compositions").getMany(autopilot.compositionIds.slice(-12)),
+    ws.collection("scheduledPosts").getMany(autopilot.scheduledPostIds.slice(-12)),
+    autopilot.hypothesis?.experimentId ? ws.collection("experiments").get(autopilot.hypothesis.experimentId) : Promise.resolve(null),
   ]);
   return {
     autopilot,
@@ -142,6 +152,10 @@ export async function autopilotDetail(p: Platform, workspaceId: string, id: stri
     runs: runs.map((r) => ({ id: r.id, kind: r.kind, status: r.status, goal: r.goal, model: r.model, usage: r.usage, createdAt: r.createdAt })),
     jobs: jobs.map((j) => ({ id: j.id, type: j.type, status: j.status, progress: j.progress, error: j.error, creditsCharged: j.creditsCharged, reservation: j.reservation, createdAt: j.createdAt, finishedAt: j.finishedAt })),
     checkpoint: checkpoint && checkpoint.status === "pending" ? checkpoint : null,
-    reviews: reviews.map((r) => ({ id: r.id, subject: r.subject, subjectVersion: r.subjectVersion, status: r.status, reviewer: r.reviewer, findings: r.findings, summary: r.summary })),
+    reviews: reviews.map((r) => ({ id: r.id, subject: r.subject, subjectVersion: r.subjectVersion, status: r.status, reviewer: r.reviewer, findings: r.findings, summary: r.summary, overrides: r.overrides })),
+    findings: findings.filter((f) => f.appId === autopilot.appId).map((f) => ({ id: f.id, kind: f.kind, statement: f.statement, confidence: f.confidence, evidence: f.evidence })),
+    compositions: compositions.map((c) => ({ id: c.id, title: c.title, currentVersion: c.currentVersion, variantId: c.variantId })),
+    posts: posts.map((x) => ({ id: x.id, status: x.status, channel: x.channel, scheduledAt: x.scheduledAt, compositionId: x.compositionId })),
+    experiment: experiment ? { id: experiment.id, title: experiment.title, status: experiment.status, launchWindow: experiment.launchWindow, variants: experiment.variants, primaryMetric: experiment.primaryMetric } : null,
   };
 }

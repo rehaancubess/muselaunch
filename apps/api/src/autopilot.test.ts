@@ -61,6 +61,12 @@ describe("Growth Autopilot API (routes/autopilot.ts)", () => {
     expect(detail.body.runs).toHaveLength(3);
     expect(detail.body.reviews).toHaveLength(2);
     expect(detail.body.jobs.length).toBeGreaterThan(8);
+    // Citation chips: the findings Wonder cited, with their real sources and retrieval times
+    expect(detail.body.findings.length).toBeGreaterThan(0);
+    for (const f of detail.body.findings) expect(f.evidence[0]).toMatchObject({ url: expect.stringMatching(/^https:\/\//), retrievedAt: expect.any(String) });
+    expect(detail.body.compositions).toHaveLength(2);
+    expect(detail.body.posts.every((x: J) => x.status === "awaiting_approval")).toBe(true);
+    expect(detail.body.experiment.variants).toHaveLength(2);
     const list = await alice.get(`${W()}/apps/${appId}/autopilots`);
     expect(list.body.items[0]).toMatchObject({ id, status: "sleeping" });
     expect(list.body.items[0].log).toBeUndefined();
