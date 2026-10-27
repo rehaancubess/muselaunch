@@ -140,8 +140,13 @@ export async function adminSetPlan(p: Platform, targetWorkspaceId: string, planI
 // Quotas (plan limits) — installed as a JobService hook
 // ---------------------------------------------------------------------------
 
-/** Jobs that never count towards the concurrency limit (cheap/system work triggered implicitly). */
-export const CONCURRENCY_EXEMPT: ReadonlySet<JobType> = new Set<JobType>(["media.probe", "memory.ingest", "analytics.sync", "analytics.import_csv"]);
+/**
+ * Jobs that never count towards the concurrency limit (cheap/system work triggered implicitly).
+ * `autopilot.step` is Growth Autopilot's free orchestration step: it only records decisions and
+ * delegates work (each delegated job is metered and reserved as usual). Counting it let a loop's own
+ * running renders block its next step, so the loop stalled on plans with a low task limit.
+ */
+export const CONCURRENCY_EXEMPT: ReadonlySet<JobType> = new Set<JobType>(["media.probe", "memory.ingest", "analytics.sync", "analytics.import_csv", "autopilot.step"]);
 const DAILY_LIMITED: Partial<Record<JobType, "finalRendersPerDay" | "researchRunsPerDay">> = { "render.final": "finalRendersPerDay", "research.run": "researchRunsPerDay" };
 const QuotaDay = z.object({ finalRendersPerDay: z.number().int().nonnegative().default(0), researchRunsPerDay: z.number().int().nonnegative().default(0), updatedAt: z.string() });
 const quotaKey = (iso: string) => `quota.day.${iso.slice(0, 10)}`;

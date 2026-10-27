@@ -22,6 +22,9 @@ if (platform.cfg.JOB_DISPATCH === "inline") {
   // Single-process mode: the API also executes jobs (local demos only).
   const { handlers } = await import("@muselaunch/worker/registry");
   createRunner(platform, handlers, "api-inline");
+  // No worker in this mode, so run its crons here (due posts, Growth Autopilot wake-ups).
+  const { startLocalCrons } = await import("./local-cron");
+  if (process.env.LOCAL_CRON !== "0") startLocalCrons(platform);
 }
 
 const app = buildApp(platform);

@@ -4,6 +4,8 @@ import { enqueueStep } from "./step";
 import { isTerminalJob, nowMs, resumeKey } from "./state";
 
 const installed = new WeakSet<Platform>();
+/** A "running" loop with no step in flight for this long is considered stalled and re-entered. */
+const STALL_MS = 60_000;
 
 /** Resume every loop waiting on `jobId` once all of its awaited jobs are terminal. */
 async function resumeWaiting(p: Platform, workspaceId: string, appId: string, jobId: string): Promise<number> {
@@ -68,6 +70,17 @@ export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: numb
         const jobs = await ws.collection("jobs").getMany(ap.waitingOn.jobIds);
         if (jobs.length === ap.waitingOn.jobIds.length && jobs.every(isTerminalJob)) {
           await enqueueStep(p, ap, resumeKey(ap));
+          resumed++;
+        }
+      }
+      // A loop left "running" with no step queued or running (its next step couldn't be enqueued,
+      // or the process restarted mid-step): re-enter the current stage. Stage work is idempotent.
+      const running = (await ws.collection("autopilots").list({ where: [["status", "==", "running"]], limit: 100 })).items.filter((ap) => now - Date.parse(ap.updatedAt) > STALL_MS);
+      if (running.length) {
+        const active = (await ws.collection("jobs").list({ where: [["status", "in", ["queued", "running"]]], limit: 200 })).items;
+        for (const ap of running) {
+          if (active.some((j) => j.type === "autopilot.step" && (j.payload as { autopilotId?: string }).autopilotId === ap.id)) continue;
+          await enqueueStep(p, ap, `autopilot:${ap.id}:repair:${ap.updatedAt}`);
           resumed++;
         }
       }

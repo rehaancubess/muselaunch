@@ -487,6 +487,8 @@ describe("Billing, quotas and ops", () => {
     expect(err.toInfo().userMessage).toMatch(/runs up to 2 tasks at once/);
     // chained (child) jobs are not blocked by the concurrency limit, nor are exempt types
     await expect(ctx.p.jobs.create(ctx.wsA, "media.probe", { assetId: "ast_x" }, { actor: "alice", deferDispatch: true })).resolves.toBeTruthy();
+    // Growth Autopilot's own orchestration step must never be blocked by its running work (it stalled the loop)
+    await expect(ctx.p.jobs.create(ctx.wsA, "autopilot.step", { autopilotId: "apl_x" }, { actor: "alice", appId: ctx.appId, deferDispatch: true })).resolves.toBeTruthy();
     for (const j of (await ctx.p.db.ws(ctx.wsA).collection("jobs").list({ where: [["status", "in", ["queued"]]], limit: 50 })).items) await ctx.p.jobs.requestCancel(ctx.wsA, j.id, "alice");
 
     // daily research runs: 3 per day on free; c1 and c2 counted, cancelled ones gave slots back

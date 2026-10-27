@@ -157,6 +157,20 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect((await get(h, id)).status).toBe("cancelled");
   });
 
+  it("the wake cron re-enters a loop left running with no step in flight (e.g. its next step was refused)", async () => {
+    const h = await autopilotHarness();
+    const id = await start(h, { maxCredits: 50, autoApproveCredits: 0 });
+    // Simulate a stalled advance: the loop says "running" but no autopilot.step is queued or running.
+    await h.p.db.ws(h.wid).collection("autopilots").update(id, { status: "running", waitingOn: { jobIds: [] } }, { actor: "test" });
+    h.clock.now = Date.now();
+    expect((await wakeDueAutopilots(h.p)).resumed).toBe(0); // not stalled yet
+    h.clock.now = Date.now() + 5 * 60_000;
+    expect((await wakeDueAutopilots(h.p)).resumed).toBe(1);
+    await h.p.inline!.drain();
+    const ap = await get(h, id);
+    expect(ap.status).toBe("awaiting_user"); // re-entered the stage and asked for budget again
+  });
+
   it("requests a scene-scoped fix when verification finds blocking issues, then re-verifies the new version", async () => {
     const h = await autopilotHarness({
       reviewPlan: (review) =>

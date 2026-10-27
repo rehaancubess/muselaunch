@@ -63,6 +63,10 @@ installAnalyticsHooks(p);
 installCampaignHooks(p); // campaigns leave "producing" when their production chains finish
 installAutopilotHooks(p); // Growth Autopilot resumes when the jobs it waits on finish
 createRunner(p, handlers, "fixture-inline");
+// No worker here: run its crons in-process. A short interval keeps Growth Autopilot demos moving when
+// a resume step was refused by the plan's concurrent-task limit.
+const { startLocalCrons } = await import("./local-cron");
+startLocalCrons(p, 10_000);
 
 // ---------------------------------------------------------------- fake public web (sample listing)
 const RENDER_FX = fileURLToPath(new URL("../../../fixtures/render/", import.meta.url));
@@ -197,8 +201,18 @@ const textRoutes = [
 const samFx = mediaT.loadFixture<{ rawOutput: string }>("sam-video-moving-box.json");
 const samImageFx = mediaT.loadFixture<{ rawOutput: string }>("sam-image-box.json");
 const voiceFx = mediaT.loadFixture<{ response: unknown }>("voice-transcribe-documented.json").response;
+// Clip analysis ("person" / "phone" prompts on a video) answers with the presenter clip's SAM
+// fixtures (fixtures/render/presenter/presenter.mp4 is the sample founder clip in fixture mode);
+// any other video prompt gets the moving-box fixture.
+const samPresenter = { person: mediaT.loadFixture<{ rawOutput: string }>("sam-presenter-person.json"), phone: mediaT.loadFixture<{ rawOutput: string }>("sam-presenter-phone.json") };
 const media = mediaT.fakeMetaFetch({
-  samOutput: (body) => (JSON.stringify(body).includes('"input_image"') ? samImageFx.rawOutput : samFx.rawOutput),
+  samOutput: (body) => {
+    if (JSON.stringify(body).includes('"input_image"')) return samImageFx.rawOutput;
+    const prompt = mediaT.samPromptOf(body);
+    if (/\b(person|people|presenter|founder)\b/i.test(prompt)) return samPresenter.person.rawOutput;
+    if (/\b(phone|smartphone|iphone)\b/i.test(prompt)) return samPresenter.phone.rawOutput;
+    return samFx.rawOutput;
+  },
   transcribe: () => voiceFx,
 });
 
