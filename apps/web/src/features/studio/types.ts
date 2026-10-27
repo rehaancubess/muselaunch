@@ -33,6 +33,8 @@ export interface CompositionResponse {
 export interface PreviewResponse {
   html: string;
   durationSec: number;
+  /** Where the paused preview parks: the opening hook fully on screen (same frame as the render poster). */
+  posterSec?: number;
   version: number;
   scenes: { id: string; start: number; end: number }[];
   missingAssetIds: string[];

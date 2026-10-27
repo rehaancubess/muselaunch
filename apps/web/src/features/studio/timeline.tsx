@@ -24,6 +24,10 @@ export function layerLabel(l: Layer): string {
       return `${l.device} · real screen`;
     case "block":
       return l.blockId.replace(/-/g, " ");
+    case "effect":
+      return `${l.effect.replace(/-/g, " ")} · follows object`;
+    case "video":
+      return l.mask ? "cutout (SAM)" : "video";
     default:
       return l.type;
   }

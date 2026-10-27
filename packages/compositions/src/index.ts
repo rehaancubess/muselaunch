@@ -15,4 +15,5 @@ export { compileToHtml, collectAssetRefs, ROOT_COMPOSITION_ID, type CompileOptio
 export { buildFromStoryboard, themeFromBrand, type BuildInput } from "./build";
 export { registerCompileRuntime, getCompileRuntime, type CompileRuntime } from "./runtime";
 export { adaptToAspect } from "./variants";
+export { posterTimeSec } from "./poster";
 export { clipMapping, sampleTrack, trackUsable, trackQuality, MIN_TRACK_QUALITY, type ClipMapping, type TrackSample } from "./objects";

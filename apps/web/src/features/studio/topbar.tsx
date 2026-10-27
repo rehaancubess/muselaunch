@@ -29,6 +29,7 @@ import type { EstimateResponse, Page, SignedUrl } from "@/lib/api-types";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
+import { HooksDialog } from "./hooks-dialog";
 import { useVersions } from "./use-studio";
 import type { Composition, CompositionResponse, LintIssue, RenderResponse } from "./types";
 
@@ -521,6 +522,7 @@ export function StudioTopbar({
         </Tooltip>
         <VersionsPopover base={base} current={c.currentVersion} onRestore={onRestore} />
         <IssuesPopover lint={data.lint} onSelect={onSelectIssue} />
+        {data.version.doc.kind === "video" ? <HooksDialog workspaceId={workspaceId} appId={appId} base={base} composition={c} /> : null}
         <AudienceDialog workspaceId={workspaceId} appId={appId} base={base} />
         {c.campaignId ? <ExportDialog workspaceId={workspaceId} campaignId={c.campaignId} /> : null}
         <RenderDialog workspaceId={workspaceId} base={base} data={data} onRendered={onRendered} />

@@ -82,56 +82,126 @@ export const isPerson = (o: ClipObject) => /person|presenter|founder|people|huma
 export const isPhone = (o: ClipObject) => /phone|smartphone|mobile|iphone|android|device|tablet|screen/i.test(`${o.key} ${o.label}`);
 export const isHand = (o: ClipObject) => /hand/i.test(`${o.key} ${o.label}`);
 
-/** Usable analyses for the clips this doc shows (sent to Spark as object-aware context). */
-export function activeAnalysisIds(items: ClipItem[] | undefined): string[] {
-  return [...new Set((items ?? []).filter((i) => i.usedInDoc && i.analysis && (i.analysis.status === "succeeded" || i.analysis.status === "partial")).map((i) => i.analysis!.id))].slice(0, 4);
+/** Usable analyses of the clips this doc shows or targets (sent to Spark as object-aware context, max 4). */
+export function docAnalysisIds(doc: CompositionDoc, items: ClipItem[] | undefined): string[] {
+  const assetIds = new Set<string>();
+  const segIds = new Set<string>();
+  for (const sc of doc.scenes)
+    for (const l of sc.layers) {
+      if (l.type === "video") assetIds.add(l.assetId);
+      if (l.type === "video" && l.mask) segIds.add(l.mask.segmentationId);
+      if (l.type === "effect") segIds.add(l.target.segmentationId);
+      if (l.anchor) segIds.add(l.anchor.segmentationId);
+    }
+  const ids: string[] = [];
+  for (const it of items ?? []) {
+    const a = it.analysis;
+    if (!a || (a.status !== "succeeded" && a.status !== "partial")) continue;
+    if (assetIds.has(it.asset.id) || Object.values(a.segmentationIds).some((s) => segIds.has(s))) ids.push(a.id);
+  }
+  return [...new Set(ids)].slice(0, 4);
 }
 
 // ---------------------------------------------------------------------------
-// One-click effects → PatchOps
+// One-click effects → PatchOps (deterministic; no model call)
 // ---------------------------------------------------------------------------
 
+type VideoL = Extract<Layer, { type: "video" }>;
+type EffectL = Extract<Layer, { type: "effect" }>;
 const full = (z: number) => ({ x: 0, y: 0, w: 1, h: 1, rotation: 0, opacity: 1, z });
-const maxZ = (scene: Scene) => scene.layers.reduce((m, l) => Math.max(m, l.box.z), 1);
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
-export function sceneClipLayer(scene: Scene, clipAssetId: string): Extract<Layer, { type: "video" }> | undefined {
-  return scene.layers.find((l): l is Extract<Layer, { type: "video" }> => l.type === "video" && l.assetId === clipAssetId && !l.mask && !l.hidden);
+export function sceneClipLayer(scene: Scene, clipAssetId: string): VideoL | undefined {
+  return scene.layers.find((l): l is VideoL => l.type === "video" && l.assetId === clipAssetId && !l.mask && !l.hidden);
 }
 
-/** Make sure the scene shows the clip full-frame underneath everything; returns ops + the clip layer. */
-function ensureClip(scene: Scene, clipAssetId: string): { ops: PatchOp[]; clip: Extract<Layer, { type: "video" }> } {
+/**
+ * Working z-order for one edit: new layers are slotted in and existing ones lifted so headlines and
+ * callouts stay in front, keeping every other relative order. Emits add_layer + minimal z updates.
+ */
+class Stack {
+  private items: { id: string; type: Layer["type"]; z: number; orig: number; order: number; cutout: boolean; layer?: Layer; index?: number }[];
+  private n: number;
+  constructor(private scene: Scene) {
+    this.items = scene.layers.map((l, i) => ({ id: l.id, type: l.type, z: l.box.z, orig: l.box.z, order: i, cutout: l.type === "video" && l.mask?.mode === "cutout" && !l.hidden }));
+    this.n = this.items.length;
+  }
+  zOf(id: string) {
+    return this.items.find((x) => x.id === id)?.z ?? 0;
+  }
+  /** Top z among layers matching `pred` (-1 if none). */
+  top(pred: (t: Layer["type"]) => boolean) {
+    return this.items.filter((x) => pred(x.type)).reduce((m, x) => Math.max(m, x.z), -1);
+  }
+  /** Free `count` z values starting at `slot`; text/callouts move above them unless they sit behind an existing cutout (intentional depth). */
+  room(slot: number, count: number) {
+    const cutMin = this.items.filter((x) => x.cutout).reduce((m, x) => Math.min(m, x.z), Infinity);
+    const behindCutout = (z: number) => Number.isFinite(cutMin) && z < cutMin;
+    const lift = this.items.filter((x) => x.z >= slot || ((x.type === "text" || x.type === "block") && !behindCutout(x.z)));
+    lift.sort((p, q) => p.z - q.z || p.order - q.order).forEach((x, i) => (x.z = Math.min(100, Math.max(x.z, slot + count + i))));
+    return slot;
+  }
+  add(layer: Layer, z: number, index?: number) {
+    this.items.push({ id: layer.id, type: layer.type, z, orig: -1, order: index !== undefined ? -1 : this.n++, cutout: false, layer, index });
+    return layer;
+  }
+  ops(): PatchOp[] {
+    const adds: PatchOp[] = this.items.filter((x) => x.layer).map((x) => ({ op: "add_layer", sceneId: this.scene.id, layer: { ...x.layer!, box: { ...x.layer!.box, z: x.z } } as Layer, ...(x.index !== undefined ? { index: x.index } : {}) }));
+    const moves: PatchOp[] = this.items.filter((x) => !x.layer && x.z !== x.orig).map((x) => ({ op: "update_layer", sceneId: this.scene.id, layerId: x.id, set: { box: { z: x.z } } }));
+    return [...moves, ...adds];
+  }
+}
+
+/**
+ * Make sure the scene shows the clip full-frame: added above decorative shapes (they were the
+ * backdrop of a footage-less scene) and below media, text and callouts.
+ */
+function ensureClip(st: Stack, scene: Scene, clipAssetId: string): VideoL {
   const existing = sceneClipLayer(scene, clipAssetId);
-  if (existing) return { ops: [], clip: existing };
-  const clip = {
-    id: newLayerId("ly_clip"),
-    name: "Presenter clip",
-    type: "video",
-    assetId: clipAssetId,
-    fit: "cover",
-    trimInSec: 0,
-    playbackRate: 1,
-    muted: false,
-    volume: 1,
-    radiusPx: 0,
-    box: full(0),
-    timing: { start: 0 },
-    animation: { loop: "none" },
-    locked: false,
-    hidden: false,
-  } as Extract<Layer, { type: "video" }>;
-  return { ops: [{ op: "add_layer", sceneId: scene.id, layer: clip, index: 0 }], clip };
+  if (existing) return existing;
+  const slot = st.room(st.top((t) => t === "shape") + 1, 1);
+  return st.add(
+    {
+      id: newLayerId("ly_clip"),
+      name: "Presenter clip",
+      type: "video",
+      assetId: clipAssetId,
+      fit: "cover",
+      trimInSec: 0,
+      playbackRate: 1,
+      muted: false,
+      volume: 1,
+      radiusPx: 0,
+      box: full(slot),
+      timing: { start: 0 },
+      animation: { loop: "none" },
+      locked: false,
+      hidden: false,
+    } as VideoL,
+    slot,
+    0,
+  ) as VideoL;
 }
 
-function cutout(scene: Scene, clip: Extract<Layer, { type: "video" }>, obj: ClipObject, name: string, z: number): PatchOp | null {
-  if (scene.layers.some((l) => l.type === "video" && l.mask?.segmentationId === obj.segmentationId && !l.hidden)) return null;
-  const layer = { ...structuredClone(clip), id: newLayerId("ly_cut"), name, muted: true, box: { ...clip.box, z }, mask: { segmentationId: obj.segmentationId, mode: "cutout", objectIds: [obj.objectId], feather: 1, fallback: "hide" } } as Layer;
-  return { op: "add_layer", sceneId: scene.id, layer };
+/** First z above the footage and graphics, below text and callouts. */
+const overlaySlot = (st: Stack) => Math.min(95, st.top((t) => t !== "text" && t !== "block") + 1);
+
+/** First z above the clip and everything already tied to it (cutouts, effects); other overlays stay on top. */
+function footageSlot(st: Stack, scene: Scene, clip: VideoL): number {
+  const tied = scene.layers.filter((l) => (l.type === "video" && l.assetId === clip.assetId) || l.type === "effect").map((l) => st.zOf(l.id));
+  return Math.min(95, Math.max(st.zOf(clip.id), ...tied) + 1);
 }
 
-function effect(scene: Scene, kind: Extract<Layer, { type: "effect" }>["effect"], obj: ClipObject, z: number, extra: Partial<Extract<Layer, { type: "effect" }>> = {}): PatchOp {
-  const layer = {
+function cutoutLayer(clip: VideoL, obj: ClipObject, name: string, z: number): VideoL {
+  return { ...structuredClone(clip), id: newLayerId("ly_cut"), name, muted: true, box: { ...clip.box, z }, mask: { segmentationId: obj.segmentationId, mode: "cutout", objectIds: [obj.objectId], feather: 1, fallback: "hide" } } as VideoL;
+}
+
+const hasCutoutOf = (scene: Scene, obj: ClipObject) => scene.layers.some((l) => l.type === "video" && !l.hidden && l.mask?.segmentationId === obj.segmentationId && l.mask.mode === "cutout");
+
+function effectLayer(kind: EffectL["effect"], obj: ClipObject, z: number, extra: Partial<EffectL> = {}): EffectL {
+  return {
     id: newLayerId("ly_fx"),
-    name: kind.replace(/-/g, " "),
+    name: EFFECT_LABELS[kind],
     type: "effect",
     effect: kind,
     target: { segmentationId: obj.segmentationId, objectId: obj.objectId },
@@ -142,77 +212,112 @@ function effect(scene: Scene, kind: Extract<Layer, { type: "effect" }>["effect"]
     locked: false,
     hidden: false,
     ...extra,
-  } as Layer;
-  return { op: "add_layer", sceneId: scene.id, layer };
+  } as EffectL;
 }
+
+export const EFFECT_LABELS: Record<EffectL["effect"], string> = {
+  spotlight: "Spotlight",
+  "outline-glow": "Outline glow",
+  "focus-blur": "Background blur",
+  "highlight-ring": "Highlight ring",
+  "follow-arrow": "Follow arrow",
+  "screen-insert": "App on screen",
+};
 
 export type OneClick = "app-behind" | "spotlight-phone" | "app-on-phone" | "glow-me" | "blur-bg";
 
 export const ONE_CLICK: { id: OneClick; label: string; needs: ("person" | "phone" | "demo")[]; hint: string }[] = [
-  { id: "app-behind", label: "Put the app behind me", needs: ["person", "demo"], hint: "Real app demo layered between your background and you" },
-  { id: "spotlight-phone", label: "Spotlight my phone", needs: ["phone"], hint: "Dim everything except the phone, with a ring that follows it" },
-  { id: "app-on-phone", label: "Put the app on my phone", needs: ["phone", "demo"], hint: "Your real app recording on the phone in your hand" },
+  { id: "app-behind", label: "Put the app behind me", needs: ["person", "demo"], hint: "Your real app demo between the background and you" },
+  { id: "spotlight-phone", label: "Spotlight my phone", needs: ["phone"], hint: "Dims everything but the phone; a ring follows it" },
+  { id: "app-on-phone", label: "Put the app on my phone", needs: ["phone", "demo"], hint: "Your real recording on the phone in your hand" },
   { id: "glow-me", label: "Glow around me", needs: ["person"], hint: "A soft accent glow that follows your outline" },
-  { id: "blur-bg", label: "Blur background", needs: ["person"], hint: "Depth-of-field: you stay sharp, the room blurs" },
+  { id: "blur-bg", label: "Blur background", needs: ["person"], hint: "You stay sharp, the room softly blurs" },
 ];
 
-export function oneClickOps(kind: OneClick, doc: CompositionDoc, scene: Scene, objs: { person?: ClipObject; phone?: ClipObject; hand?: ClipObject }, demo: MediaAsset | undefined): PatchOp[] | null {
+export interface OneClickTargets {
+  person?: ClipObject;
+  phone?: ClipObject;
+  hand?: ClipObject;
+}
+
+/**
+ * PatchOps for a one-click object-aware effect on `scene`. Returns null when a required object or
+ * demo asset is missing. The clip is added full-frame if the scene doesn't show it yet.
+ */
+export function oneClickOps(kind: OneClick, doc: CompositionDoc, scene: Scene, objs: OneClickTargets, demo: MediaAsset | undefined): PatchOp[] | null {
   const clipAssetId = (objs.person ?? objs.phone)?.clipAssetId;
   if (!clipAssetId) return null;
-  const { ops, clip } = ensureClip(scene, clipAssetId);
-  const top = maxZ(scene);
-  const push = (op: PatchOp | null) => op && ops.push(op);
+  const st = new Stack(scene);
+  const clip = ensureClip(st, scene, clipAssetId);
+  const at = (z: number) => ({ ...clip, box: { ...clip.box, z } }) as VideoL;
   switch (kind) {
     case "app-behind": {
       if (!objs.person || !demo) return null;
-      const phoneRight = objs.phone?.meanBbox ? objs.phone.meanBbox.x + objs.phone.meanBbox.w / 2 > 0.5 : (objs.person.meanBbox?.x ?? 0.3) + (objs.person.meanBbox?.w ?? 0.4) / 2 > 0.5;
-      const h = 0.5;
-      const w = Math.min(0.5, (h * doc.height * (demo.width && demo.height && demo.width > demo.height ? demo.width / demo.height : 0.4885)) / doc.width);
-      const cx = phoneRight ? 0.2 : 0.8;
-      const device = {
-        id: newLayerId("ly_dev"),
-        name: "App demo (behind you)",
-        type: "device",
-        device: demo.width && demo.height && demo.width > demo.height ? "browser" : "iphone",
-        screenAssetId: demo.id,
-        screenKind: demo.kind === "video" ? "video" : "image",
-        trimInSec: 0,
-        frameColor: "black",
-        shadow: true,
-        box: { x: Math.round((cx - w / 2) * 1000) / 1000, y: 0.335, w: Math.round(w * 1000) / 1000, h, rotation: phoneRight ? -6 : 6, opacity: 1, z: top + 1 },
-        timing: { start: 0 },
-        animation: { enter: { preset: phoneRight ? "slide-right" : "slide-left", durationSec: 1, delaySec: 0.2, easing: "smooth" }, loop: "tilt" },
-        locked: false,
-        hidden: false,
-      } as Layer;
-      ops.push({ op: "add_layer", sceneId: scene.id, layer: device });
-      push(cutout(scene, clip, objs.person, "You (in front)", top + 10));
-      if (objs.phone?.hasCutout) push(cutout(scene, clip, objs.phone, "Phone in hand (in front)", top + 11));
-      return ops;
+      // Depth sandwich: clip → depth shade → real app demo → presenter (+ phone) cutout → text.
+      const fronts = [objs.person, ...(objs.phone?.hasCutout ? [objs.phone] : [])].filter((o) => !hasCutoutOf(scene, o));
+      const slot = st.room(overlaySlot(st), 2 + fronts.length);
+      st.add({ id: newLayerId("ly_shade"), name: "Depth shade", type: "shape", shape: "rect", fill: "#00000014", gradientTo: "#00000080", radiusPx: 0, blurPx: 0, box: full(slot), timing: { start: 0 }, animation: { loop: "none" }, locked: false, hidden: false } as Layer, slot);
+      const pb = objs.phone?.meanBbox ?? objs.person.meanBbox;
+      const phoneRight = pb ? pb.x + pb.w / 2 > 0.5 : true;
+      const landscape = !!(demo.width && demo.height && demo.width > demo.height);
+      const h = landscape ? 0.26 : 0.5;
+      const aspect = demo.width && demo.height ? demo.width / demo.height : 0.4885;
+      const w = Math.min(landscape ? 0.86 : 0.5, (h * doc.height * aspect) / doc.width + (landscape ? 0 : 0.02));
+      const cx = landscape ? 0.5 : phoneRight ? 0.2 : 0.8;
+      st.add(
+        {
+          id: newLayerId("ly_dev"),
+          name: "App demo (behind you)",
+          type: "device",
+          device: landscape ? "browser" : "iphone",
+          screenAssetId: demo.id,
+          screenKind: demo.kind === "video" ? "video" : "image",
+          trimInSec: 0,
+          frameColor: "black",
+          shadow: true,
+          box: { x: r3(cx - w / 2), y: landscape ? 0.2 : 0.335, w: r3(w), h, rotation: landscape ? 0 : phoneRight ? -6 : 6, opacity: 1, z: slot + 1 },
+          timing: { start: 0 },
+          animation: { enter: { preset: landscape ? "slide-up" : phoneRight ? "slide-right" : "slide-left", durationSec: 0.9, delaySec: 0.15, easing: "smooth" }, loop: "tilt" },
+          locked: false,
+          hidden: false,
+        } as Layer,
+        slot + 1,
+      );
+      fronts.forEach((o, i) => st.add(cutoutLayer(at(slot + 2 + i), o, o === objs.person ? "You (in front)" : "Phone in hand (in front)", slot + 2 + i), slot + 2 + i));
+      return st.ops();
     }
     case "spotlight-phone": {
       if (!objs.phone) return null;
-      ops.push(effect(scene, "spotlight", objs.phone, top + 1, { intensity: 0.8 }), effect(scene, "highlight-ring", objs.phone, top + 2, { intensity: 0.85, color: "theme.accent" }));
-      return ops;
+      // Dims the footage only: the scene's own overlays (device mockups, text) stay bright on top.
+      const slot = st.room(footageSlot(st, scene, clip), 2);
+      st.add(effectLayer("spotlight", objs.phone, slot, { intensity: 0.8 }), slot);
+      st.add(effectLayer("highlight-ring", objs.phone, slot + 1, { intensity: 0.85, color: "theme.accent" }), slot + 1);
+      return st.ops();
     }
     case "app-on-phone": {
       if (!objs.phone || !demo) return null;
-      ops.push(effect(scene, "screen-insert", objs.phone, top + 1, { assetId: demo.id, intensity: 1 }));
+      // Real recording on the tracked phone; the hand (or presenter) cutout goes on top so fingers overlap the screen.
       const over = objs.hand?.hasCutout ? objs.hand : objs.person?.hasCutout ? objs.person : undefined;
-      if (over) push(cutout(scene, clip, over, over === objs.hand ? "Hand (over the screen)" : "You (over the screen)", top + 2));
-      return ops;
+      const slot = st.room(overlaySlot(st), over ? 2 : 1);
+      st.add(effectLayer("screen-insert", objs.phone, slot, { assetId: demo.id, intensity: 1 }), slot);
+      if (over) st.add(cutoutLayer(at(slot + 1), over, over === objs.hand ? "Hand (over the screen)" : "You (over the screen)", slot + 1), slot + 1);
+      return st.ops();
     }
-    case "glow-me": {
-      if (!objs.person) return null;
-      ops.push(effect(scene, "outline-glow", objs.person, Math.max(2, clip.box.z + 1), { intensity: 0.7, color: "theme.accent" }));
-      return ops;
-    }
+    case "glow-me":
     case "blur-bg": {
       if (!objs.person) return null;
-      ops.push(effect(scene, "focus-blur", objs.person, Math.max(2, clip.box.z + 1), { intensity: 0.6 }));
-      return ops;
+      // Directly above the footage, under any app demo / cutouts / text.
+      const slot = st.room(st.zOf(clip.id) + 1, 1);
+      st.add(kind === "glow-me" ? effectLayer("outline-glow", objs.person, slot, { intensity: 0.7, color: "theme.accent" }) : effectLayer("focus-blur", objs.person, slot, { intensity: 0.6 }), slot);
+      return st.ops();
     }
   }
+}
+
+/** The best demo asset: real app recording (preferred) or screenshot marked as product truth. */
+export function pickDemo(assets: MediaAsset[]): MediaAsset | undefined {
+  const truth = assets.filter((a) => a.isProductTruth && a.status === "ready" && (a.kind === "video" || a.kind === "image"));
+  return truth.find((a) => a.role === "app_recording") ?? truth.find((a) => a.kind === "video") ?? truth.find((a) => a.role === "screenshot") ?? truth[0];
 }
 
 /** Composition-space rect (fractions) of a tracked object at composition time `t`, or null. */

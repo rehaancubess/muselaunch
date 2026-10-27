@@ -102,7 +102,7 @@ describe("object-aware templates", () => {
     sampleAsset("ast_rec", { kind: "video", role: "app_recording", isProductTruth: true, width: 590, height: 1278, durationSec: 6 }),
   ];
   const segs = [seg("seg_person", { prompt: "person" }), seg("seg_phone", { prompt: "phone" })];
-  const analysis = { ...base, id: "cla_1", sourceAssetId: "ast_clip", status: "succeeded", prompts: ["person", "phone"], segmentationIds: { person: "seg_person", phone: "seg_phone" }, objects: [
+  const analysis = { ...base, id: "cla_1", sourceAssetId: "ast_clip", status: "succeeded", prompts: ["person", "phone"], transcribe: false, segmentationIds: { person: "seg_person", phone: "seg_phone" }, objects: [
     { key: "person", label: "person", segmentationId: "seg_person", objectId: "0", trackingQuality: 0.95, presence: [{ startSec: 0, endSec: 6 }], meanBbox: { x: 0.15, y: 0.2, w: 0.55, h: 0.8 } },
     { key: "phone", label: "phone", segmentationId: "seg_phone", objectId: "0", trackingQuality: 0.95, presence: [{ startSec: 0, endSec: 6 }], meanBbox: { x: 0.62, y: 0.47, w: 0.23, h: 0.27 } },
   ] } as ClipAnalysis;

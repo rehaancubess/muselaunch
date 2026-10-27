@@ -15,7 +15,7 @@ import {
   type MediaAsset,
   type Segmentation,
 } from "@muselaunch/contracts";
-import { adaptToAspect, buildFromStoryboard, collectAssetRefs, compileToHtml, docHash, lintDoc, type LintIssue } from "@muselaunch/compositions";
+import { adaptToAspect, buildFromStoryboard, collectAssetRefs, compileToHtml, docHash, lintDoc, posterTimeSec, type LintIssue } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
@@ -249,7 +249,8 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
     if (!info.durationSec || Math.abs(info.durationSec - compiled.durationSec) > 0.25) {
       throw new AppError("PROVIDER_ERROR", `Rendered duration ${info.durationSec}s does not match ${compiled.durationSec}s`, { retryable: true });
     }
-    const posterTime = compiled.scenes[1] ? compiled.scenes[1].start + Math.min(2, (compiled.scenes[1].end - compiled.scenes[1].start) * 0.7) : compiled.durationSec * 0.4;
+    // Same frame the paused Studio preview shows: the opening hook once it has fully landed.
+    const posterTime = posterTimeSec(doc);
     const posterPath = join(dir, "poster.jpg");
     await extractFrame(outPath, Math.min(posterTime, compiled.durationSec - 0.1), posterPath, { width: quality === "preview" ? undefined : 720, signal: ctx.signal });
 

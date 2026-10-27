@@ -84,6 +84,7 @@ export function presenterAnalysis(wid: string, appId: string, tracks: Record<"pe
     sourceAssetId: "ast_presenter",
     status: "succeeded",
     prompts: ["person", "phone"],
+    transcribe: false,
     segmentationIds: { person: "seg_person", phone: "seg_phone" },
     durationSec: 6,
     objects: [

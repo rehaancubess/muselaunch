@@ -2,6 +2,7 @@
 import { Badge, Button, Field, Input, Select, SegmentedControl, Switch, Textarea, cn } from "@muselaunch/ui";
 import { AlignCenter, AlignLeft, AlignRight, Lock, Trash2, Type } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { EFFECT_LABELS, type ClipObject } from "./clips";
 import { TEMPLATE_LABELS, textLayer } from "./ops";
 import { layerLabel } from "./timeline";
 import type { CompositionDoc, Layer, LintIssue, PatchOp, Scene } from "./types";
@@ -104,6 +105,7 @@ export function Inspector({
   lint,
   onPatch,
   onSelectLayer,
+  objects = [],
   disabled,
 }: {
   doc: CompositionDoc;
@@ -112,9 +114,11 @@ export function Inspector({
   lint: LintIssue[];
   onPatch: (ops: PatchOp[], summary: string) => void;
   onSelectLayer: (sceneId: string, layerId: string | null) => void;
+  /** SAM-tracked objects from analysed clips (anchor + effect targets). */
+  objects?: ClipObject[];
   disabled?: boolean;
 }) {
-  if (scene && layer) return <LayerInspector doc={doc} scene={scene} layer={layer} lint={lint.filter((i) => i.layerId === layer.id)} onPatch={onPatch} onSelectLayer={onSelectLayer} disabled={disabled} />;
+  if (scene && layer) return <LayerInspector doc={doc} scene={scene} layer={layer} lint={lint.filter((i) => i.layerId === layer.id)} onPatch={onPatch} onSelectLayer={onSelectLayer} objects={objects} disabled={disabled} />;
   if (scene) return <SceneInspector doc={doc} scene={scene} lint={lint.filter((i) => i.sceneId === scene.id && !i.layerId)} onPatch={onPatch} onSelectLayer={onSelectLayer} disabled={disabled} />;
   return null;
 }
@@ -206,7 +210,7 @@ function SceneInspector({ doc, scene, lint, onPatch, onSelectLayer, disabled }: 
   );
 }
 
-function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, disabled: d0 }: { doc: CompositionDoc; scene: Scene; layer: Layer; lint: LintIssue[]; onPatch: (ops: PatchOp[], summary: string) => void; onSelectLayer: (s: string, l: string | null) => void; disabled?: boolean }) {
+function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objects, disabled: d0 }: { doc: CompositionDoc; scene: Scene; layer: Layer; lint: LintIssue[]; onPatch: (ops: PatchOp[], summary: string) => void; onSelectLayer: (s: string, l: string | null) => void; objects: ClipObject[]; disabled?: boolean }) {
   const disabled = d0 || layer.locked;
   const set = (s: Record<string, unknown>, summary: string) => onPatch([{ op: "update_layer", sceneId: scene.id, layerId: layer.id, set: s }], summary);
   const b = layer.box;
@@ -320,7 +324,10 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, disab
         </Group>
       ) : null}
 
-      <Group title="Position (% of frame)">
+      {layer.type === "effect" ? <EffectGroup doc={doc} layer={layer} objects={objects} set={set} disabled={disabled} /> : null}
+      {layer.type !== "effect" && (objects.length || layer.anchor) ? <AnchorGroup layer={layer} objects={objects} set={set} disabled={disabled} /> : null}
+
+      <Group title={layer.anchor ? "Fallback position (% of frame)" : "Position (% of frame)"}>
         <div className="grid grid-cols-2 gap-2">
           <NumberInput label="X" step={0.5} min={-100} max={200} value={pct(b.x)} onCommit={(v) => set({ box: { x: v / 100 } }, "Move layer")} disabled={disabled} />
           <NumberInput label="Y" step={0.5} min={-100} max={200} value={pct(b.y)} onCommit={(v) => set({ box: { y: v / 100 } }, "Move layer")} disabled={disabled} />
@@ -361,5 +368,112 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, disab
         </div>
       </Group>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Object-aware: follow a tracked object (anchor) and effect settings
+// ---------------------------------------------------------------------------
+
+const POINTS = ["center", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"];
+const objKey = (segmentationId: string, objectId: string) => `${segmentationId}|${objectId}`;
+
+function objectOptions(objects: ClipObject[], current?: { segmentationId: string; objectId: string }) {
+  const o = objects.map((x) => ({ value: objKey(x.segmentationId, x.objectId), label: `${x.label}${x.quality !== null && x.quality < 0.5 ? " (low tracking)" : ""}` }));
+  if (current && !objects.some((x) => x.segmentationId === current.segmentationId && x.objectId === current.objectId)) o.unshift({ value: objKey(current.segmentationId, current.objectId), label: "Tracked object (clip not loaded)" });
+  return o;
+}
+
+function AnchorGroup({ layer, objects, set, disabled }: { layer: Layer; objects: ClipObject[]; set: (s: Record<string, unknown>, summary: string) => void; disabled?: boolean }) {
+  const a = layer.anchor;
+  const label = layer.type === "text" || layer.type === "block";
+  return (
+    <Group title="Follow object">
+      <Select
+        selectSize="sm"
+        aria-label="Follow object"
+        value={a ? objKey(a.segmentationId, a.objectId) : ""}
+        disabled={disabled}
+        options={[{ value: "", label: "Don't follow (fixed position)" }, ...objectOptions(objects, a)]}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!v) return set({ anchor: null }, "Stop following object");
+          const [segmentationId, objectId] = v.split("|") as [string, string];
+          const name = objects.find((o) => o.segmentationId === segmentationId && o.objectId === objectId)?.label ?? "object";
+          set(
+            {
+              anchor: a
+                ? { segmentationId, objectId }
+                : { segmentationId, objectId, point: label ? "top" : "center", offset: { x: 0, y: label ? -0.04 : 0 }, scaleWithObject: false, smoothFrames: label ? 7 : 5, whenLost: label ? "hold" : "hide" },
+            },
+            `Follow ${name}`,
+          );
+        }}
+      />
+      {a ? (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <Select selectSize="sm" aria-label="Anchor point" value={a.point} disabled={disabled} options={opts(POINTS)} onChange={(e) => set({ anchor: { point: e.target.value } }, "Anchor point")} />
+            <Select
+              selectSize="sm"
+              aria-label="When the object is lost"
+              value={a.whenLost}
+              disabled={disabled}
+              options={[
+                { value: "hide", label: "Hide when lost" },
+                { value: "hold", label: "Hold position" },
+              ]}
+              onChange={(e) => set({ anchor: { whenLost: e.target.value } }, "When object is lost")}
+            />
+            <NumberInput label="dX" suffix="%" step={0.5} min={-100} max={100} value={Math.round(a.offset.x * 1000) / 10} onCommit={(v) => set({ anchor: { offset: { x: v / 100, y: a.offset.y } } }, "Anchor offset")} disabled={disabled} />
+            <NumberInput label="dY" suffix="%" step={0.5} min={-100} max={100} value={Math.round(a.offset.y * 1000) / 10} onCommit={(v) => set({ anchor: { offset: { x: a.offset.x, y: v / 100 } } }, "Anchor offset")} disabled={disabled} />
+            <NumberInput label="Sm" suffix="fr" min={0} max={30} value={a.smoothFrames} onCommit={(v) => set({ anchor: { smoothFrames: Math.round(v) } }, "Track smoothing")} disabled={disabled} />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-footnote text-ink-2">Scale with object</span>
+            <Switch checked={a.scaleWithObject} onCheckedChange={(v) => set({ anchor: { scaleWithObject: v } }, v ? "Scale with object" : "Fixed size")} disabled={disabled} label="Scale with object" />
+          </div>
+          <p className="text-caption text-ink-3">Moves with the tracked object frame by frame. The position below is used if tracking is unavailable.</p>
+        </>
+      ) : null}
+    </Group>
+  );
+}
+
+const EFFECT_KINDS = Object.keys(EFFECT_LABELS) as (keyof typeof EFFECT_LABELS)[];
+const COLORED = new Set(["spotlight", "outline-glow", "highlight-ring", "follow-arrow"]);
+
+function EffectGroup({ doc, layer, objects, set, disabled }: { doc: CompositionDoc; layer: Extract<Layer, { type: "effect" }>; objects: ClipObject[]; set: (s: Record<string, unknown>, summary: string) => void; disabled?: boolean }) {
+  return (
+    <Group title="Effect">
+      <div className="grid grid-cols-2 gap-2">
+        <Select
+          selectSize="sm"
+          aria-label="Effect"
+          value={layer.effect}
+          disabled={disabled}
+          options={EFFECT_KINDS.map((k) => ({ value: k, label: EFFECT_LABELS[k], disabled: k === "screen-insert" && !layer.assetId }))}
+          onChange={(e) => set({ effect: e.target.value, name: EFFECT_LABELS[e.target.value as keyof typeof EFFECT_LABELS] }, "Change effect")}
+        />
+        <Select
+          selectSize="sm"
+          aria-label="Target object"
+          value={objKey(layer.target.segmentationId, layer.target.objectId)}
+          disabled={disabled}
+          options={objectOptions(objects, layer.target)}
+          onChange={(e) => {
+            const [segmentationId, objectId] = e.target.value.split("|") as [string, string];
+            set({ target: { segmentationId, objectId } }, "Effect target");
+          }}
+        />
+      </div>
+      <NumberInput label="Amt" suffix="%" step={5} min={0} max={100} value={Math.round(layer.intensity * 100)} onCommit={(v) => set({ intensity: v / 100 }, "Effect intensity")} disabled={disabled} />
+      {COLORED.has(layer.effect) ? <ColorPicker theme={doc.theme} value={layer.color ?? "theme.accent"} onChange={(c) => set({ color: c }, "Effect colour")} disabled={disabled} /> : null}
+      <p className="text-caption text-ink-3">
+        {layer.effect === "screen-insert"
+          ? "Places your real app recording on the tracked screen. Put a cutout of your hand above this layer so your fingers overlap it."
+          : "Follows the tracked object in the clip. If tracking is low or missing, the effect is left out of the render."}
+      </p>
+    </Group>
   );
 }

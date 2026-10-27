@@ -1,6 +1,6 @@
 import { brandGate, reviewBrief } from "@muselaunch/agents";
 import { AiEditRequest, ApplyPatchRequest, AspectRatio, can, RenderRequest, TracksFile, type ClipAnalysis, type Composition, type CompositionPatch, type MediaAsset, type Segmentation } from "@muselaunch/contracts";
-import { applyPatch, collectAssetRefs, compileToHtml, docHash, lintDoc, PatchError, totalDuration } from "@muselaunch/compositions";
+import { applyPatch, collectAssetRefs, compileToHtml, docHash, lintDoc, PatchError, posterTimeSec, totalDuration } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { commitVersion, getVersion, redo, revertTo, undo } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
@@ -408,7 +408,8 @@ compositionRoutes.get("/compositions/:id/preview", async (c) => {
     assetKinds: Object.fromEntries(assets.map((a) => [a.id, a.kind])),
     assetHasAudio: Object.fromEntries(assets.filter((a) => a.hasAudio !== undefined).map((a) => [a.id, a.hasAudio!])),
   });
-  return c.json({ html, durationSec, version: ver.version, scenes, missingAssetIds: missing, width: ver.doc.width, height: ver.doc.height, expiresInSec: SIGNED_URL_TTL });
+  // posterSec: where the paused preview parks (the hook fully on screen; same frame as the render poster).
+  return c.json({ html, durationSec, posterSec: posterTimeSec(ver.doc), version: ver.version, scenes, missingAssetIds: missing, width: ver.doc.width, height: ver.doc.height, expiresInSec: SIGNED_URL_TTL });
 });
 
 // ---------------------------------------------------------------------------

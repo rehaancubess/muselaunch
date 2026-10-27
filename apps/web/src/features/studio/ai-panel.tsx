@@ -1,8 +1,9 @@
 "use client";
 import type { Job } from "@muselaunch/contracts";
 import { Badge, Button, JobProgress, Notice, SegmentedControl, Textarea, cn, useToast } from "@muselaunch/ui";
-import { Check, Sparkles, Undo2, X } from "lucide-react";
+import { Check, Mic, ScanSearch, Sparkles, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { VoiceRecorder } from "@/features/media";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { useAiEditCommand } from "@/lib/commands";
 import { useJob } from "@/lib/jobs";
@@ -11,10 +12,13 @@ import { describeOp } from "./ops";
 import type { AiEditResponse, CommitResponse, CompositionDoc, CompositionPatch, PatchDetailResponse } from "./types";
 
 const SUGGESTIONS = ["Make the opening more engaging", "Make this scene punchier", "Tighten the whole video to about 10 seconds", "Use a calmer, more premium tone in the headlines"];
+/** Extra suggestions once a founder clip has been analysed (Spark sees the tracked objects). */
+const OBJECT_SUGGESTIONS = ["Put the app behind me in the opening", "Add a label that follows my phone", "Spotlight my phone when I mention the app"];
 
 interface Turn {
   id: string;
   instruction: string;
+  spoken?: boolean;
   scope: string[];
   jobId: string | null;
   initialJob: Job | null;
@@ -105,6 +109,11 @@ function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchRead
   return (
     <li className="space-y-2">
       <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-md bg-accent px-3 py-2 text-body-sm text-white">
+        {turn.spoken ? (
+          <span className="mb-0.5 flex items-center gap-1 text-caption text-white/80">
+            <Mic className="size-3" aria-hidden /> Spoken
+          </span>
+        ) : null}
         {turn.instruction}
         {turn.scope.length ? <span className="mt-0.5 block text-caption text-white/80">Only: {turn.scope.map((id) => doc.scenes.find((s) => s.id === id)?.name ?? id).join(", ")}</span> : null}
       </div>
@@ -131,6 +140,9 @@ export function AiPanel({
   doc,
   baseVersion,
   selectedSceneId,
+  appId,
+  clipAnalysisIds = [],
+  trackedLabels = [],
   onApplied,
   onUndo,
   disabled,
@@ -141,6 +153,10 @@ export function AiPanel({
   doc: CompositionDoc;
   baseVersion: number;
   selectedSceneId: string | null;
+  appId?: string;
+  /** Analyses of the clips in this video: Spark gets their tracked objects to direct object-aware effects. */
+  clipAnalysisIds?: string[];
+  trackedLabels?: string[];
   onApplied: (r: CommitResponse) => void;
   onUndo: () => void;
   disabled?: boolean;
@@ -149,16 +165,19 @@ export function AiPanel({
   const [scope, setScope] = useState<"scene" | "all">("all");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sending, setSending] = useState(false);
+  const [voice, setVoice] = useState(false);
+  const clipIds = useRef(clipAnalysisIds);
+  clipIds.current = clipAnalysisIds;
   const listRef = useRef<HTMLUListElement>(null);
   const recent = useApiQuery<{ items: CompositionPatch[] }>(`${base}/patches`, { query: { limit: 10 } });
 
   const send = useCallback(
-    async (instruction: string, sceneIds: string[]) => {
+    async (instruction: string, sceneIds: string[], spoken = false) => {
       const id = `t${Date.now()}`;
-      setTurns((t) => [...t, { id, instruction, scope: sceneIds, jobId: null, initialJob: null, patchId: null, error: null }]);
+      setTurns((t) => [...t, { id, instruction, spoken, scope: sceneIds, jobId: null, initialJob: null, patchId: null, error: null }]);
       setSending(true);
       try {
-        const r = await api.post<AiEditResponse>(`${base}/ai-edit`, { baseVersion, instruction, sceneIds }, { idempotent: true });
+        const r = await api.post<AiEditResponse>(`${base}/ai-edit`, { baseVersion, instruction, sceneIds, ...(clipIds.current.length ? { clipAnalysisIds: clipIds.current.slice(0, 4) } : {}) }, { idempotent: true });
         setTurns((t) => t.map((x) => (x.id === id ? { ...x, jobId: r.job.id, initialJob: r.job, patchId: r.patch.id } : x)));
       } catch (e) {
         setTurns((t) => t.map((x) => (x.id === id ? { ...x, error: errorMessage(e) } : x)));
@@ -200,8 +219,16 @@ export function AiPanel({
               <Sparkles className="size-4 text-accent" aria-hidden /> Ask Muse to edit this video
             </div>
             <p className="text-footnote text-ink-2">Edits change only what you ask for. Each one is a reviewable change you can apply, reject or undo.</p>
+            {trackedLabels.length ? (
+              <p className="flex items-start gap-1.5 rounded-md bg-accent-soft/50 px-2.5 py-2 text-footnote text-ink-2">
+                <ScanSearch className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
+                <span>
+                  Muse can see the tracked {trackedLabels.slice(0, 4).join(", ")} in your clip, so it can make effects and labels follow them.
+                </span>
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((s) => (
+              {[...(trackedLabels.length ? OBJECT_SUGGESTIONS : []), ...SUGGESTIONS].map((s) => (
                 <button key={s} type="button" className="rounded-full border border-line px-2.5 py-1 text-footnote text-ink-2 hover:border-line-strong hover:text-ink" onClick={() => setText(s)}>
                   {s}
                 </button>
@@ -220,6 +247,19 @@ export function AiPanel({
           turns.map((t) => <TurnView key={t.id} turn={t} workspaceId={workspaceId} base={base} doc={doc} onApplied={onApplied} onUndo={onUndo} onPatchReady={() => void recent.refetch()} disabled={disabled} />)
         )}
       </ul>
+      {voice ? (
+        <div className="border-t border-line p-3">
+          <VoiceRecorder
+            appId={appId}
+            purpose="voice_command"
+            onTranscript={(t) => {
+              const v = t.trim();
+              setVoice(false);
+              if (v) void send(v, scope === "scene" && selectedSceneId ? [selectedSceneId] : [], true);
+            }}
+          />
+        </div>
+      ) : null}
       <form
         className="space-y-2 border-t border-line p-3"
         onSubmit={(e) => {
@@ -253,10 +293,15 @@ export function AiPanel({
           disabled={disabled}
         />
         <div className={cn("flex items-center justify-between")}>
-          <span className="text-caption text-ink-3">Uses Muse Spark · charged per edit</span>
-          <Button type="submit" size="sm" icon={<Sparkles className="size-4" aria-hidden />} loading={sending} disabled={disabled || !text.trim()}>
-            Edit
-          </Button>
+          <span className="min-w-0 truncate text-caption text-ink-3">Muse Spark · charged per edit</span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button type="button" size="sm" variant={voice ? "secondary" : "ghost"} icon={<Mic className="size-4" aria-hidden />} onClick={() => setVoice((v) => !v)} disabled={disabled} aria-pressed={voice}>
+              {voice ? "Close" : "Speak"}
+            </Button>
+            <Button type="submit" size="sm" icon={<Sparkles className="size-4" aria-hidden />} loading={sending} disabled={disabled || !text.trim()}>
+              Edit
+            </Button>
+          </div>
         </div>
       </form>
     </div>

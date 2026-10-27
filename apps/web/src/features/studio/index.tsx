@@ -7,18 +7,25 @@
  * and the conversational AI editor. Every edit is a validated PatchOp committed as a new version
  * (undo/redo/restore); renders and exports run as background jobs with live progress.
  */
-import { ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
+import { Button, ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
+import { ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandGuardianPanel, useBrandReviews } from "@/features/guardian";
+import { wsPath } from "@/lib/api";
+import type { Page } from "@/lib/api-types";
+import { useApiQuery } from "@/lib/query";
 import { useCurrentApp } from "@/lib/workspace";
 import { AiPanel } from "./ai-panel";
 import { AssetsDrawer } from "./assets-drawer";
+import { ClipPanel } from "./clip-panel";
+import { clipObjects, docAnalysisIds, pickDemo, useClips } from "./clips";
 import { Inspector } from "./inspector";
 import { sceneAt, sceneStarts, splitSceneOps } from "./ops";
 import { PreviewPlayer, type PlayerHandle } from "./preview";
 import { Timeline } from "./timeline";
 import { StudioTopbar } from "./topbar";
-import type { LintIssue, PatchOp } from "./types";
+import { TrackOverlay } from "./track-overlay";
+import type { LintIssue, MediaAsset, PatchOp } from "./types";
 import { usePreview, useStudio } from "./use-studio";
 
 export interface StudioRootProps {
@@ -38,6 +45,15 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [layerId, setLayerId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState("edit");
+  const [showTracks, setShowTracks] = useState(false);
+  // Clip intelligence: SAM-tracked objects of founder clips (anchors, effects, Spark context).
+  const clips = useClips(studio.base);
+  const objects = useMemo(() => clipObjects(clips.data?.items), [clips.data]);
+  const clipAnalysisIds = useMemo(() => (doc ? docAnalysisIds(doc, clips.data?.items) : []), [doc, clips.data]);
+  const trackedLabels = useMemo(() => [...new Set(objects.filter((o) => clipAnalysisIds.includes(o.analysisId)).map((o) => o.label))], [objects, clipAnalysisIds]);
+  // Same query (and cache entry) as the media drawer.
+  const assets = useApiQuery<Page<MediaAsset>>(appId ? wsPath(workspaceId, "/assets") : null, { query: { appId, limit: 120 } });
+  const demo = useMemo(() => pickDemo(assets.data?.items ?? []), [assets.data]);
 
   // Keep selection valid across versions (scenes/layers can be removed by edits or undo).
   const scene = useMemo(() => (doc ? (doc.scenes.find((s) => s.id === sceneId) ?? null) : null), [doc, sceneId]);
@@ -179,10 +195,19 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             width={doc.width}
             height={doc.height}
             durationSec={data.durationSec}
+            posterSec={preview.data?.posterSec}
             loading={preview.isLoading}
             error={preview.error?.userMessage}
             onRetry={() => preview.refetch()}
             onTime={setTime}
+            overlay={showTracks && objects.length ? <TrackOverlay doc={doc} time={time} objects={objects} tracks={clips.data?.tracks ?? {}} /> : null}
+            controls={
+              objects.length ? (
+                <Button size="sm" variant={showTracks ? "secondary" : "ghost"} icon={<ScanSearch className="size-4" aria-hidden />} onClick={() => setShowTracks((v) => !v)} aria-pressed={showTracks}>
+                  Tracking
+                </Button>
+              ) : null
+            }
           />
         </main>
         <aside className="flex min-h-[420px] flex-col border-l border-line bg-surface lg:min-h-0" aria-label="Edit panel">
@@ -190,6 +215,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             <TabsList label="Edit panel" className="px-3">
               <TabsTrigger value="edit">Inspector</TabsTrigger>
               <TabsTrigger value="ai">Ask Muse</TabsTrigger>
+              <TabsTrigger value="clip">Clip</TabsTrigger>
               <TabsTrigger value="brand" count={brandOpen.length || undefined}>
                 Brand
               </TabsTrigger>
@@ -198,7 +224,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="edit" className="min-h-0 flex-1 overflow-y-auto">
-              <Inspector doc={doc} scene={activeScene} layer={layer} lint={lint} onPatch={onPatch} onSelectLayer={selectLayer} disabled={disabled} />
+              <Inspector doc={doc} scene={activeScene} layer={layer} lint={lint} onPatch={onPatch} onSelectLayer={selectLayer} objects={objects} disabled={disabled} />
             </TabsContent>
             <TabsContent value="ai" className="min-h-0 flex-1">
               <AiPanel
@@ -208,8 +234,30 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
                 doc={doc}
                 baseVersion={data.composition.currentVersion}
                 selectedSceneId={activeScene?.id ?? null}
+                appId={appId}
+                clipAnalysisIds={clipAnalysisIds}
+                trackedLabels={trackedLabels}
                 onApplied={studio.applyCommit}
                 onUndo={() => void studio.undo()}
+                disabled={disabled}
+              />
+            </TabsContent>
+            <TabsContent value="clip" className="min-h-0 flex-1 overflow-y-auto">
+              <ClipPanel
+                doc={doc}
+                scene={activeScene}
+                items={clips.data?.items}
+                loading={clips.isLoading}
+                error={clips.error?.userMessage}
+                onRetry={() => void clips.refetch()}
+                demo={demo}
+                overlay={showTracks}
+                onOverlay={setShowTracks}
+                onPatch={onPatch}
+                onAnalysed={() => {
+                  void clips.refetch();
+                  setShowTracks(true);
+                }}
                 disabled={disabled}
               />
             </TabsContent>
