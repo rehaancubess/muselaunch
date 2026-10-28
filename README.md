@@ -98,11 +98,14 @@ chrome-headless-shell binary if the renderer can't find one.
 
 ```powershell
 pnpm smoke:live            # all providers
-pnpm smoke:live meta       # just Meta
+pnpm smoke:live meta       # Meta text models (Spark, Wonder)
+pnpm smoke:live meta media # + SAM 3.1 and Voice Transcribe
 ```
 
-This makes a few tiny real calls and saves redacted responses to `fixtures/live/` so we can match
-parsers to the real response shapes.
+This makes a few tiny real calls and saves redacted parsed results to `fixtures/live/` so we can
+match parsers to the real response shapes. Every raw HTTP exchange with Meta/Glimmer (request and
+response bodies, response headers; no API keys) is also written to `fixtures/live/raw/wire/`
+(gitignored).
 
 ### 5. Full mode (Firebase)
 

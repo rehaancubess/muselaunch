@@ -13,21 +13,28 @@ process.env.JOB_DISPATCH = "inline";
 process.env.STORAGE_DRIVER = "local";
 
 const { createPlatform } = await import("@muselaunch/platform");
+const { flushWire, installWireCapture, WIRE_DIR } = await import("./smoke/_wire");
 const p = createPlatform();
+// Raw (redacted) HTTP exchanges with Meta/Glimmer → fixtures/live/raw/wire/ (gitignored).
+installWireCapture(p);
 const dir = fileURLToPath(new URL("./smoke/", import.meta.url));
 const only = process.argv.slice(2);
 const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.startsWith("_") && (!only.length || only.some((o) => f.includes(o))));
 let failed = 0;
 for (const f of files) {
-  const mod = (await import(pathToFileURL(dir + f).href)) as { run: (p: unknown) => Promise<string> };
   const started = Date.now();
   try {
+    // Imported inside the try: a module that fails to load fails only its own smoke.
+    const mod = (await import(pathToFileURL(dir + f).href)) as { run: (p: unknown) => Promise<string> };
     const summary = await mod.run(p);
     console.log(`✅ ${f.replace(".ts", "")} (${Date.now() - started} ms): ${summary}`);
   } catch (err) {
     failed++;
-    const e = err as { code?: string; message?: string };
-    console.log(`❌ ${f.replace(".ts", "")}: ${e.code ?? ""} ${e.message ?? err}`);
+    const e = err as { code?: string; message?: string; opts?: { details?: unknown } };
+    // details carry the documented error fields (status, type, code, param, retryAfter).
+    console.log(`❌ ${f.replace(".ts", "")}: ${e.code ?? ""} ${e.message ?? err}${e.opts?.details ? ` ${JSON.stringify(e.opts.details)}` : ""}`);
   }
 }
+const saved = await flushWire();
+console.log(`wire: ${saved} raw exchange(s) saved under ${WIRE_DIR}`);
 process.exit(failed ? 1 : 0);

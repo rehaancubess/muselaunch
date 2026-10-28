@@ -6,6 +6,7 @@ import { makeTestClip, storeUpload } from "@muselaunch/media/testing";
 import { createPlatform, createRunner, museImageEligible, type Platform } from "@muselaunch/platform";
 import { chooseImageProvider, deleteMetaFile, guardImagePrompt, OpenAiImageProvider, runSam, synthesizeSpeech, transcribeFile, uploadMetaFile } from "@muselaunch/providers";
 import { saveLive } from "./_save";
+import { installWireCapture } from "./_wire";
 
 /**
  * Module D live smoke (minimal REAL calls, ≈ $0.10 total):
@@ -84,6 +85,7 @@ export async function run(p: Platform): Promise<string> {
 async function clipAnalysis(p: Platform, dir: string): Promise<string> {
   // Own inline runner with the media handlers, sharing the smoke run's DB/storage.
   const q = createPlatform({ cfg: p.cfg, db: p.db, storage: p.storage });
+  installWireCapture(q);
   createRunner(q, handlers, "smoke-media");
   const wid = "smoke";
   await q.credits.ensureAccount(wid, { grant: 300, reason: "smoke" });

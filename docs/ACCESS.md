@@ -10,8 +10,10 @@ step: it tells you what is connected.
 3. Check billing/credits on the dashboard: selected hackathon participants receive **$150 in Meta
    Model API credits**. If you see no credit, ask in the hackathon Discord (office hours) before
    adding a card.
-4. Run `pnpm smoke:live meta`. You should see the model list, a Spark answer with citations and a
-   Wonder reply.
+4. Run `pnpm smoke:live meta`. You should see the model list, a Spark answer with citations, a
+   Wonder reply and a Wonder tool-call round trip. SAM 3.1 and Voice Transcribe are in
+   `pnpm smoke:live media`. Raw (redacted) request/response bodies for every call are written to
+   `fixtures/live/raw/wire/` (gitignored); check them before sharing.
 
 Models used: `muse-wonder-1.0`, `muse-spark-1.3`, `sam-3.1`, `muse-voice-transcribe-1.0` (all
 Standard mode — customer data never uses Contributor mode).
