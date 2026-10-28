@@ -113,7 +113,25 @@ export function parseSamOutput(text: string, media: "image" | "video", model = "
   return toSamResult(result as SegmentationResult, model);
 }
 
-type StreamEvent = { type: string; delta?: unknown; text?: unknown; item_id?: unknown; output_index?: unknown; content_index?: unknown; message?: unknown; response?: { error?: { message?: string } | null; incomplete_details?: { reason?: string | null } | null } };
+/** Responses usage for SAM (docs: api-reference/responses/schemas `ResponseUsage`). */
+type SamUsage = { video_frames_processed?: number; images_processed?: number };
+type StreamEvent = {
+  type: string;
+  delta?: unknown;
+  text?: unknown;
+  item_id?: unknown;
+  output_index?: unknown;
+  content_index?: unknown;
+  message?: unknown;
+  response?: { error?: { message?: string } | null; incomplete_details?: { reason?: string | null } | null; usage?: SamUsage | null };
+};
+
+/** Billable units: the server's `video_frames_processed` / `images_processed` when reported, else our estimate. */
+export function samBilledUnits(media: "image" | "video", usage: SamUsage | null | undefined, estimatedFrames: number): { units: number; reported: boolean } {
+  const n = media === "video" ? usage?.video_frames_processed : usage?.images_processed;
+  if (typeof n === "number" && Number.isFinite(n) && n >= 0) return { units: n, reported: true };
+  return { units: media === "video" ? estimatedFrames : 1, reported: false };
+}
 
 /**
  * Run SAM 3.1. Metered (`operation: segmentation`, `frames` for video, `images` for stills); throws
@@ -151,6 +169,7 @@ export async function runSam(p: Platform, ctx: CallContext, req: SamRequest): Pr
     let sawDelta = false;
     let lines = 0;
     let outcome: ResponseStreamOutcome | undefined;
+    let usage: SamUsage | null | undefined;
     for await (const ev of stream) {
       const laneKey = `${String(ev.item_id ?? "")}:${String(ev.output_index ?? "")}:${String(ev.content_index ?? "")}`;
       if (ev.type === "response.output_text.delta") {
@@ -170,6 +189,7 @@ export async function runSam(p: Platform, ctx: CallContext, req: SamRequest): Pr
         throw new AppError("PROVIDER_ERROR", "SAM refused the request", { userMessage: "The segmentation model declined this request." });
       } else if (ev.type === "response.completed") {
         outcome = { status: "completed" };
+        usage = ev.response?.usage;
       } else if (ev.type === "response.incomplete") {
         outcome = { status: "incomplete", reason: "response", detail: ev.response?.incomplete_details?.reason ?? undefined };
       } else if (ev.type === "response.failed") {
@@ -190,15 +210,16 @@ export async function runSam(p: Platform, ctx: CallContext, req: SamRequest): Pr
     if (errors.length && !parsed.detections.length) {
       throw new AppError("PROVIDER_ERROR", `SAM output could not be parsed: ${errors[0]!.code} ${errors[0]!.message}`);
     }
-    const cost = samCost(mediaKind, frames);
+    const billed = samBilledUnits(mediaKind, usage, frames);
+    const cost = mediaKind === "video" ? samCost("video", billed.units) : samCost("image") * billed.units;
     return {
       value: parsed,
       usage: {
         provider: "meta",
         model,
         operation: "segmentation",
-        images: mediaKind === "image" ? 1 : undefined,
-        frames: mediaKind === "video" ? frames : undefined,
+        images: mediaKind === "image" ? billed.units : undefined,
+        frames: mediaKind === "video" ? billed.units : undefined,
         costUsdEstimate: cost,
         dataMode: "standard",
       },
@@ -207,6 +228,8 @@ export async function runSam(p: Platform, ctx: CallContext, req: SamRequest): Pr
         request: body,
         response: {
           outcome,
+          usage: usage ?? null,
+          billedUnitsSource: billed.reported ? "server_usage" : "estimate",
           frameLines: lines,
           framesWithDetections: parsed.frames.length,
           objectIds: parsed.objectIds,

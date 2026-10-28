@@ -98,7 +98,9 @@ function toJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 
 interface ResponsesOutputItem {
   type: string;
-  content?: { type: string; text?: string; annotations?: { type: string; url?: string; title?: string; start_index?: number; end_index?: number }[] }[];
+  /** Assistant messages: `"commentary"` marks a preamble before a tool call; final answers carry no phase. */
+  phase?: string | null;
+  content?: { type: string; text?: string; refusal?: string; annotations?: { type: string; url?: string; title?: string; start_index?: number; end_index?: number }[] }[];
   status?: string;
   /** function_call */
   call_id?: string;
@@ -118,8 +120,16 @@ interface ResponsesResult {
   incomplete_details?: { reason?: string } | null;
 }
 
-function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd"> & { functionCalls: FunctionCall[] } {
-  let text = res.output_text ?? "";
+/**
+ * Meta docs (protocols/responses): intermediate assistant text before a tool call is a separate
+ * message tagged `phase: "commentary"`; final answers have no phase. The OpenAI SDK rewrites
+ * `output_text` as the concatenation of EVERY message (commentary included), so the answer text is
+ * rebuilt from non-commentary messages and `output_text` is only a fallback when `output` has none.
+ */
+function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd"> & { functionCalls: FunctionCall[]; refusal?: string } {
+  let text = "";
+  let sawMessage = false;
+  let refusal: string | undefined;
   const citations: SourceRef[] = [];
   const searchResults: SourceRef[] = [];
   const functionCalls: FunctionCall[] = [];
@@ -140,8 +150,11 @@ function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd">
       functionCalls.push({ callId: item.call_id, name: item.name, arguments: item.arguments ?? "{}" });
     }
     if (item.type !== "message") continue;
+    sawMessage = true;
+    const commentary = item.phase === "commentary";
     for (const part of item.content ?? []) {
-      if (part.type === "output_text" && !res.output_text && part.text) text += part.text;
+      if (part.type === "output_text" && part.text && !commentary) text += part.text;
+      if (part.type === "refusal") refusal = (part.refusal ?? part.text ?? "").trim() || "refused";
       for (const a of part.annotations ?? []) {
         if (a.type !== "url_citation" || !a.url || seen.has(a.url)) continue;
         if (!/^https?:\/\//.test(a.url)) continue;
@@ -151,8 +164,10 @@ function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd">
       }
     }
   }
+  if (!sawMessage) text = res.output_text ?? "";
   return {
     text,
+    refusal,
     citations,
     searchResults,
     functionCalls,
@@ -188,7 +203,8 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
   }
   const ws = call.webSearch ? (typeof call.webSearch === "object" ? call.webSearch : {}) : undefined;
   const tools: Record<string, unknown>[] = [
-    ...(ws ? [{ type: "web_search", search_context_size: ws.contextSize ?? "medium", ...(ws.country ? { user_location: { type: "approximate", country: ws.country } } : {}) }] : []),
+    // `user_location.country` is a two-letter ISO 3166-1 code (docs: search-grounding).
+    ...(ws ? [{ type: "web_search", search_context_size: ws.contextSize ?? "medium", ...(ws.country ? { user_location: { type: "approximate", country: ws.country.toUpperCase() } } : {}) }] : []),
     ...(call.tools ?? []).map((t) => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters })),
   ];
   const request: Record<string, unknown> = {
@@ -215,7 +231,11 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
       throw new AppError("PROVIDER_ERROR", `Response incomplete: ${res.incomplete_details?.reason ?? "unknown"}`, { retryable: res.incomplete_details?.reason !== "max_output_tokens" });
     }
     if (res.status === "failed") throw new AppError("PROVIDER_ERROR", "Response failed", { retryable: true });
-    const out = extract(res);
+    const { refusal, ...out } = extract(res);
+    // A refusal with no answer is final: don't pay for a JSON repair or a job retry.
+    if (refusal && !out.text && !out.functionCalls.length) {
+      throw new AppError("PROVIDER_ERROR", `Model refused: ${refusal.slice(0, 300)}`, { retryable: false, userMessage: "The AI model declined this request. Try rephrasing it." });
+    }
     const cost = tokenCost(model, out.usage) + out.searchCalls * PRICES.metaWebSearchPerQuery;
     return {
       value: { ...out, model: res.model ?? model, costUsd: cost },

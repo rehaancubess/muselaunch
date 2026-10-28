@@ -5,10 +5,11 @@ import type { CallContext } from "../meta/client";
  * Muse Glimmer (self-hosted, OpenAI-compatible Chat Completions) — llama.cpp, SGLang, vLLM or
  * Ollama serving `GLIMMER_MODEL` at `GLIMMER_BASE_URL`.
  *
- * Per the Glimmer docs: sampling temperature 1.0 / top_p 0.95 (never 0); reasoning cannot be turned
- * off and counts against max_tokens, so we stream with generous headroom; effort is set with
- * `chat_template_kwargs: { reasoning_strength }` (llama.cpp/SGLang; servers that don't know it
- * ignore it). Reasoning arrives in `reasoning_content` (llama.cpp/SGLang) or `reasoning` (vLLM)
+ * Per the Glimmer docs (https://dev.meta.ai/docs/muse-glimmer/deploy): sampling temperature 1.0 /
+ * top_p 0.95 (never 0); reasoning cannot be turned off and counts against max_tokens, so we stream
+ * with generous headroom (an empty answer with finish_reason "length" is an error); effort is set with
+ * `chat_template_kwargs: { reasoning_strength: low|medium|high|xhigh }` (never the OpenAI-style
+ * `reasoning_effort`, which ExecuTorch rejects). Reasoning arrives in `reasoning_content` (llama.cpp/SGLang) or `reasoning` (vLLM)
  * and is never shown to users. Every call is metered (provider `glimmer`, dataMode `self_hosted`,
  * cost 0, runtimeMs = GPU time proxy).
  */
@@ -114,6 +115,14 @@ export class GlimmerClient {
       const ct = res.headers.get("content-type") ?? "";
       const out = ct.includes("text/event-stream") ? await readStream(res) : readJson((await res.json()) as ChatChunk);
       const content = stripInlineReasoning(out.content);
+      // Glimmer docs: reasoning can't be disabled and counts against max_tokens; when it runs out
+      // mid-thought, `content` is empty and `finish_reason` is "length". That is a failure, not an answer.
+      if (!content && out.finishReason === "length") {
+        throw new AppError("PROVIDER_ERROR", `Muse Glimmer used all ${request.max_tokens} max_tokens while reasoning and returned no answer`, {
+          retryable: false,
+          details: { finishReason: "length", maxTokens: request.max_tokens, completionTokens: out.completionTokens },
+        });
+      }
       const result: GlimmerChatResult = {
         content,
         reasoning: out.reasoning || undefined,

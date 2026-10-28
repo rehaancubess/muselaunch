@@ -1,24 +1,28 @@
 {
   "_fixture": "Meta Responses API shape (output_text + url_citation annotations + web_search_call) as documented; model text is synthetic test content",
-  "_source": ["https://dev.meta.ai/docs (Responses API, web_search tool)"],
+  "_source": ["https://dev.meta.ai/docs/api-reference/responses/schemas (Response object)", "https://dev.meta.ai/docs/search-grounding (web_search_call, url_citation)"],
   "trackerResearch": {
     "id": "resp_FIXTURE_tracker",
+    "object": "response",
+    "created_at": 1792000000,
     "model": "muse-spark-1.3",
     "status": "completed",
     "output": [
       { "type": "web_search_call", "id": "ws_FIXTURE", "status": "completed" },
-      { "type": "message", "content": [{ "type": "output_text", "text": "__JSON__", "annotations": [
+      { "type": "message", "id": "msg_FIXTURE_tracker", "role": "assistant", "status": "completed", "content": [{ "type": "output_text", "text": "__JSON__", "annotations": [
         { "type": "url_citation", "url": "https://www.example-competitor.com/", "title": "Competitor home", "start_index": 0, "end_index": 10 },
         { "type": "url_citation", "url": "https://www.youtube.com/@examplecompetitor/shorts", "title": "Competitor Shorts", "start_index": 0, "end_index": 10 }
       ] }] }
     ],
-    "usage": { "input_tokens": 1800, "output_tokens": 420, "input_tokens_details": { "cached_tokens": 0 } }
+    "usage": { "input_tokens": 1800, "output_tokens": 420, "total_tokens": 2220, "input_tokens_details": { "cached_tokens": 0 }, "output_tokens_details": { "reasoning_tokens": 0 } }
   },
   "outreachPitch": {
     "id": "resp_FIXTURE_pitch",
+    "object": "response",
+    "created_at": 1792000000,
     "model": "muse-spark-1.3",
     "status": "completed",
-    "output": [{ "type": "message", "content": [{ "type": "output_text", "text": "__JSON__", "annotations": [] }] }],
-    "usage": { "input_tokens": 1200, "output_tokens": 300, "input_tokens_details": { "cached_tokens": 0 } }
+    "output": [{ "type": "message", "id": "msg_FIXTURE_pitch", "role": "assistant", "status": "completed", "content": [{ "type": "output_text", "text": "__JSON__", "annotations": [] }] }],
+    "usage": { "input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "input_tokens_details": { "cached_tokens": 0 }, "output_tokens_details": { "reasoning_tokens": 0 } }
   }
 }

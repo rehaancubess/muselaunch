@@ -20,14 +20,51 @@ export interface MeteredResult<T> {
   trace?: { request: unknown; response?: unknown };
 }
 
-/** Map Meta/OpenAI-compatible API errors (documented envelope) to AppError. */
+/**
+ * Parse a `Retry-After` header (delta-seconds or HTTP-date; the Meta docs don't fix the format).
+ * Returns milliseconds to wait, or undefined when absent/unparseable.
+ */
+export function retryAfterMs(value: string | null | undefined, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const v = value.trim();
+  if (/^\d+(\.\d+)?$/.test(v)) return Number(v) * 1000;
+  const at = Date.parse(v);
+  return Number.isFinite(at) ? Math.max(0, at - now) : undefined;
+}
+
+/** Longest Retry-After we wait for inline; longer waits surface as RATE_LIMITED for the job layer. */
+const MAX_INLINE_RETRY_WAIT_MS = 60_000;
+
+/**
+ * Align the OpenAI SDK's built-in retries with the Meta docs (error-handling, pricing-rate-limits):
+ * - 504 `gateway_timeout` is not fixed by a simple retry (use streaming, `background`, or less work),
+ *   but the SDK retries every 5xx;
+ * - a Retry-After must be honoured ("wait at least that long"), but the SDK ignores values > 60 s and
+ *   retries after its own short backoff. Those surface as RATE_LIMITED (retryable) for the job layer.
+ * Both are marked `x-should-retry: false`, which the SDK obeys.
+ */
+export function withSdkRetryPolicy(fetchImpl: typeof fetch): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const res = await fetchImpl(input, init);
+    const longWait = (res.status === 429 || res.status === 503) && (retryAfterMs(res.headers.get("retry-after")) ?? 0) > MAX_INLINE_RETRY_WAIT_MS;
+    if (res.status !== 504 && !longWait) return res;
+    const headers = new Headers(res.headers);
+    headers.set("x-should-retry", "false");
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+  }) as typeof fetch;
+}
+
+/** Map Meta/OpenAI-compatible API errors (documented envelope `{ error: { message, type, param, code } }`) to AppError. */
 export function mapProviderError(err: unknown, provider = "Meta Model API"): AppError {
   if (err instanceof AppError) return err;
   if (err instanceof OpenAI.APIError) {
     const status = err.status ?? 0;
     const type = (err.error as { type?: string } | undefined)?.type ?? err.type;
     const code = (err.error as { code?: string } | undefined)?.code ?? err.code ?? undefined;
-    const details = { provider, status, type, code };
+    // `param` names the offending request field on 400s (call_id, include, tools, input, …).
+    const param = (err.error as { param?: string | null } | undefined)?.param ?? err.param ?? undefined;
+    const retryAfter = (err as { retryAfter?: string | null }).retryAfter ?? err.headers?.get?.("retry-after") ?? undefined;
+    const details = { provider, status, type, code, ...(param ? { param } : {}), ...(retryAfter ? { retryAfter } : {}) };
     if (status === 429) return new AppError("RATE_LIMITED", `${provider} rate limited`, { retryable: true, details, cause: err });
     if (status >= 500 && status !== 504) return new AppError("PROVIDER_UNAVAILABLE", `${provider} unavailable (${status} ${code ?? ""})`, { retryable: true, details, cause: err });
     if (status === 504) return new AppError("TIMEOUT", `${provider} gateway timeout`, { retryable: false, details, cause: err });
@@ -68,7 +105,7 @@ export class MetaClient {
       baseURL: this.baseUrl,
       timeout: cfg.META_TIMEOUT_MS,
       maxRetries: 3,
-      fetch: opts.fetch,
+      fetch: withSdkRetryPolicy(opts.fetch ?? fetch),
     });
     this.fetchImpl = opts.fetch ?? fetch;
     this.apiKey = opts.apiKey ?? cfg.META_API_KEY;
@@ -132,9 +169,11 @@ export class MetaClient {
         const status = (err as { status?: number }).status ?? 0;
         const retryable = status === 429 || status === 500 || status === 503 || (err as Error).name === "TypeError";
         if (!retryable || i === attempts - 1 || signal?.aborted) break;
-        const retryAfter = Number((err as { retryAfter?: string }).retryAfter ?? 0);
-        const backoff = Math.max(retryAfter * 1000, 500 * 2 ** i) + Math.random() * 1000;
-        await new Promise((r) => setTimeout(r, Math.min(backoff, 60_000)));
+        // Docs: honour Retry-After ("wait at least that long"); never retry sooner than asked.
+        const wait = retryAfterMs((err as { retryAfter?: string | null }).retryAfter);
+        if (wait !== undefined && wait > MAX_INLINE_RETRY_WAIT_MS) break;
+        const backoff = Math.max(wait ?? 0, 500 * 2 ** i + Math.random() * 1000);
+        await new Promise((r) => setTimeout(r, backoff));
       }
     }
     throw mapProviderError(lastErr);

@@ -43,6 +43,23 @@ describe("GlimmerClient", () => {
     expect(usage[0]).toMatchObject({ provider: "glimmer", status: "error" });
   });
 
+  it("treats an empty answer with finish_reason 'length' (ran out while reasoning) as an error, not a reply", async () => {
+    const p = createTestPlatform({ GLIMMER_BASE_URL: "http://gpu-box:8080" });
+    // Glimmer deploy docs: hitting max_tokens mid-thought returns empty content and finish_reason "length".
+    const f = (async () =>
+      sse([
+        { model: "muse-glimmer", choices: [{ delta: { reasoning_content: "still thinking…" } }] },
+        { model: "muse-glimmer", choices: [{ delta: {}, finish_reason: "length" }] },
+        { model: "muse-glimmer", choices: [], usage: { prompt_tokens: 100, completion_tokens: 64 } },
+      ])) as unknown as typeof fetch;
+    await expect(new GlimmerClient(p, { fetch: f }).chat({ workspaceId: "ws1", task: "t" }, { messages: [{ role: "user", content: "x" }], maxTokens: 64 })).rejects.toMatchObject({
+      code: "PROVIDER_ERROR",
+      message: expect.stringContaining("max_tokens"),
+    });
+    const usage = (await p.db.ws("ws1").collection("modelUsage").list()).items;
+    expect(usage[0]).toMatchObject({ provider: "glimmer", status: "error" });
+  });
+
   it("is not configured without GLIMMER_BASE_URL", async () => {
     const p = createTestPlatform();
     const g = new GlimmerClient(p);

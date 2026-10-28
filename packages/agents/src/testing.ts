@@ -65,6 +65,7 @@ export function responsesBody(opts: {
   return {
     id: `resp_fixture_${++respSeq}`,
     object: "response",
+    created_at: 1792000000,
     status: "completed",
     model: opts.model ?? "muse-spark-1.3",
     output,
