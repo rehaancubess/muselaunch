@@ -11,6 +11,8 @@ if errorlevel 1 goto nonode
 for /f "tokens=1 delims=." %%v in ('node -p "process.versions.node"') do set NODEMAJOR=%%v
 if %NODEMAJOR% LSS 22 goto oldnode
 
+rem Never stop to ask before corepack downloads pnpm.
+set COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 set "PNPM=pnpm"
 where pnpm >nul 2>nul
 if errorlevel 1 call corepack enable >nul 2>nul
