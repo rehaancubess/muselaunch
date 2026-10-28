@@ -5,8 +5,8 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { routes } from "@/lib/routes";
 
-/** Hero: paste a store link → sign in → onboarding with the link prefilled. */
-export function HeroLinkForm() {
+/** Paste a store link → sign in → onboarding with the link prefilled. */
+export function HeroLinkForm({ id = "hero-link" }: { id?: string }) {
   const router = useRouter();
   const { status } = useAuth();
   const [value, setValue] = useState("");
@@ -29,6 +29,9 @@ export function HeroLinkForm() {
     router.push(status === "signed_in" ? dest : routes.login(dest));
   };
 
+  const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
+
   return (
     <form
       onSubmit={(e) => {
@@ -38,13 +41,13 @@ export function HeroLinkForm() {
       className="w-full"
       noValidate
     >
-      <label htmlFor="hero-link" className="sr-only">
+      <label htmlFor={id} className="sr-only">
         Your App Store, Google Play or website link
       </label>
-      <div className="flex w-full items-center gap-2 rounded-full bg-surface p-1.5 pl-5 shadow-[0_1px_2px_rgb(16_24_40/0.05),0_0_0_1px_rgb(16_24_40/0.1),0_18px_40px_-20px_rgb(51_85_255/0.35)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--ml-accent),0_0_0_5px_rgb(51_85_255/0.14),0_18px_40px_-20px_rgb(51_85_255/0.4)]">
-        <Link2 className="size-[18px] shrink-0 text-ink-3" aria-hidden />
+      <div className="flex w-full items-center gap-2 rounded-full bg-surface p-1.5 pl-5 shadow-[0_0_0_1px_rgb(0_0_0/0.1),0_1px_2px_rgb(0_0_0/0.05),0_12px_32px_-12px_rgb(0_0_0/0.16)] transition-shadow focus-within:shadow-[0_0_0_1.5px_var(--ml-accent),0_0_0_5px_rgb(51_85_255/0.14),0_12px_32px_-12px_rgb(0_0_0/0.16)]">
+        <Link2 className="hidden size-[18px] shrink-0 text-ink-3 sm:block" aria-hidden />
         <input
-          id="hero-link"
+          id={id}
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
@@ -54,12 +57,12 @@ export function HeroLinkForm() {
           autoComplete="url"
           placeholder="apps.apple.com/app/your-app"
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "hero-link-error" : "hero-link-hint"}
-          className="h-11 min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-3 sm:text-headline"
+          aria-describedby={error ? errorId : hintId}
+          className="h-11 min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-3 focus-visible:outline-none sm:h-12 sm:text-headline"
         />
         <button
           type="submit"
-          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full bg-accent px-4 text-body-sm font-medium text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:shadow-focus sm:px-5 sm:text-body"
+          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full bg-accent px-4 text-body-sm font-medium text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:shadow-focus sm:h-12 sm:px-6 sm:text-body"
         >
           <span className="hidden sm:inline">Start with my app</span>
           <span className="sm:hidden">Start</span>
@@ -67,11 +70,11 @@ export function HeroLinkForm() {
         </button>
       </div>
       {error ? (
-        <p id="hero-link-error" role="alert" className="mt-3 text-center text-footnote text-danger">
+        <p id={errorId} role="alert" className="mt-3 text-center text-footnote text-danger text-balance">
           {error}
         </p>
       ) : (
-        <p id="hero-link-hint" className="mt-3 text-center text-footnote text-ink-2">
+        <p id={hintId} className="mt-3 text-center text-footnote text-ink-2 text-balance">
           No listing yet? Leave it empty and describe your app instead.
         </p>
       )}
@@ -83,17 +86,17 @@ export function NavAuthButtons() {
   const { status } = useAuth();
   if (status === "signed_in") {
     return (
-      <a href={routes.login()} className="inline-flex h-8 items-center rounded-full bg-ink px-3.5 text-footnote font-medium text-white hover:bg-ink/85">
+      <a href={routes.login()} className="inline-flex h-8 items-center rounded-full bg-ink px-3.5 text-footnote font-medium text-white transition-colors hover:bg-ink/85">
         Open MuseLaunch
       </a>
     );
   }
   return (
     <div className="flex items-center gap-1">
-      <a href={routes.login()} className="inline-flex h-8 items-center rounded-full px-3 text-footnote font-medium text-ink-2 hover:bg-mist hover:text-ink">
+      <a href={routes.login()} className="inline-flex h-8 items-center rounded-full px-3 text-footnote font-medium text-ink-2 transition-colors hover:text-ink">
         Sign in
       </a>
-      <a href={routes.login(routes.onboarding())} className="inline-flex h-8 items-center rounded-full bg-ink px-3.5 text-footnote font-medium text-white hover:bg-ink/85">
+      <a href={routes.login(routes.onboarding())} className="inline-flex h-8 items-center rounded-full bg-ink px-3.5 text-footnote font-medium text-white transition-colors hover:bg-ink/85">
         Get started
       </a>
     </div>
