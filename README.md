@@ -78,12 +78,18 @@ Use the sample listing shown in the banner. Fixture mode refuses to start when `
 `APP_ENV` is `production`. To add fake responses for a new feature, add a file to
 `apps/api/src/fixture-routes/` (the contract and an example are in `_types.ts`).
 
-The end-to-end journey test runs against fixture mode (it starts both servers if they aren't
-running, and does a real HyperFrames render, so allow about 10–20 minutes):
+The end-to-end tests run against fixture mode. They start both servers if they aren't running and
+do real HyperFrames renders, so allow 15–40 minutes:
 
 ```powershell
-pnpm e2e        # screenshots go to docs/screenshots/e2e-*.png
+pnpm e2e            # both specs
+pnpm e2e journey    # the phase-2 demo: Growth Autopilot, founder clip + SAM, hooks, export (e2e-*.png)
+pnpm e2e campaign   # the hands-on campaign flow, post, mark as posted (e2e-campaign-*.png)
 ```
+
+Screenshots go to `docs/screenshots/`. The founder clip in the demo is the synthetic presenter
+fixture (`fixtures/render/presenter/`); in fixture mode SAM answers "person"/"phone" with its
+silhouettes (`fixtures/media/sam-presenter-*.json`).
 
 It needs Playwright's Chromium (`npx playwright install chromium`); set `RENDER_CHROME_PATH` to a
 chrome-headless-shell binary if the renderer can't find one.
