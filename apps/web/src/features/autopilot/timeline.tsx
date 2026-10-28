@@ -3,7 +3,7 @@ import { Badge, ProgressBar, SourceChip, StatusPill, cn, humanizeStatus, jobLabe
 import type { Autopilot } from "@muselaunch/contracts";
 import { AlertTriangle, ArrowUpRight, Bot, Check, ChevronDown, CircleDot, Coins, Eye, Hand, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { relativeTime } from "@/lib/labels";
 import { byStage, entityHref, RAIL, railIndex, stageOutcome, type AutopilotDetail, type LogEntry, type LoopStage } from "./types";
 
@@ -46,8 +46,18 @@ function Dot({ state, index, small }: { state: StepState; index: number; small?:
 
 /** Horizontal stage rail: where the loop is, at a glance. */
 export function StageRail({ states }: { states: StepState[] }) {
+  // On narrow screens the rail scrolls sideways: keep the current stage in view.
+  const ref = useRef<HTMLOListElement>(null);
+  const current = states.findIndex((st) => st === "active" || st === "attention");
+  useEffect(() => {
+    const ol = ref.current;
+    const li = current >= 0 ? (ol?.children[current] as HTMLElement | undefined) : undefined;
+    if (!ol || !li || ol.scrollWidth <= ol.clientWidth) return;
+    const left = li.getBoundingClientRect().left - ol.getBoundingClientRect().left + ol.scrollLeft;
+    ol.scrollLeft = Math.max(0, left - (ol.clientWidth - li.offsetWidth) / 2);
+  }, [current]);
   return (
-    <ol className="-mx-1 flex snap-x gap-1 overflow-x-auto px-1 pb-1" aria-label="Autopilot stages">
+    <ol ref={ref} className="-mx-1 flex snap-x gap-1 overflow-x-auto px-1 pb-1" aria-label="Autopilot stages">
       {RAIL.map((r, i) => (
         <li key={r.stage} className="flex min-w-[76px] flex-1 snap-start flex-col items-center gap-1.5" aria-current={states[i] === "active" || states[i] === "attention" ? "step" : undefined}>
           <div className="flex w-full items-center">

@@ -17,10 +17,11 @@ export function Badge({ tone = "neutral", icon, children, className, title }: { 
   return (
     <span
       title={title}
-      className={cn("inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-caption font-medium [&_svg]:size-3", TONE[tone], className)}
+      className={cn("inline-flex h-[22px] max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-caption font-medium [&_svg]:size-3 [&_svg]:shrink-0", TONE[tone], className)}
     >
       {icon}
-      {children}
+      {/* Never wider than its container (phones): long labels truncate; `title` carries the full text. */}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }

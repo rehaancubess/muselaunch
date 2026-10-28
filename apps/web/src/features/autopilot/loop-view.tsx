@@ -295,7 +295,7 @@ export function LoopView({ detail }: { detail: AutopilotDetail }) {
 
       <CheckpointCard detail={detail} />
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="min-w-0 space-y-4" aria-label="What the loop did">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

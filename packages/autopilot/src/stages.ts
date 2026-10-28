@@ -1,5 +1,5 @@
 import { applyFinding, brandGate, truncateWords, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
-import { gatherExperimentData } from "@muselaunch/analytics";
+import { createTrackedLink, gatherExperimentData } from "@muselaunch/analytics";
 import { lintDoc, totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
@@ -636,6 +636,11 @@ const schedule: StageFn = async (env, step) => {
   const times = await suggestTimes(env.ws, env.appId, { channel, count: Math.max(1, comps.length) }, tz, nowMs(env.p));
   const postIds: string[] = [];
   const refs: EntityRef[] = [];
+  // Each post gets its own tracked link to the app's store page / site, tagged with the experiment
+  // variant, so clicks (and installs, where the store passes them on) are attributed per variant.
+  const app = await env.ws.collection("apps").get(env.appId);
+  const destination = app?.storeUrls.ios ? "ios" : app?.storeUrls.android ? "android" : app?.websiteUrl ? "website" : undefined;
+  const expBefore = env.ap.hypothesis?.experimentId ? await env.ws.collection("experiments").get(env.ap.hypothesis.experimentId) : null;
   for (const [i, c] of comps.entries()) {
     const already = existing.find((x) => x.compositionId === c.id && x.status !== "cancelled");
     if (already) {
@@ -644,12 +649,23 @@ const schedule: StageFn = async (env, step) => {
     }
     const pack = packs.find((x) => x.variantId === c.variantId && x.channel === channel);
     const slot = times.items[i];
+    let trackingLinkId: string | undefined;
+    if (destination) {
+      try {
+        const key = expBefore?.variants.find((v) => v.variantId === c.variantId)?.key;
+        const link = await createTrackedLink(env.p, env.ctx.workspaceId, campaignId, { destination, confirmExternalDestination: false, channel, utm: { source: channel, medium: "social", content: key ?? c.variantId } }, env.ctx.actor);
+        trackingLinkId = link.id;
+        refs.push(ref("attributionLinks", link.id));
+      } catch (raw) {
+        env.note("observation", `No tracked link for “${c.title}”: ${toAppError(raw).opts.userMessage ?? toAppError(raw).message}`);
+      }
+    }
     try {
       const { post } = await createPost(
         env.p,
         env.ctx.workspaceId,
         env.appId,
-        { campaignId, variantId: c.variantId, compositionId: c.id, compositionVersion: rendered.get(c.id), copyPackId: pack?.id, caption: pack ? undefined : c.title, channel, scheduledAt: slot?.at, suggestedTimeReason: slot?.reason, visibility: "public" },
+        { campaignId, variantId: c.variantId, compositionId: c.id, compositionVersion: rendered.get(c.id), copyPackId: pack?.id, caption: pack ? undefined : c.title, channel, scheduledAt: slot?.at, suggestedTimeReason: slot?.reason, visibility: "public", trackingLinkId },
         env.ctx.actor,
       );
       postIds.push(post.id);

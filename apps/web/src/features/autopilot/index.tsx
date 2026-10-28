@@ -25,7 +25,7 @@ function LoopSkeleton() {
   return (
     <div className="space-y-6" aria-busy>
       <Skeleton className="h-40 w-full" rounded="xl" />
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Skeleton className="h-80 w-full" rounded="xl" />
         <Skeleton className="h-56 w-full" rounded="xl" />
       </div>
@@ -120,7 +120,7 @@ export default function AutopilotRoot({ appId, initialGoal }: { appId: string; i
                 <SelectedLoop key={selected} id={selected} />
               </>
             ) : showStart ? (
-              <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
                 <StartCard appId={appId} initialGoal={initialGoal} onStarted={(id) => choose(id)} />
                 <HowItWorks />
               </div>

@@ -69,8 +69,12 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     for (const post of posts) {
       expect(post.status).toBe("awaiting_approval");
       expect(post.approvalId).toBeTruthy();
+      expect(post.trackingLinkId).toBeTruthy();
     }
     expect(posts.some((x) => x.status === "published")).toBe(false);
+    // Each post has its own tracked link, tagged with its experiment variant (utm_content)
+    const links = await h.p.db.ws(h.wid).collection("attributionLinks").getMany(posts.map((x) => x.trackingLinkId!));
+    expect(new Set(links.map((l) => l.utm.content))).toEqual(new Set(["v1", "v2"]));
     // Budget accounting
     expect(ap.spent.credits).toBeGreaterThan(0);
     expect(ap.spent.credits).toBeLessThanOrEqual(ap.budget.maxCredits);
