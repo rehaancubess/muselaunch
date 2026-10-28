@@ -40,6 +40,9 @@ export async function needsYou(p: Platform, workspaceId: string, member: Member,
     const item = await toItem(a, base, cap);
     if (item) items.push(item);
   }
+  // Decisions that block a running loop first, then posts in the order they'd go out.
+  const rank = (i: NeedsYouItem) => (i.kind === "spend" || i.kind === "decision" ? 0 : 1);
+  items.sort((a, b) => rank(a) - rank(b) || (a.preview?.scheduledAt ?? "\uffff").localeCompare(b.preview?.scheduledAt ?? "\uffff") || b.createdAt.localeCompare(a.createdAt));
   const limited = items.slice(0, opts.limit ?? 50);
   return { items: limited, count: items.length };
 

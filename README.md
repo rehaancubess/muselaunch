@@ -83,9 +83,14 @@ do real HyperFrames renders, so allow 15–40 minutes:
 
 ```powershell
 pnpm e2e            # both specs
-pnpm e2e journey    # the phase-2 demo: Growth Autopilot, founder clip + SAM, hooks, export (e2e-*.png)
-pnpm e2e campaign   # the hands-on campaign flow, post, mark as posted (e2e-campaign-*.png)
+pnpm e2e journey    # paste the sample listing → Go → Growth Autopilot runs → Needs you; founder clip + SAM, hooks, export (e2e-*.png)
+pnpm e2e campaign   # "I'll do it myself": the hands-on campaign flow, post, mark as posted (e2e-campaign-*.png)
 ```
+
+Growth Autopilot is the default: onboarding is one step (paste a link or describe the app → Go). The
+workspace is created from your name with a guessed country (both editable in Settings), and the run
+starts on its own once the app is imported. Posts, outreach and spending past a run's budget always
+wait in "Needs you". "I'll do it myself" (onboarding) or Settings → Growth Autopilot turns it off.
 
 Screenshots go to `docs/screenshots/`. The founder clip in the demo is the synthetic presenter
 fixture (`fixtures/render/presenter/`); in fixture mode SAM answers "person"/"phone" with its

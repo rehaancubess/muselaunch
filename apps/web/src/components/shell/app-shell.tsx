@@ -30,6 +30,7 @@ import { routes, type PrimaryTab } from "@/lib/routes";
 import { useMe, useWorkspace } from "@/lib/workspace";
 import { CommandPalette } from "./command-palette";
 import { JobsTray } from "./jobs-tray";
+import { NeedsYouButton } from "@/features/autopilot/needs-you";
 import { AutopilotChip } from "./autopilot-chip";
 
 const LAST_APP_KEY = (wid: string) => `ml.lastApp.${wid}`;
@@ -248,6 +249,7 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
             >
               <Search className="size-[18px]" aria-hidden />
             </button>
+            <NeedsYouButton workspaceId={workspaceId} />
             <AutopilotChip workspaceId={workspaceId} appId={app?.id} />
             <JobsTray workspaceId={workspaceId} />
             <AccountMenu />

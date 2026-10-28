@@ -7,7 +7,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
+import { AppIcon } from "@/components/app-icon";
 import { AgentRunsList } from "@/features/agents";
+import { AutopilotHome } from "@/features/autopilot/home";
 import { STATUS_COPY, statusKind } from "@/features/autopilot/types";
 import { useActiveAutopilot } from "@/components/shell/autopilot-chip";
 import { wsPath } from "@/lib/api";
@@ -138,7 +140,41 @@ function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: str
   );
 }
 
+/**
+ * Creator tab. Autopilot on (the default): the app's Home — what Growth Autopilot is doing, what it
+ * made, what needs you — with "Create a campaign myself" as the secondary path. Autopilot off ("I'll
+ * do it myself"): the hands-on composer and campaign list.
+ */
 export default function CreatorPage() {
+  const { workspace } = useWorkspace();
+  const autopilotOn = workspace?.settings.autopilot?.enabled ?? true;
+  return autopilotOn ? <HomePage /> : <ManualCreator />;
+}
+
+function HomePage() {
+  const { app, appId, workspaceId } = useCurrentApp();
+  return (
+    <PageContainer>
+      <div className="mx-auto max-w-4xl space-y-8 pb-14 pt-2 md:pt-6">
+        <header className="flex items-center gap-3">
+          <AppIcon app={app} workspaceId={workspaceId} size={40} />
+          <div className="min-w-0">
+            <h1 className="truncate text-title-2 font-semibold">{app?.name && app.name !== "New app" ? app.name : "Your app"}</h1>
+            <p className="text-footnote text-ink-2">
+              Autopilot is on: MuseLaunch does the work, you approve what goes out.{" "}
+              <Link href={routes.settings.workspace(workspaceId)} className="font-medium text-accent hover:underline">
+                Settings
+              </Link>
+            </p>
+          </div>
+        </header>
+        <AutopilotHome appId={appId} />
+      </div>
+    </PageContainer>
+  );
+}
+
+function ManualCreator() {
   const { app, appId, workspaceId } = useCurrentApp();
   const { can } = useWorkspace();
   const r = routes.app(workspaceId, appId);

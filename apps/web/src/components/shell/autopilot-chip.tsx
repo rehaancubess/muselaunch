@@ -5,8 +5,10 @@ import Link from "next/link";
 import { wsPath } from "@/lib/api";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
+import { useNeedsYou } from "@/features/autopilot/needs-you";
 import type { AutopilotListItem } from "@/features/autopilot/types";
 import { isActive, STATUS_COPY } from "@/features/autopilot/types";
+import { useWorkspace } from "@/lib/workspace";
 
 /** The app's running Growth Autopilot loop, if any (one runs per app at a time). */
 export function useActiveAutopilot(workspaceId: string, appId: string | null | undefined) {
@@ -19,17 +21,21 @@ export function useActiveAutopilot(workspaceId: string, appId: string | null | u
 }
 
 /**
- * Top-bar status for a running Growth Autopilot: always one click from its checkpoints. Hidden when
- * no loop is active, so the bar stays quiet.
+ * Top-bar status for a running Growth Autopilot: always one click from the app's Home (Autopilot on)
+ * or the loop page. Hidden when no loop is active, and while the "Needs you" badge is showing (it
+ * already leads to the decisions), so the bar stays quiet.
  */
 export function AutopilotChip({ workspaceId, appId }: { workspaceId: string; appId: string | null | undefined }) {
   const active = useActiveAutopilot(workspaceId, appId);
-  if (!appId || !active) return null;
+  const { workspace } = useWorkspace();
+  const needs = useNeedsYou(workspaceId);
+  if (!appId || !active || (needs.data?.count ?? 0) > 0) return null;
+  const home = workspace?.settings.autopilot?.enabled ?? true;
   const needsYou = active.status === "awaiting_user";
   const label = STATUS_COPY[active.status];
   return (
     <Link
-      href={`${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(active.id)}`}
+      href={home ? routes.app(workspaceId, appId).creator : `${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(active.id)}`}
       prefetch={false}
       aria-label={`Growth Autopilot: ${label}`}
       title={active.goal}
