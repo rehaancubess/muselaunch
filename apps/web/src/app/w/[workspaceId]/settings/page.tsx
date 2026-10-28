@@ -8,7 +8,9 @@ import { useMe, useWorkspace } from "@/lib/workspace";
 
 const TIMEZONES = (() => {
   try {
-    return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? ["UTC"];
+    const zones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
+    // Workspaces default to "UTC", which some runtimes leave out of the list (the select would show the first zone).
+    return zones.includes("UTC") ? zones : ["UTC", ...zones];
   } catch {
     return ["UTC"];
   }
