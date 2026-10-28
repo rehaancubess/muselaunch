@@ -115,7 +115,10 @@ export class MetaClient {
       apiKey: opts.apiKey ?? cfg.META_API_KEY ?? "missing-meta-api-key",
       baseURL: this.baseUrl,
       timeout: cfg.META_TIMEOUT_MS,
-      maxRetries: 3,
+      // One quick SDK retry for transient 429/5xx/connection errors. Jobs retry again (up to 3
+      // attempts), so more SDK retries would multiply long, billed calls (a timed-out request may
+      // still be charged).
+      maxRetries: 1,
       fetch: withSdkRetryPolicy(opts.fetch ?? fetch),
     });
     this.fetchImpl = opts.fetch ?? fetch;
