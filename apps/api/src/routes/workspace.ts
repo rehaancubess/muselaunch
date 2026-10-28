@@ -1,8 +1,9 @@
+import { autopilotSettings } from "@muselaunch/autopilot";
 import { InviteMemberRequest, UpdateMemberRequest } from "@muselaunch/contracts";
 import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorOf, body, requireCap, type AppEnv } from "../context";
+import { actorOf, assertCap, body, requireCap, type AppEnv } from "../context";
 import { audit, createInvite } from "../services/workspaces";
 
 /** Workspace settings, members and invites. Mounted under /v1/workspaces/:workspaceId. */
@@ -15,11 +16,37 @@ workspaceRoutes.get("/", async (c) => {
   return c.json({ workspace: c.get("workspace"), member: c.get("member"), credits: balance });
 });
 
+const UpdateWorkspace = z.object({
+  name: z.string().min(1).max(120).optional(),
+  settings: z
+    .object({
+      defaultTimezone: z.string().max(64).optional(),
+      defaultLocale: z.string().max(16).optional(),
+      /** Growth Autopilot defaults. `maxCreditsPerRun: null` removes the limit. */
+      autopilot: z
+        .object({ enabled: z.boolean().optional(), autoApproveRenders: z.boolean().optional(), maxCreditsPerRun: z.number().int().positive().max(2000).nullable().optional() })
+        .strict()
+        .optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Workspace settings (workspace.manage). Autopilot spend settings — letting renders run without
+ * asking, and the per-run credit limit — pre-authorise spending, so changing them also needs
+ * billing.manage (same rule as the start route's auto-approve threshold).
+ */
 workspaceRoutes.patch("/", requireCap("workspace.manage"), async (c) => {
   const p = c.get("platform");
-  const input = await body(c, z.object({ name: z.string().min(1).max(120).optional(), settings: z.object({ defaultTimezone: z.string().max(64).optional(), defaultLocale: z.string().max(16).optional() }).optional() }));
+  const input = await body(c, UpdateWorkspace);
   const ws = c.get("workspace");
-  const updated = await p.db.top("workspaces").update(ws.id, { name: input.name ?? ws.name, settings: { ...ws.settings, ...input.settings } });
+  const ap = input.settings?.autopilot;
+  if (ap && (ap.autoApproveRenders !== undefined || ap.maxCreditsPerRun !== undefined)) assertCap(c, "billing.manage");
+  const { autopilot: _ignored, ...rest } = input.settings ?? {};
+  const current = autopilotSettings(ws);
+  const maxCreditsPerRun = ap?.maxCreditsPerRun === undefined ? current.maxCreditsPerRun : (ap.maxCreditsPerRun ?? undefined);
+  const autopilot = { enabled: ap?.enabled ?? current.enabled, autoApproveRenders: ap?.autoApproveRenders ?? current.autoApproveRenders, ...(maxCreditsPerRun ? { maxCreditsPerRun } : {}) };
+  const updated = await p.db.top("workspaces").update(ws.id, { name: input.name ?? ws.name, settings: { ...ws.settings, ...rest, autopilot } });
   await audit(p, ws.id, actorOf(c), "workspace.updated", input);
   return c.json({ workspace: updated });
 });

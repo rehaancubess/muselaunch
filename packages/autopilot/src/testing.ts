@@ -22,7 +22,7 @@ import {
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
-import type { BrandFinding, BrandReview, CompositionDoc } from "@muselaunch/contracts";
+import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc } from "@muselaunch/contracts";
 import { createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
@@ -197,7 +197,7 @@ export async function autopilotHarness(opts: PlatformOptions & { workspaceId?: s
     ownerId: "u1",
     planId: "free",
     spendCeilingUsd: 25,
-    settings: { defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard" },
+    settings: { defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } },
     createdAt: now,
     updatedAt: now,
     createdBy: "u1",

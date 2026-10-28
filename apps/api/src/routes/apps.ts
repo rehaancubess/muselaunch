@@ -1,11 +1,18 @@
-import { CreateAppRequest, HttpUrl } from "@muselaunch/contracts";
+import { autopilotSettings, tryStartAutoAutopilot } from "@muselaunch/autopilot";
+import { CreateAppRequest, HttpUrl, type AutopilotAutoStart } from "@muselaunch/contracts";
 import { AppError, assertSafeUrl } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, body, idempotencyKey, requireCap, type AppEnv } from "../context";
 import { audit } from "../services/workspaces";
 
-/** Base app CRUD + import trigger. App DNA/evidence/claims/brand routes live in app-dna.ts (module B). */
+/**
+ * Base app CRUD + import trigger. App DNA/evidence/claims/brand routes live in app-dna.ts (module B).
+ * Autopilot by default: unless the request says `autopilot: false` (or the workspace turned Autopilot
+ * off), adding an app with something to import also starts a Growth Autopilot run that waits for the
+ * import, accepts App DNA and works within a budget the workspace's credits cover (see
+ * @muselaunch/autopilot auto.ts). The response says whether it started and, if not, why.
+ */
 export const appRoutes = new Hono<AppEnv>();
 
 appRoutes.get("/", async (c) => {
@@ -59,7 +66,15 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
     await p.db.ws(wid).collection("apps").update(app.id, { lastImportId: imp.id }, { actor });
   }
   await audit(p, wid, actor, "app.created", { appId: app.id });
-  return c.json({ app, job }, hasSources ? 202 : 201);
+  const wantsAutopilot = input.autopilot ?? autopilotSettings(c.get("workspace")).enabled;
+  let autopilot: AutopilotAutoStart | null = null;
+  if (wantsAutopilot) {
+    autopilot = job
+      ? await tryStartAutoAutopilot(p, wid, app.id, { member: c.get("member"), actor })
+      : { started: false, code: "no_source", reason: "Add a store link, a website or a short description so MuseLaunch can learn the app first; Growth Autopilot starts from there." };
+    if (autopilot.started) await audit(p, wid, actor, "autopilot.auto_started", { appId: app.id, autopilotId: autopilot.autopilotId, budget: autopilot.plan?.maxCredits });
+  }
+  return c.json({ app, job, autopilot }, hasSources ? 202 : 201);
 });
 
 appRoutes.get("/:appId", async (c) => {

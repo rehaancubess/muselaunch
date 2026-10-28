@@ -25,13 +25,24 @@ export function estimateAutopilot(p: Platform, input: { variants: number; maxIte
   return { perIteration, total: perIteration * input.maxIterations, breakdown: lines };
 }
 
-export async function startAutopilot(p: Platform, workspaceId: string, appId: string, input: StartInput, actor: string): Promise<{ autopilot: Autopilot; job: Job }> {
+export async function startAutopilot(
+  p: Platform,
+  workspaceId: string,
+  appId: string,
+  input: StartInput,
+  actor: string,
+  opts: { auto?: Autopilot["auto"]; notes?: string[] } = {},
+): Promise<{ autopilot: Autopilot; job: Job }> {
   const ws = p.db.ws(workspaceId);
   await ws.collection("apps").getOrThrow(appId);
   const active = await ws.collection("autopilots").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 });
   if (active.items.some((a) => ACTIVE.includes(a.status))) {
     throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "This app already has an active Growth Autopilot. Pause or cancel it first." });
   }
+  const renders = input.autoApproveCredits ? `final renders run without asking up to ${input.autoApproveCredits} credits` : "final renders ask you first";
+  const summary = opts.auto
+    ? `Started automatically (Autopilot is on). Goal: “${input.goal}”. Budget ${input.maxCredits} credits for one full run: research, ${input.variants} video${input.variants > 1 ? "s" : ""}, checks, renders, post drafts and analysis; ${renders}. Posts, outreach and anything over budget always wait for your approval.${opts.notes?.length ? ` ${opts.notes.join(" ")}` : ""}`
+    : `Started with goal “${input.goal}”. Budget ${input.maxCredits} credits, ${input.maxIterations} iteration(s), ${input.variants} variant(s); renders auto-approved up to ${input.autoApproveCredits} credits. Posts always need your approval.`;
   const autopilot = await ws.collection("autopilots").create(
     {
       appId,
@@ -41,7 +52,8 @@ export async function startAutopilot(p: Platform, workspaceId: string, appId: st
       iteration: 1,
       budget: { maxCredits: input.maxCredits, maxIterations: input.maxIterations, autoApproveCredits: input.autoApproveCredits, variants: input.variants },
       waitingOn: { jobIds: [] },
-      log: [{ at: new Date(nowMs(p)).toISOString(), stage: "understand", kind: "decision", summary: `Started with goal “${input.goal}”. Budget ${input.maxCredits} credits, ${input.maxIterations} iteration(s), ${input.variants} variant(s); renders auto-approved up to ${input.autoApproveCredits} credits. Posts always need your approval.`, refs: [] }],
+      log: [{ at: new Date(nowMs(p)).toISOString(), stage: "understand", kind: "decision", summary: summary.slice(0, 1200), refs: [] }],
+      ...(opts.auto ? { auto: opts.auto } : {}),
     },
     { actor },
   );

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { App } from "./app";
+import { AutopilotAutoStart } from "./autopilot";
 import { CreditBalance, CreditLedgerEntry, Plan } from "./billing";
 import { CampaignGoal, Deliverable } from "./campaign";
 import { AspectRatio, Channel, ErrorInfo, HttpUrl, Id } from "./common";
@@ -47,9 +48,15 @@ export const CreateAppRequest = z.object({
   /** Manual description when there is no public listing. */
   description: z.string().max(5000).optional(),
   targetCountries: z.array(z.string().length(2)).max(20).optional(),
+  /**
+   * Start Growth Autopilot once the app is imported (App DNA accepted automatically, default goal and
+   * budget). Omitted = the workspace's Autopilot setting (on by default); false = "I'll do it myself".
+   */
+  autopilot: z.boolean().optional(),
 });
 export type CreateAppRequest = z.infer<typeof CreateAppRequest>;
-export const CreateAppResponse = z.object({ app: App, job: Job.nullable() });
+/** `autopilot` is null when Autopilot wasn't requested for this app. */
+export const CreateAppResponse = z.object({ app: App, job: Job.nullable(), autopilot: AutopilotAutoStart.nullable().optional() });
 
 export const CreateUploadRequest = z.object({
   filename: z.string().min(1).max(260),

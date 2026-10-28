@@ -8,6 +8,7 @@ import { AppError, toAppError } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
+import { defaultGoal, dnaJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 
 export interface StepInfo {
@@ -64,10 +65,34 @@ function citeCheck(findings: ResearchFinding[], ids: string[]): string | null {
 // understand
 // ---------------------------------------------------------------------------
 
+/** Accept App DNA on the founder's behalf (Autopilot on): same effect as `POST /apps/:appId/dna/confirm`, attributed to the loop. */
+async function acceptDnaAutomatically(env: LoopEnv, app: Awaited<ReturnType<typeof loadAppContext>>): Promise<void> {
+  const dna = app.dna!;
+  const profile = await env.ws.collection("brandProfiles").update(env.appId, { status: "confirmed", confirmedBy: `agent:autopilot:${env.ap.id}`, confirmedAt: new Date(nowMs(env.p)).toISOString() }, { actor: env.ctx.actor });
+  await env.ws.collection("apps").update(env.appId, { dnaStatus: "confirmed", status: "ready" }, { actor: env.ctx.actor });
+  await env.ctx.enqueue("memory.ingest", { appId: env.appId, ref: ref("brandProfiles", env.appId) }, { idempotencyKey: `memory.ingest:dna:${env.appId}:v${profile.version}`, appId: env.appId }).catch(() => undefined);
+  env.note(
+    "action",
+    `Accepted your App DNA automatically because Autopilot is on: ${dna.features.length} features, ${dna.audiences.length} audiences, ${app.verifiedClaims.length} verified claims. Creative only uses verified claims. Review or edit it any time in App DNA & brand.`,
+    [ref("brandProfiles", env.appId)],
+  );
+}
+
 const understand: StageFn = async (env, step) => {
-  const app = await loadAppContext(env.ws, env.appId);
+  let app = await loadAppContext(env.ws, env.appId);
   if (!app.dna) {
-    if (step.phase === "resume") {
+    // The app is still being imported or analysed (e.g. the run started right after the app was
+    // added): wait for that work instead of starting a second analysis.
+    const inflight = await dnaJobsInFlight(env.ws, env.appId);
+    if (inflight.length) {
+      const importing = inflight.some((j) => j.type === "app.import");
+      return { kind: "wait", jobIds: inflight.map((j) => j.id), tag: "understand:import", reason: importing ? "Reading your app’s listing and saving its screenshots" : "Muse Spark is learning your app (App DNA)" };
+    }
+    if (step.phase === "resume" && step.tag === "understand:import") {
+      const failed = (await env.jobs()).find((j) => j.status !== "succeeded");
+      if (failed) throw fail("BAD_REQUEST", `App import or analysis didn't finish (${jobError(failed)})`, "MuseLaunch couldn't finish learning your app from its listing, so the autopilot has nothing to work from yet. Retry the import or describe your app in App DNA, then resume.");
+      // Imported, but the analysis never started (e.g. credits ran short then): run it inside the budget.
+    } else if (step.phase === "resume") {
       const [job] = await delegated(env, "app.analyze");
       throw fail("BAD_REQUEST", `App DNA could not be built (${job ? jobError(job) : "no analysis job"})`, "Growth Autopilot needs your App DNA. Import your listing or describe your app, then resume.");
     }
@@ -76,10 +101,21 @@ const understand: StageFn = async (env, step) => {
     const job = await env.delegate("app.analyze", { appId: env.appId, refresh: false }, { key: "understand:dna", label: "No App DNA yet: asked Muse Spark to analyse the real listing and screenshots.", credits: { operation: "app.analyze" } });
     return { kind: "wait", jobIds: [job.id], tag: "understand:dna", reason: "Building App DNA from your listing" };
   }
+  if (env.ap.auto?.acceptDna && app.dna.status !== "confirmed") {
+    await acceptDnaAutomatically(env, app);
+    app = await loadAppContext(env.ws, env.appId);
+  }
+  const dna = app.dna!;
+  if (env.ap.auto?.goal) {
+    const { goal } = defaultGoal(app.app, dna);
+    const first = dna.audiences[0]?.name;
+    env.set({ goal, auto: { ...env.ap.auto, goal: false } });
+    env.note("decision", `Goal set from your App DNA: “${goal}”${first ? ` (${first} is the first audience it lists)` : ""}. Start a run with your own goal any time to change it.`, [ref("brandProfiles", env.appId)]);
+  }
   const memory = await retrieveMemory(env.p, { workspaceId: env.ctx.workspaceId, appId: env.appId, task: "growth_strategy", query: env.ap.goal, jobId: env.ctx.job.id });
   env.note(
     "observation",
-    `Understood ${app.app.name}: ${app.dna.oneLiner} ${app.dna.features.length} grounded features, ${app.verifiedClaims.length} verified claims, ${app.dna.audiences.length} DNA audiences. Memory: ${memory.items.length} item(s) via ${memory.usedGlimmer ? "Muse Glimmer (self-hosted)" : "deterministic ranking (Glimmer not connected)"}.`,
+    `Understood ${app.app.name}: ${dna.oneLiner} ${dna.features.length} grounded features, ${app.verifiedClaims.length} verified claims, ${dna.audiences.length} DNA audiences. Memory: ${memory.items.length} item(s) via ${memory.usedGlimmer ? "Muse Glimmer (self-hosted)" : "deterministic ranking (Glimmer not connected)"}.`,
     [ref("brandProfiles", env.appId), ...memory.items.slice(0, 5).map((m) => ref("brandPreferences", m.id))],
   );
   return { kind: "advance", to: "research" };
