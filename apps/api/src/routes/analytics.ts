@@ -24,7 +24,7 @@ import {
   setLinkActive,
   updateExperiment,
 } from "@muselaunch/analytics";
-import { AppError } from "@muselaunch/platform";
+import { AppError, trackedLinkUrl } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, body, idempotencyKey, query, requireCap, type AppEnv, type Ctx } from "../context";
@@ -177,7 +177,7 @@ analyticsRoutes.delete("/imports/:id", requireCap("analytics.write"), async (c) 
 // Tracked links
 // ---------------------------------------------------------------------------
 
-const publicUrl = (c: Ctx, slug: string) => `${(process.env.LINK_PUBLIC_BASE_URL ?? c.get("platform").cfg.API_PUBLIC_URL).replace(/\/$/, "")}/r/${slug}`;
+const publicUrl = (c: Ctx, slug: string) => trackedLinkUrl(c.get("platform").cfg, slug);
 
 analyticsRoutes.post("/campaigns/:campaignId/links", requireCap("analytics.write"), async (c) => {
   const input = await body(c, CreateTrackedLinkRequest);

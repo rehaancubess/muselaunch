@@ -3,7 +3,8 @@
   "choose_audience": {
     "candidates": [
       { "name": "University students in exam season", "why": "Study-with-me timer videos recur in the research; the timer + blocking features fit." },
-      { "name": "Remote workers", "why": "Blocking helps, but the research found fewer reachable formats." }
+      { "name": "Remote workers", "why": "Blocking helps, but the research found fewer reachable formats." },
+      { "name": "Habit trackers who love streaks", "why": "Weekly focus reports with streaks fit, but no finding shows this audience is reachable right now." }
     ],
     "audience": "University students revising for exams who lose evenings to their phones",
     "rationale": "The study-with-me format with a visible timer is a recurring short-form format and maps directly to the real timer screen and app blocking.",

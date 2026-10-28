@@ -121,13 +121,19 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(detail.checkpoint).toMatchObject({ action: "spend", status: "pending", subject: { entity: "autopilots", id } });
     expect(ap.log.some((e) => e.kind === "budget")).toBe(true);
 
-    // Approve: the budget is raised just enough, concepts run; further spend asks again each time.
+    // Approve once: the budget is raised to cover the rest of the iteration, so the loop doesn't ask
+    // again before every stage. The next stop is the separate render approval.
+    expect(detail.checkpoint?.estimate?.credits).toBeGreaterThan(0);
     let guard = 0;
+    let budgetApprovals = 0;
     while ((ap = await get(h, id)).status === "awaiting_user" && tagOf(ap.waitingOn.reason)?.startsWith("budget@") && guard++ < 10) {
       await decideCheckpoint(h.p, h.wid, id, { decision: "approve", note: "ok" }, "u1");
+      budgetApprovals++;
       await h.p.inline!.drain();
     }
+    expect(budgetApprovals).toBe(1);
     ap = await get(h, id);
+    expect(ap.log.some((e) => e.kind === "budget" && /rest of this iteration/.test(e.summary))).toBe(true);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "render" });
     expect(tagOf(ap.waitingOn.reason)).toBe("render:approve");
     expect(h.rendered).toHaveLength(0);

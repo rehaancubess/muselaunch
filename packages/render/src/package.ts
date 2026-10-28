@@ -4,10 +4,10 @@
  * Nothing is posted anywhere; this is the honest alternative while social OAuth is pending.
  */
 import { zipSync, strToU8, type Zippable } from "fflate";
-import type { Composition, CompositionDoc, CopyPack, MediaAsset } from "@muselaunch/contracts";
+import { fillAppLink, type AttributionLink, type Composition, type CompositionDoc, type CopyPack, type MediaAsset } from "@muselaunch/contracts";
 import { collectAssetRefs, docHash } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
-import { AppError, assertKeyInWorkspace, safeFilename, workspaceKey, type JobContext } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, safeFilename, trackedLinkUrl, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { renderCacheKey } from "./keys";
 import { extFor, shortHash, toSrt } from "./media";
 
@@ -110,6 +110,10 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
   let packs: CopyPack[] = [];
   if (includeCopy) {
     packs = (await ctx.ws.collection("copyPacks").list({ where: [["campaignId", "==", campaignId]], limit: 50 })).items;
+    // [APP_LINK] → the campaign's tracked link for that channel (else its general campaign link), so
+    // pasted copy carries a measurable link. Without one the placeholder stays and the README says so.
+    const links = (await ctx.ws.collection("attributionLinks").list({ where: [["campaignId", "==", campaignId]], limit: 100 })).items;
+    packs = fillPackLinks(packs, links, (slug) => trackedLinkUrl(p.cfg, slug));
     for (const pack of packs) {
       const lines = pack.items.map((it) => `## ${it.kind}\n${it.text}\n`).join("\n");
       const status = pack.validation ? (pack.validation.ok ? "Claims check: passed" : `Claims check: ${pack.validation.issues.length} issue(s) — review before posting`) : "Claims check: not run";
@@ -129,7 +133,7 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
     "- thumbnails/ — poster frames you can use as covers",
     "- captions/ — SRT subtitle files (from the script or transcript)",
     "- images/ — static slides / ads, if any",
-    "- copy/ — captions, titles and descriptions per channel (with claim-check status)",
+    "- copy/ — captions, titles and descriptions per channel (with claim-check status). Links are the campaign's tracked links; a remaining [APP_LINK] means no tracked link exists yet: replace it with your link.",
     "- ATTRIBUTION.txt — where every piece of media came from and its licence",
     "",
     "## How to publish manually",
@@ -179,4 +183,17 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
     { actor: ctx.actor },
   );
   return { refs: [{ entity: "mediaAssets", id: asset.id }], data: { assetId: asset.id, files: Object.keys(files), missing, bytes: put.bytes } };
+}
+
+/**
+ * Replace [APP_LINK] in exported copy with the campaign's active tracked link for that channel, else
+ * its general (channel-less) campaign link. Links made for one specific post are never reused.
+ */
+export function fillPackLinks(packs: CopyPack[], links: AttributionLink[], urlOf: (slug: string) => string): CopyPack[] {
+  const usable = links.filter((l) => l.active && !l.scheduledPostId);
+  return packs.map((pack) => {
+    const link = usable.find((l) => l.channel === pack.channel) ?? usable.find((l) => !l.channel);
+    const url = link ? urlOf(link.slug) : undefined;
+    return { ...pack, items: pack.items.map((it) => ({ ...it, text: fillAppLink(it.text, url) })) };
+  });
 }

@@ -140,3 +140,8 @@ export function museImageEligible(cfg: Config, endUserCountry: string | undefine
   if (restricted.has(endUserCountry.toUpperCase())) return { eligible: false, reason: `Muse Image is not available to users in ${endUserCountry}` };
   return { eligible: true, reason: "eligible" };
 }
+
+/** Public URL of a tracked link (`/r/:slug`): LINK_PUBLIC_BASE_URL, else API_PUBLIC_URL. */
+export function trackedLinkUrl(cfg: Pick<Config, "API_PUBLIC_URL" | "LINK_PUBLIC_BASE_URL">, slug: string): string {
+  return `${(cfg.LINK_PUBLIC_BASE_URL || cfg.API_PUBLIC_URL).replace(/\/$/, "")}/r/${slug}`;
+}

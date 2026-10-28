@@ -159,20 +159,50 @@ export class LoopEnv {
   }
 
   /**
+   * Estimated credits for the rest of this iteration, from the current stage on (same price list
+   * as `estimateAutopilot`). Automatic fix rounds aren't included: they only happen when a review
+   * blocks, so they can still need one more approval.
+   */
+  restOfIteration(): number {
+    const at = STAGE_ORDER.indexOf(this.ap.stage);
+    const from = (s: Stage) => STAGE_ORDER.indexOf(s) >= at;
+    const v = Math.max(1, this.ap.variantIds.length || this.ap.budget.variants);
+    const e = (op: string, params: Record<string, unknown> = {}) => this.estimate(op, params);
+    let n = 0;
+    if (from("research")) n += e("research.run");
+    if (from("plan_creative")) n += e("campaign.generate_concepts");
+    if (from("produce")) n += v * (e("storyboard.generate") + e("composition.build") + e("render.preview"));
+    if (from("verify")) n += v * e("brand.review");
+    if (from("render")) n += v * e("render.final", { durationSec: 15 });
+    if (from("schedule")) n += v * e("copy.generate");
+    if (from("learn")) n += e("experiment.analyze") + e("recommendations.generate");
+    return n;
+  }
+
+  /**
    * Budget guard before delegating `credits` of work. Returns a checkpoint when the loop budget
-   * would be exceeded (the user can raise it by approving), otherwise null.
+   * would be exceeded, otherwise null. One approval covers the rest of the iteration (not just the
+   * next step), so a small budget asks once instead of before every stage.
    */
   async budgetGate(credits: number, what: string, approved: boolean): Promise<Outcome | null> {
     const spent = await this.spent();
     const max = this.ap.budget.maxCredits;
     if (spent + credits <= max) return null;
+    const rest = Math.max(credits, this.restOfIteration());
+    const raiseTo = Math.max(max, spent + rest);
     if (approved) {
-      this.set({ budget: { ...this.ap.budget, maxCredits: spent + credits } });
-      this.note("budget", `Budget raised to ${spent + credits} credits after your approval to continue (${what}).`);
+      this.set({ budget: { ...this.ap.budget, maxCredits: raiseTo } });
+      this.note("budget", `Budget raised to ${raiseTo} credits after your approval: enough for ${what} and the rest of this iteration (≈${rest}).`);
       return null;
     }
-    this.note("budget", `Paused: ${what} needs ≈${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit budget remain.`);
-    return this.checkpoint("spend", `Growth Autopilot needs ≈${credits} more credits for ${what} (budget ${max}, used ${spent}). Approve to raise the budget and continue.`, credits, `budget@${this.currentTag ?? "enter"}`, `Budget reached before ${what}`);
+    this.note("budget", `Paused: ${what} needs ≈${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit budget remain. The rest of this iteration is estimated at ≈${rest}.`);
+    return this.checkpoint(
+      "spend",
+      `Growth Autopilot needs more credits: ≈${credits} for ${what}, ≈${rest} to finish this iteration (budget ${max}, used ${spent}). Approve to raise the budget to ${raiseTo} credits and continue.`,
+      rest,
+      `budget@${this.currentTag ?? "enter"}`,
+      `Budget reached before ${what}`,
+    );
   }
 
   /** Open an approval checkpoint on this loop (spend / continue). */

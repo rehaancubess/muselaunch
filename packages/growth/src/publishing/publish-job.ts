@@ -1,6 +1,6 @@
-import type { ScheduledPost } from "@muselaunch/contracts";
+import { fillAppLink, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, toAppError, trackedLinkUrl, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { HttpClient, publishingAdapterForChannel, type PublishMedia } from "@muselaunch/providers";
 import { assertApproved, consumeApproval, postSnapshot } from "../approvals";
 import { freshTokens } from "../connections";
@@ -132,6 +132,9 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
     };
   }
 
+  // [APP_LINK] in generated copy becomes this post's tracked link (preflight blocks API posts without one).
+  const link = post.trackingLinkId ? await ws.collection("attributionLinks").get(post.trackingLinkId) : null;
+  const trackingUrl = link ? trackedLinkUrl(p.cfg, link.slug) : undefined;
   const state = await loadPublishState(p, ctx.workspaceId, post);
   let visibleState: Record<string, unknown> = { ...(post.publishState ?? {}) };
   const saveState = async (patch: Record<string, unknown>) => {
@@ -148,7 +151,7 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
   let result;
   try {
     result = await adapter!.publish!(
-      { media, title: post.title, caption: post.caption, tags: post.tags, visibility: post.visibility, containsSyntheticMedia: post.containsSyntheticMedia, scheduledAt: post.scheduledAt },
+      { media, title: post.title && fillAppLink(post.title, trackingUrl), caption: fillAppLink(post.caption, trackingUrl), tags: post.tags, visibility: post.visibility, containsSyntheticMedia: post.containsSyntheticMedia, scheduledAt: post.scheduledAt },
       {
         http: new HttpClient(deps.fetch, adapter!.label),
         tokens,

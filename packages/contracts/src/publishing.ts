@@ -180,3 +180,11 @@ export const OutreachDraft = BaseEntity.extend({
   generatedByRunId: Id.optional(),
 });
 export type OutreachDraft = z.infer<typeof OutreachDraft>;
+
+/** Placeholder generated copy uses where a link belongs (never an invented URL). */
+export const APP_LINK_TOKEN = "[APP_LINK]";
+
+/** Replace the `[APP_LINK]` placeholder with a real (tracked) URL. Text without it is unchanged. */
+export function fillAppLink(text: string, url: string | undefined): string {
+  return url ? text.split(APP_LINK_TOKEN).join(url) : text;
+}

@@ -125,7 +125,7 @@ const research: StageFn = async (env, step) => {
 // ---------------------------------------------------------------------------
 
 const ChooseAudience = z.object({
-  candidates: z.array(z.object({ name: z.string().max(120), why: z.string().max(400) })).min(1).max(4).describe("The 2-3 audiences you compared"),
+  candidates: z.array(z.object({ name: z.string().max(120), why: z.string().max(400) })).min(1).max(4).describe("The audiences you compared: three when the research supports it"),
   segmentId: z.string().max(128).optional().describe("Id of the chosen segment, if it is one of the listed segments"),
   audience: z.string().min(1).max(1000).describe("Who exactly this iteration targets"),
   rationale: z.string().min(1).max(2000),
@@ -141,7 +141,7 @@ const selectAudience: StageFn = async (env) => {
   const { args, runId, citations } = await decide(env, {
     name: "select_audience",
     title: `Choose the audience for: ${env.ap.goal}`,
-    instructions: "Compare two or three plausible audiences for this goal using the research, then choose ONE for this iteration with call choose_audience. Prefer audiences the app's real features serve and that the findings show are reachable now.",
+    instructions: "Compare three plausible audiences for this goal using the research (two only if the app and findings genuinely support no third), then choose ONE for this iteration with call choose_audience. Prefer audiences the app's real features serve and that the findings show are reachable now.",
     input: [
       `Goal: ${env.ap.goal}`,
       memory.items.length ? `Team memory:\n${memory.summary}` : "",

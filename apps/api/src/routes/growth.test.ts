@@ -330,6 +330,29 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect((await runDueScheduledPosts(p)).enqueued).toBe(0);
   });
 
+  it("[APP_LINK] in copy becomes the post's tracked link; an API post still holding the placeholder can't be approved", async () => {
+    const post = (await alice.post(`${A}/apps/${appId}/posts`, { campaignId, compositionId, channel: "youtube", accountId, title: "Linked", caption: "Plan your week. Get it: [APP_LINK]" })).body.post;
+    const refused = await alice.post(`${A}/posts/${post.id}/request-approval`);
+    expect(refused.status).toBe(422);
+    expect(JSON.stringify(refused.body)).toContain("[APP_LINK]");
+    const link = await p.db
+      .ws(wsA)
+      .collection("attributionLinks")
+      .create({ appId, campaignId, slug: "yt-linked", destinationUrl: "https://apps.apple.com/app/id1", utm: { source: "youtube", medium: "social", campaign: "c" }, channel: "youtube", active: true, clickCount: 0, uaClassCounts: {} }, { actor: "alice" });
+    expect((await alice.patch(`${A}/posts/${post.id}`, { trackingLinkId: link.id })).status).toBe(200);
+    const approval = (await alice.post(`${A}/posts/${post.id}/request-approval`)).body.approval;
+    await alice.post(`${A}/approvals/${approval.id}/approve`, { snapshotHash: approval.snapshotHash });
+    const before = http.calls("POST", "https://www.googleapis.com/upload/youtube/v3/videos").length;
+    expect((await alice.post(`${A}/posts/${post.id}/publish`)).status).toBe(202);
+    await p.inline!.drain();
+    expect((await alice.get(`${A}/posts/${post.id}`)).body.post.status).toBe("published");
+    const sent = http.calls("POST", "https://www.googleapis.com/upload/youtube/v3/videos").slice(before)[0]!;
+    expect(sent.json.snippet.description).toContain("/r/yt-linked");
+    expect(sent.json.snippet.description).not.toContain("[APP_LINK]");
+    // The stored copy keeps the placeholder (the approval snapshot is unchanged).
+    expect((await alice.get(`${A}/posts/${post.id}`)).body.post.caption).toContain("[APP_LINK]");
+  });
+
   it("manual flow (unconfigured channel): instructions + downloads, never `published`; mark-posted needs a channel URL", async () => {
     const created = await alice.post(`${A}/apps/${appId}/posts`, { campaignId, assetIds: [renderAssetId], channel: "instagram", caption: "Plan on the laptop #productivity" });
     const post = created.body.post;

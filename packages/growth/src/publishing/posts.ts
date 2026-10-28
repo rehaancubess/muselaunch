@@ -1,6 +1,6 @@
-import { Channel, HttpUrl, Id, IsoDateTime, type Approval, type ConnectedAccount, type CopyPack, type MediaAsset, type Publication, type ScheduledPost } from "@muselaunch/contracts";
+import { Channel, HttpUrl, Id, IsoDateTime, APP_LINK_TOKEN, fillAppLink, type Approval, type ConnectedAccount, type CopyPack, type MediaAsset, type Publication, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso, type WorkspaceDb } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, type Platform } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, trackedLinkUrl, type Platform } from "@muselaunch/platform";
 import { MANUAL_ONLY_CHANNELS, providerAdapter, publishingAdapterForChannel } from "@muselaunch/providers";
 import { z } from "zod";
 import { assertApproved, consumeApproval, expireApprovals, postSnapshot, requestApproval } from "../approvals";
@@ -115,6 +115,10 @@ export async function preflight(ws: WorkspaceDb, post: ScheduledPost): Promise<P
   const isVideo = primary?.kind === "video";
   const cap = post.caption;
   const api = post.mode === "api";
+  // Generated copy uses [APP_LINK] where a link belongs; it's filled from the post's tracked link.
+  if ((cap.includes(APP_LINK_TOKEN) || post.title?.includes(APP_LINK_TOKEN)) && !post.trackingLinkId) {
+    (api ? errors : warnings).push(`The copy still has the ${APP_LINK_TOKEN} placeholder. Add a tracked link to this post, or replace the placeholder with your link.`);
+  }
   switch (post.channel) {
     case "youtube":
       if (!isVideo) errors.push("YouTube needs a video.");
@@ -417,12 +421,12 @@ export async function manualPackage(p: Platform, wid: string, id: string) {
   let trackingUrl: string | undefined;
   if (post.trackingLinkId) {
     const link = await ws.collection("attributionLinks").get(post.trackingLinkId);
-    if (link) trackingUrl = `${p.cfg.API_PUBLIC_URL.replace(/\/$/, "")}/r/${link.slug}`;
+    if (link) trackingUrl = trackedLinkUrl(p.cfg, link.slug);
   }
   return {
     post,
     instructions: post.manualInstructions.length ? post.manualInstructions : manualInstructions(post.channel),
-    copy: { title: post.title, caption: post.caption, tags: post.tags, trackingUrl },
+    copy: { title: post.title && fillAppLink(post.title, trackingUrl), caption: post.caption && fillAppLink(post.caption, trackingUrl), tags: post.tags, trackingUrl },
     downloads,
     package: pkg,
   };
