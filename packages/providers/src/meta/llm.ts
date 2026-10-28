@@ -2,7 +2,7 @@ import type { SourceRef } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import { z } from "zod";
 import { approxTokens, estimateTokenCost, PRICES, tokenCost } from "../pricing";
-import { metaClient, type CallContext } from "./client";
+import { MetaClient, metaClient, type CallContext } from "./client";
 
 /**
  * Typed helpers over the Meta Responses API (owner: module B; used by B, E, F).
@@ -227,14 +227,19 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
     estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000 + historyAllowance, maxOut) + (ws ? 5 * PRICES.metaWebSearchPerQuery : 0);
   return client.metered(call.ctx, { model, operation: "responses", estimatedUsd }, async () => {
     const res = (await client.openai.responses.create(request as never, { signal: call.ctx.signal })) as unknown as ResponsesResult;
+    // Failed, incomplete and refused responses still used (and were billed for) tokens: meter them.
+    const billed = (err: AppError) => {
+      const x = extract(res);
+      return MetaClient.billed(err, { requestId: res.id, ...x.usage, costUsd: tokenCost(model, x.usage) + x.searchCalls * PRICES.metaWebSearchPerQuery });
+    };
     if (res.status === "incomplete") {
-      throw new AppError("PROVIDER_ERROR", `Response incomplete: ${res.incomplete_details?.reason ?? "unknown"}`, { retryable: res.incomplete_details?.reason !== "max_output_tokens" });
+      throw billed(new AppError("PROVIDER_ERROR", `Response incomplete: ${res.incomplete_details?.reason ?? "unknown"}`, { retryable: res.incomplete_details?.reason !== "max_output_tokens" }));
     }
-    if (res.status === "failed") throw new AppError("PROVIDER_ERROR", "Response failed", { retryable: true });
+    if (res.status === "failed") throw billed(new AppError("PROVIDER_ERROR", "Response failed", { retryable: true }));
     const { refusal, ...out } = extract(res);
     // A refusal with no answer is final: don't pay for a JSON repair or a job retry.
     if (refusal && !out.text && !out.functionCalls.length) {
-      throw new AppError("PROVIDER_ERROR", `Model refused: ${refusal.slice(0, 300)}`, { retryable: false, userMessage: "The AI model declined this request. Try rephrasing it." });
+      throw billed(new AppError("PROVIDER_ERROR", `Model refused: ${refusal.slice(0, 300)}`, { retryable: false, userMessage: "The AI model declined this request. Try rephrasing it." }));
     }
     const cost = tokenCost(model, out.usage) + out.searchCalls * PRICES.metaWebSearchPerQuery;
     return {

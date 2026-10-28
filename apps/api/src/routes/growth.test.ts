@@ -346,9 +346,9 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect((await alice.post(`${A}/posts/${post.id}/publish`)).status).toBe(202);
     await p.inline!.drain();
     expect((await alice.get(`${A}/posts/${post.id}`)).body.post.status).toBe("published");
-    const sent = http.calls("POST", "https://www.googleapis.com/upload/youtube/v3/videos").slice(before)[0]!;
-    expect(sent.json.snippet.description).toContain("/r/yt-linked");
-    expect(sent.json.snippet.description).not.toContain("[APP_LINK]");
+    const sent = http.calls("POST", "https://www.googleapis.com/upload/youtube/v3/videos").slice(before)[0]!.json as { snippet: { description: string } };
+    expect(sent.snippet.description).toContain("/r/yt-linked");
+    expect(sent.snippet.description).not.toContain("[APP_LINK]");
     // The stored copy keeps the placeholder (the approval snapshot is unchanged).
     expect((await alice.get(`${A}/posts/${post.id}`)).body.post.caption).toContain("[APP_LINK]");
   });

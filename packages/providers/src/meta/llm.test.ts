@@ -151,6 +151,18 @@ describe("generateJson", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("meters what a failed call was still billed for (incomplete / refused), not $0", async () => {
+    const p = createTestPlatform({ META_API_KEY: "test-key" });
+    const incomplete = responseWith('{"title":', { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } });
+    const { f } = fakeFetch([incomplete]);
+    installMetaClient(p, new MetaClient(p, { fetch: f, apiKey: "test-key" }));
+    await expect(generateJson(p, { ctx: { workspaceId: "ws_billed", task: "t" }, instructions: "x", input: "y", schema: z.object({ title: z.string() }), schemaName: "S" })).rejects.toMatchObject({ code: "PROVIDER_ERROR" });
+    const usage = (await p.db.ws("ws_billed").collection("modelUsage").list()).items;
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({ status: "error", requestId: "resp_fixture_1", inputTokens: 1200, outputTokens: 300 });
+    expect(usage[0]!.costUsdEstimate).toBeGreaterThan(0);
+  });
+
   it("sends user_location.country as an upper-case ISO 3166-1 code", async () => {
     const p = createTestPlatform({ META_API_KEY: "test-key" });
     const { f, requests } = fakeFetch([responseWith("ok")]);

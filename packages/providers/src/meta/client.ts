@@ -1,6 +1,17 @@
 import OpenAI from "openai";
 import { AppError, type Platform, type UsageInput } from "@muselaunch/platform";
 
+/** Tokens a failed call was still billed for (see MetaClient.billed). */
+export interface BilledUsage {
+  requestId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+}
+const billedUsage = new WeakMap<Error, BilledUsage>();
+
 /** Who/what a provider call is for. Every call is attributed and metered. */
 export interface CallContext {
   workspaceId: string;
@@ -183,6 +194,15 @@ export class MetaClient {
    * Meter a provider call: spend guard → call → usage event (always, even on error) → trace.
    * `estimatedUsd` should be a conservative upper bound for the call.
    */
+  /**
+   * Record what a failed call was still billed for (an `incomplete` response, a refusal or an
+   * unparseable answer still used tokens). `metered` meters it instead of $0 on the error path.
+   */
+  static billed<E extends Error>(err: E, usage: BilledUsage): E {
+    billedUsage.set(err, usage);
+    return err;
+  }
+
   async metered<T>(ctx: CallContext, meta: { model: string; operation: UsageInput["operation"]; estimatedUsd: number }, fn: () => Promise<MeteredResult<T>>): Promise<T> {
     this.assertConfigured();
     await this.platform.usage.guard(ctx.workspaceId, meta.estimatedUsd);
@@ -210,6 +230,7 @@ export class MetaClient {
       return value;
     } catch (raw) {
       const err = mapProviderError(raw);
+      const billed = raw instanceof Error ? billedUsage.get(raw) : undefined;
       await this.platform.usage
         .record(ctx.workspaceId, {
           provider: "meta",
@@ -221,7 +242,8 @@ export class MetaClient {
           agentRunId: ctx.agentRunId,
           actor: ctx.actor,
           runtimeMs: Date.now() - started,
-          costUsdEstimate: 0,
+          ...(billed ? { requestId: billed.requestId, inputTokens: billed.inputTokens, outputTokens: billed.outputTokens, cachedTokens: billed.cachedTokens, reasoningTokens: billed.reasoningTokens } : {}),
+          costUsdEstimate: billed?.costUsd ?? 0,
           status: "error",
           errorCode: err.code,
           dataMode: "standard",
