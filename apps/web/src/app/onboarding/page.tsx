@@ -1,118 +1,84 @@
 "use client";
-import type { App, Job } from "@muselaunch/contracts";
-import { Button, ErrorState, Field, Input, Select, Spinner, cn, useToast } from "@muselaunch/ui";
+import { ErrorState, Select, Spinner } from "@muselaunch/ui";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { LogoMark } from "@/components/logo";
-import { AddAppForm, ImportProgress } from "@/components/onboarding/add-app";
+import { AddAppForm, ImportProgress, type AutopilotChoice, type CreatedApp } from "@/components/onboarding/add-app";
 import { RequireAuth } from "@/components/require-auth";
-import { api, errorMessage } from "@/lib/api";
-import type { CreateWorkspaceResponse, MeResponse } from "@/lib/api-types";
+import { api, errorMessage, wsPath } from "@/lib/api";
+import type { CreateWorkspaceResponse } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { countryOptions, guessCountry } from "@/lib/countries";
 import { useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useMe } from "@/lib/workspace";
 
-type Step = "workspace" | "app" | "import";
-const STEPS: { id: Step; label: string }[] = [
-  { id: "workspace", label: "Workspace" },
-  { id: "app", label: "Your app" },
-  { id: "import", label: "Import" },
-];
-
-function Steps({ current }: { current: Step }) {
-  const idx = STEPS.findIndex((s) => s.id === current);
-  return (
-    <ol className="flex items-center gap-2 text-footnote" aria-label="Setup progress">
-      {STEPS.map((s, i) => (
-        <li key={s.id} className="flex items-center gap-2" aria-current={i === idx ? "step" : undefined}>
-          <span className={cn("flex size-5 items-center justify-center rounded-full text-[11px] font-semibold tabular", i < idx ? "bg-ink text-white" : i === idx ? "bg-accent text-white" : "bg-mist text-ink-3")}>{i + 1}</span>
-          <span className={cn("hidden sm:inline", i === idx ? "font-medium text-ink" : "text-ink-3")}>{s.label}</span>
-          {i < STEPS.length - 1 ? <span aria-hidden className="mx-1 h-px w-6 bg-line-strong" /> : null}
-        </li>
-      ))}
-    </ol>
-  );
+/** "Maya’s studio" from the signed-in name (or email), like the old workspace step suggested. */
+function studioName(raw: string): string {
+  const first = raw.split(/[\s@._-]/)[0] ?? "";
+  return first ? `${first.charAt(0).toUpperCase()}${first.slice(1)}’s studio` : "My studio";
 }
 
-function WorkspaceStep({ me, onDone }: { me: MeResponse; onDone: (wid: string) => void }) {
-  const { user } = useAuth();
-  const toast = useToast();
-  const invalidate = useInvalidate();
-  const first = (user?.name ?? me.user.displayName ?? user?.email ?? "").split(/[\s@]/)[0];
-  const [name, setName] = useState(first ? `${first.charAt(0).toUpperCase()}${first.slice(1)}’s studio` : "My studio");
-  const [country, setCountry] = useState(me.user.country ?? "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+/** The country line: small, editable in place (it decides which AI providers are eligible). */
+function CountryLine({ country, onChange, workspaceName }: { country: string; onChange: (c: string) => void; workspaceName: string | null }) {
+  const [editing, setEditing] = useState(false);
   const options = useMemo(() => countryOptions(), []);
-  useEffect(() => {
-    if (!country) setCountry(guessCountry());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  const label = options.find((o) => o.value === country)?.label;
   return (
-    <form
-      className="space-y-6"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!name.trim()) return setErr("Name your workspace.");
-        if (!country) return setErr("Choose your country.");
-        setErr(null);
-        setBusy(true);
-        try {
-          const { workspace } = await api.post<CreateWorkspaceResponse>("/v1/workspaces", { name: name.trim() });
-          await api.patch("/v1/me", { country, defaultWorkspaceId: workspace.id });
-          await invalidate("/v1/me");
-          onDone(workspace.id);
-        } catch (ex) {
-          toast.error("Couldn’t create the workspace", errorMessage(ex));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <Field label="Workspace name" hint="Usually your studio or company. You can invite teammates later.">
-        {(f) => <Input id={f.id} aria-describedby={f.describedBy} inputSize="lg" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus />}
-      </Field>
-      <Field label="Country" error={err} hint="Some AI providers are only offered in certain countries. We use this to pick an eligible one and label it, for example image generation where Muse Image isn’t available.">
-        {(f) => <Select id={f.id} aria-describedby={f.describedBy} invalid={f.invalid} selectSize="lg" value={country} onChange={(e) => setCountry(e.target.value)} options={options} placeholder="Choose a country" />}
-      </Field>
-      <Button type="submit" size="lg" className="w-full" loading={busy}>
-        Continue
-      </Button>
-    </form>
+    <div className="space-y-1 border-t border-line pt-4 text-footnote text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+        <span>Country:</span>
+        {editing ? (
+          <Select
+            aria-label="Country"
+            selectSize="sm"
+            value={country}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setEditing(false);
+            }}
+            options={options}
+            placeholder="Choose a country"
+            className="w-56"
+          />
+        ) : (
+          <button type="button" className="font-medium text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-ink" onClick={() => setEditing(true)} aria-label={`Country: ${label ?? "not set"}. Change`}>
+            {label ?? "Choose"}
+          </button>
+        )}
+        <span>· picks AI providers available there.</span>
+      </div>
+      {workspaceName ? <p>Your workspace will be “{workspaceName}”. Rename it any time in Settings.</p> : null}
+    </div>
   );
 }
 
 function OnboardingInner() {
   const me = useMe();
+  const { user } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const invalidate = useInvalidate();
-  const [step, setStep] = useState<Step | null>(null);
-  const [wid, setWid] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ app: App; job: Job | null } | null>(null);
+  const [country, setCountry] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreatedApp | null>(null);
+
+  const forceNew = params.get("new") === "1";
+  const existing = me.data && me.data.workspaces.length && !forceNew ? (me.data.workspaces.find((w) => w.workspace.id === me.data.user.defaultWorkspaceId) ?? me.data.workspaces[0]!) : null;
+  const name = studioName(user?.name ?? me.data?.user.displayName ?? user?.email ?? "");
 
   useEffect(() => {
-    if (!me.data || step) return;
-    const forceNew = params.get("new") === "1";
-    if (me.data.workspaces.length && !forceNew) {
-      const def = me.data.workspaces.find((w) => w.workspace.id === me.data.user.defaultWorkspaceId) ?? me.data.workspaces[0]!;
-      setWid(def.workspace.id);
-      setStep("app");
-    } else setStep("workspace");
-  }, [me.data, params, step]);
+    if (me.data && country === null) setCountry(me.data.user.country ?? guessCountry());
+  }, [me.data, country]);
 
-  if (me.isLoading || !step) {
+  if (me.isLoading || !me.data || country === null) {
+    if (me.error) return <ErrorState message={errorMessage(me.error)} onRetry={() => me.refetch()} retrying={me.isFetching} />;
     return (
       <div className="flex justify-center py-24" role="status" aria-label="Loading">
         <Spinner size={20} />
       </div>
     );
   }
-  if (me.error) return <ErrorState message={errorMessage(me.error)} onRetry={() => me.refetch()} retrying={me.isFetching} />;
 
   const finish = async (to: string) => {
     try {
@@ -124,48 +90,55 @@ function OnboardingInner() {
     router.push(to);
   };
 
-  const titles: Record<Step, { title: string; sub: string }> = {
-    workspace: { title: "Set up your studio", sub: "A workspace holds your apps, brand kits, campaigns and team." },
-    app: { title: "Add your app", sub: "Paste a store link and Muse reads your public listing to learn the product. Nothing is posted anywhere." },
-    import: { title: created?.app.name && created.app.name !== "New app" ? `Importing ${created.app.name}` : "Importing your app", sub: "This usually takes under a minute." },
+  /** On Go: the workspace (named from you, with your country) is created now, not as a form step. */
+  const ensureWorkspace = async (choice: AutopilotChoice): Promise<string> => {
+    if (existing) {
+      if (country && country !== me.data.user.country) await api.patch("/v1/me", { country });
+      return existing.workspace.id;
+    }
+    const { workspace } = await api.post<CreateWorkspaceResponse>("/v1/workspaces", { name });
+    await api.patch("/v1/me", { country: country || undefined, defaultWorkspaceId: workspace.id });
+    // "I'll do it myself" is the workspace's preference too (Settings → Growth Autopilot turns it back on).
+    if (choice === "manual") await api.patch(wsPath(workspace.id), { settings: { autopilot: { enabled: false } } }).catch(() => undefined);
+    await invalidate("/v1/me");
+    return workspace.id;
   };
+
+  if (created) {
+    return (
+      <div className="space-y-8">
+        <div className="space-y-2">
+          <h1 className="text-title-1 font-semibold text-balance">{created.app.name && created.app.name !== "New app" ? `Importing ${created.app.name}` : "Importing your app"}</h1>
+          <p className="text-body text-ink-2 text-pretty">This usually takes under a minute. Then review your App DNA and plan your first campaign.</p>
+        </div>
+        <ImportProgress
+          workspaceId={created.workspaceId}
+          app={created.app}
+          job={created.job}
+          onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).creator)}
+          onReview={() => void finish(routes.app(created.workspaceId, created.app.id).brand)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
-      <Steps current={step} />
       <div className="space-y-2">
-        <h1 className="text-title-1 font-semibold text-balance">{titles[step].title}</h1>
-        <p className="text-body text-ink-2 text-pretty">{titles[step].sub}</p>
+        <h1 className="text-title-1 font-semibold text-balance">Let’s grow your app</h1>
+        <p className="text-body text-ink-2 text-pretty">Paste your App Store or Google Play link. MuseLaunch learns your app and gets to work.</p>
       </div>
-      {step === "workspace" && me.data ? (
-        <WorkspaceStep
-          me={me.data}
-          onDone={(id) => {
-            setWid(id);
-            setStep("app");
-          }}
-        />
-      ) : null}
-      {step === "app" && wid ? (
-        <AddAppForm
-          workspaceId={wid}
-          initialUrl={params.get("app") ?? undefined}
-          submitLabel="Import app"
-          onCreated={(app, job) => {
-            setCreated({ app, job });
-            setStep("import");
-          }}
-        />
-      ) : null}
-      {step === "import" && wid && created ? (
-        <ImportProgress
-          workspaceId={wid}
-          app={created.app}
-          job={created.job}
-          onContinue={() => void finish(routes.app(wid, created.app.id).creator)}
-          onReview={() => void finish(routes.app(wid, created.app.id).brand)}
-        />
-      ) : null}
+      <AddAppForm
+        workspaceId={existing?.workspace.id}
+        ensureWorkspace={ensureWorkspace}
+        initialUrl={params.get("app") ?? undefined}
+        autopilotDefault={existing ? (existing.workspace.settings.autopilot?.enabled ?? true) : true}
+        onCreated={(c) => {
+          if (c.choice === "auto") void finish(routes.app(c.workspaceId, c.app.id).creator);
+          else setCreated(c);
+        }}
+        footer={<CountryLine country={country} onChange={setCountry} workspaceName={existing ? null : name} />}
+      />
     </div>
   );
 }
@@ -179,7 +152,7 @@ export default function OnboardingPage() {
             <LogoMark size={24} /> MuseLaunch
           </Link>
         </header>
-        <main className="flex flex-1 justify-center px-5 pb-20 pt-[8vh]">
+        <main className="flex flex-1 justify-center px-4 pb-20 pt-[6vh] sm:px-5 sm:pt-[8vh]">
           <div className="w-full max-w-md">
             <Suspense>
               <OnboardingInner />

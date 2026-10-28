@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Invite, Role, UserProfile, Workspace, WorkspaceMember } from "@muselaunch/contracts";
+import { DEFAULT_AUTOPILOT_SETTINGS, type Invite, type Role, type UserProfile, type Workspace, type WorkspaceMember } from "@muselaunch/contracts";
 import { newId, nowIso } from "@muselaunch/db";
 import { AppError, type AuthUser, type Platform } from "@muselaunch/platform";
 
@@ -39,7 +39,7 @@ export async function createWorkspace(p: Platform, user: AuthUser, name: string)
     ownerId: user.uid,
     planId: "free",
     spendCeilingUsd: p.cfg.WORKSPACE_MONTHLY_SPEND_CEILING_USD,
-    settings: { defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard" },
+    settings: { defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } },
     createdAt: now,
     updatedAt: now,
     createdBy: user.uid,

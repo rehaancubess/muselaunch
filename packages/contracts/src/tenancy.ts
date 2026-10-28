@@ -21,6 +21,21 @@ export const UserProfile = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfile>;
 
+/**
+ * Growth Autopilot defaults for the workspace ("AI does the work unless we say no").
+ * Backward compatible: workspaces saved before this existed parse to the defaults (on).
+ */
+export const WorkspaceAutopilotSettings = z.object({
+  /** New apps start a Growth Autopilot run after import, and Creator opens on it. */
+  enabled: z.boolean().default(true),
+  /** Final renders inside a run's budget go ahead without asking (needs billing.manage to change). */
+  autoApproveRenders: z.boolean().default(true),
+  /** Optional ceiling (credits) for one automatic run; smaller runs are chosen to fit it. */
+  maxCreditsPerRun: z.number().int().positive().max(2000).optional(),
+});
+export type WorkspaceAutopilotSettings = z.infer<typeof WorkspaceAutopilotSettings>;
+export const DEFAULT_AUTOPILOT_SETTINGS: WorkspaceAutopilotSettings = { enabled: true, autoApproveRenders: true };
+
 /** `workspaces/{workspaceId}`. `workspaceId` equals `id`. */
 export const Workspace = BaseEntity.extend({
   name: z.string().min(1).max(120),
@@ -35,8 +50,10 @@ export const Workspace = BaseEntity.extend({
       defaultLocale: z.string().default("en"),
       /** Meta Model API data mode. Customer material defaults to Standard; never silently Contributor. */
       metaDataMode: z.enum(["standard"]).default("standard"),
+      /** Growth Autopilot is the default for everything; "I'll do it myself" turns it off. */
+      autopilot: WorkspaceAutopilotSettings.default({ ...DEFAULT_AUTOPILOT_SETTINGS }),
     })
-    .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard" }),
+    .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } }),
 });
 export type Workspace = z.infer<typeof Workspace>;
 

@@ -7,7 +7,10 @@
 import type { HandlerRegistry } from "@muselaunch/platform";
 import { autopilotStepHandler } from "./step";
 
-export { installAutopilotHooks, wakeDueAutopilots } from "./hooks";
+export { installAutopilotHooks, wakeDueAutopilots, autoRecommendOnNewData, AUTO_RECOMMEND_COOLDOWN_MS } from "./hooks";
+export { planAutoStart, startAutoAutopilot, tryStartAutoAutopilot, AUTO_VARIANTS } from "./auto";
+export { autopilotSettings, defaultGoal, dnaJobsInFlight } from "./defaults";
+export { needsYou } from "./needs-you";
 export { startAutopilot, pauseAutopilot, resumeAutopilot, cancelAutopilot, decideCheckpoint, autopilotDetail, estimateAutopilot, type AutopilotDetail } from "./service";
 export { setAutopilotClock, reasonText, tagOf, STAGE_ORDER } from "./state";
 export { MAX_FIX_ROUNDS, MEASURE_DAYS } from "./stages";

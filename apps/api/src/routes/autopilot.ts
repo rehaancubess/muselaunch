@@ -1,5 +1,5 @@
-import { autopilotDetail, cancelAutopilot, decideCheckpoint, estimateAutopilot, pauseAutopilot, resumeAutopilot, startAutopilot } from "@muselaunch/autopilot";
-import { can, StartAutopilotRequest } from "@muselaunch/contracts";
+import { autopilotDetail, autopilotSettings, cancelAutopilot, decideCheckpoint, estimateAutopilot, pauseAutopilot, planAutoStart, resumeAutopilot, startAutoAutopilot, startAutopilot } from "@muselaunch/autopilot";
+import { can, StartAutoAutopilotRequest, StartAutopilotRequest } from "@muselaunch/contracts";
 import { APPROVER_CAP } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
@@ -46,6 +46,30 @@ autopilotRoutes.post("/apps/:appId/autopilot", requireCap("content.write"), asyn
     throw new AppError("FORBIDDEN", `Auto-approving spend requires ${SPEND_CAP}`, { userMessage: "Only members who manage billing can let renders run without asking. Set the auto-approve limit to 0." });
   }
   const out = await startAutopilot(c.get("platform"), c.get("workspaceId"), app.id, input, actorOf(c));
+  return c.json(out, 202);
+});
+
+/**
+ * GET /apps/:appId/autopilot/auto → { plan, settings }: what a one-tap run would use (default goal,
+ * budget covering one full iteration, pre-approved renders) and whether the credits cover it; when
+ * they don't, `plan.smaller` offers a smaller run that fits. Read-only.
+ */
+autopilotRoutes.get("/apps/:appId/autopilot/auto", async (c) => {
+  const app = await ws(c).collection("apps").getOrThrow(c.req.param("appId"));
+  const plan = await planAutoStart(c.get("platform"), c.get("workspaceId"), app.id, { member: c.get("member") });
+  return c.json({ plan, settings: autopilotSettings(c.get("workspace")) });
+});
+
+/**
+ * POST /apps/:appId/autopilot/auto { variants? } → 202 { autopilot, job, plan }: start with the
+ * defaults (content.write). Renders are pre-approved inside the budget only for members who manage
+ * billing (and when the workspace allows it). Short on credits → 402 with details.plan (incl. a
+ * smaller run that fits); nothing starts.
+ */
+autopilotRoutes.post("/apps/:appId/autopilot/auto", requireCap("content.write"), async (c) => {
+  const app = await ws(c).collection("apps").getOrThrow(c.req.param("appId"));
+  const input = await optionalBody(c, StartAutoAutopilotRequest);
+  const out = await startAutoAutopilot(c.get("platform"), c.get("workspaceId"), app.id, { variants: input.variants, member: c.get("member"), actor: actorOf(c) });
   return c.json(out, 202);
 });
 

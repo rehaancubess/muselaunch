@@ -25,8 +25,10 @@ const modelName = (id?: string) => (!id ? null : /wonder/i.test(id) ? "Muse Wond
 
 export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { workspaceId: string; appId: string; onOpenExperiment: (id: string) => void }) {
   const toast = useToast();
-  const { can } = useWorkspace();
-  const recs = useApiQuery<Page<GrowthRecommendation>>(wsPath(workspaceId, `/apps/${appId}/recommendations`));
+  const { can, workspace } = useWorkspace();
+  // Autopilot on: new measured data (sync / CSV import) generates recommendations on its own; keep the list fresh.
+  const auto = workspace?.settings.autopilot?.enabled ?? true;
+  const recs = useApiQuery<Page<GrowthRecommendation>>(wsPath(workspaceId, `/apps/${appId}/recommendations`), { refetchInterval: auto ? 20_000 : false });
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(workspaceId, jobId, { onSettled: () => void recs.refetch() });
   const running = Boolean(jobId && job.job && (job.job.status === "queued" || job.job.status === "running"));
@@ -63,7 +65,7 @@ export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { 
   return (
     <Section
       title="What to try next"
-      description="Muse Spark reads your measured results; Muse Wonder proposes the next experiment, using what you've decided before. Recommendations never predict results."
+      description={`Muse Spark reads your measured results; Muse Wonder proposes the next experiment, using what you've decided before. Recommendations never predict results.${auto ? " Autopilot is on: new results you sync or import generate fresh recommendations automatically." : ""}`}
       actions={
         can("analytics.write") ? (
           <div className="flex items-center gap-3">

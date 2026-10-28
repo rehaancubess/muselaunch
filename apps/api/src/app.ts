@@ -19,6 +19,7 @@ import { guardianRoutes } from "./routes/guardian";
 import { jobRoutes } from "./routes/jobs";
 import { meRoutes } from "./routes/me";
 import { mediaRoutes } from "./routes/media";
+import { needsYouRoutes } from "./routes/needs-you";
 import { oauthRoutes } from "./routes/oauth";
 import { publicLinkRoutes } from "./routes/public-links";
 import { publishingRoutes } from "./routes/publishing";
@@ -84,6 +85,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", analyticsRoutes);
   ws.route("/", billingRoutes);
   ws.route("/", guardianRoutes);
+  ws.route("/", needsYouRoutes);
   v1.route("/workspaces/:workspaceId", ws);
 
   app.route("/v1", v1);

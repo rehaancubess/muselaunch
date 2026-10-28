@@ -15,6 +15,9 @@ import { defineConfig } from "@playwright/test";
 // The CI/container image ships Playwright's headless shell here; elsewhere the renderer finds its own.
 const BUNDLED_SHELL = "/opt/pw-browsers/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell";
 const chrome = process.env.RENDER_CHROME_PATH || (existsSync(BUNDLED_SHELL) ? BUNDLED_SHELL : undefined);
+// Defaults :8080 / :3000; E2E_API_URL / E2E_BASE_URL point the run at servers on other ports.
+const API_URL = process.env.E2E_API_URL ?? "http://localhost:8080";
+const WEB_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: ".",
@@ -27,7 +30,7 @@ export default defineConfig({
   reporter: [["list"]],
   outputDir: "../.data/e2e-results",
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    baseURL: WEB_URL,
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -37,19 +40,19 @@ export default defineConfig({
   webServer: [
     {
       command: "pnpm dev:fixture",
-      url: "http://localhost:8080/health",
+      url: `${API_URL}/health`,
       reuseExistingServer: true,
       timeout: 180_000,
       cwd: "..",
-      env: chrome ? { RENDER_CHROME_PATH: chrome } : {},
+      env: { PORT: new URL(API_URL).port || "8080", PUBLIC_WEB_URL: WEB_URL, API_PUBLIC_URL: API_URL, ...(chrome ? { RENDER_CHROME_PATH: chrome } : {}) },
     },
     {
-      command: "pnpm --filter @muselaunch/web dev",
-      url: "http://localhost:3000",
+      command: (new URL(WEB_URL).port || "3000") === "3000" ? "pnpm --filter @muselaunch/web dev" : `pnpm --filter @muselaunch/web exec next dev -p ${new URL(WEB_URL).port}`,
+      url: WEB_URL,
       reuseExistingServer: true,
       timeout: 180_000,
       cwd: "..",
-      env: { NEXT_PUBLIC_API_URL: "http://localhost:8080", NEXT_PUBLIC_AUTH_MODE: "dev" },
+      env: { NEXT_PUBLIC_API_URL: API_URL, NEXT_PUBLIC_AUTH_MODE: "dev" },
     },
   ],
 });

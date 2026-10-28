@@ -30,6 +30,7 @@ import { routes, type PrimaryTab } from "@/lib/routes";
 import { useMe, useWorkspace } from "@/lib/workspace";
 import { CommandPalette } from "./command-palette";
 import { JobsTray } from "./jobs-tray";
+import { NeedsYouButton } from "@/features/autopilot/needs-you";
 import { AutopilotChip } from "./autopilot-chip";
 
 const LAST_APP_KEY = (wid: string) => `ml.lastApp.${wid}`;
@@ -223,7 +224,7 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-40 border-b border-line/80 bg-white/80 backdrop-blur-xl backdrop-saturate-150">
-        <div className="mx-auto grid h-14 max-w-[1440px] grid-cols-[1fr_auto_1fr] items-center gap-3 px-3 sm:px-5">
+        <div className="mx-auto grid h-14 max-w-[1440px] grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[1fr_auto_1fr] items-center gap-3 px-3 sm:px-5">
           <div className="flex min-w-0 items-center">
             <AppSwitcher app={switcherApp} section={section} />
           </div>
@@ -248,6 +249,7 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
             >
               <Search className="size-[18px]" aria-hidden />
             </button>
+            <NeedsYouButton workspaceId={workspaceId} />
             <AutopilotChip workspaceId={workspaceId} appId={app?.id} />
             <JobsTray workspaceId={workspaceId} />
             <AccountMenu />
