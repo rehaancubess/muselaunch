@@ -112,10 +112,10 @@ function Hero() {
         <div aria-hidden className="absolute inset-x-0 bottom-0 h-[42%] bg-mist" />
         <figure className={`${WRAP} relative`}>
           <div className="relative animate-scale-in pb-12 [animation-delay:240ms] sm:pb-20 lg:pb-24">
-            <BrowserFrame label="Growth Autopilot" className="w-full sm:w-[82%]">
+            <BrowserFrame label="Your app’s Home" className="w-full sm:w-[82%]">
               <Image
                 src="/landing/autopilot-run.webp"
-                alt="Growth Autopilot in MuseLaunch: a run with the goal “More App Store installs from students before exams” has finished research, audience, hypothesis, concepts, videos and verification, and is asking the owner to approve about 16 credits for two final renders."
+                alt="An app’s Home in MuseLaunch with Autopilot on: the goal “Get more installs of Tidy Timer from students” has gone through learning the app, research, videos, checks, rendering and drafting posts, and two Instagram posts wait under “Needs you” for one-tap approval."
                 width={1440}
                 height={900}
                 loading="eager"
@@ -133,7 +133,7 @@ function Hero() {
             </PhoneFrame>
           </div>
           <figcaption className="relative mx-auto max-w-[44rem] pb-4 text-center text-footnote text-ink-2 text-pretty sm:pb-8">
-            Growth Autopilot asking before it spends credits on final renders, beside a video it rendered with HyperFrames. Screens show sample data, and the presenter is a synthetic test clip.
+            Autopilot did the research, the videos and the checks on its own; two posts wait for your OK. Beside it, a video rendered with HyperFrames. Screens show sample data, and the presenter is a synthetic test clip.
           </figcaption>
         </figure>
       </div>
