@@ -9,10 +9,11 @@
 import { Button, EmptyState, List, ListRow, Skeleton, StatusPill } from "@muselaunch/ui";
 import { Plus, Sparkles } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { QueryState } from "@/components/states";
 import { wsPath } from "@/lib/api";
 import { relativeTime } from "@/lib/labels";
-import { useApiQuery } from "@/lib/query";
+import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useWorkspace } from "@/lib/workspace";
 import { LoopView } from "./loop-view";
 import { StartCard } from "./start-card";
@@ -45,6 +46,13 @@ function SelectedLoop({ id }: { id: string }) {
       return false;
     },
   });
+  // Keep the loop list and the top-bar chip in step with the loop's status as it changes.
+  const invalidate = useInvalidate();
+  const status = query.data?.autopilot.status;
+  const appId = query.data?.autopilot.appId;
+  useEffect(() => {
+    if (status && appId) void invalidate(wsPath(workspaceId, `/apps/${appId}/autopilots`));
+  }, [status, appId, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps -- useInvalidate returns a new function each render
   return (
     <QueryState query={query} feature="Growth Autopilot" skeleton={<LoopSkeleton />}>
       {(detail) => <LoopView detail={detail} />}

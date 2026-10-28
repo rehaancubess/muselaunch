@@ -36,7 +36,7 @@ async function renderFinal(page: Page, label: string) {
 }
 
 /** The autopilot's "Videos" list (links into the Studio). */
-const videoLinks = (page: Page) => page.locator("section").filter({ has: page.getByText("Videos", { exact: true }) }).locator('a[href*="/studio/"]');
+const videoLinks = (page: Page) => page.getByRole("complementary").locator('a[href*="/studio/"]');
 
 /** The preview must not flash the "Loading assets" overlay after an in-place edit. */
 async function expectNoLoadingFlash(page: Page) {
@@ -77,7 +77,14 @@ test("phase-2 demo: Growth Autopilot, object-aware Studio, hooks (fixture mode)"
     // The loop researched (every finding cited), chose an audience and set a hypothesis before asking.
     await expect(page.getByText("Audience", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Experiment", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(/example\.com/).first()).toBeVisible();
+    // Open the audience decision: it cites the research findings it chose from (real source chips).
+    const audience = page.getByRole("button", { name: /^Audience 1 decision/ });
+    await expect(async () => {
+      if ((await audience.getAttribute("aria-expanded")) !== "true") await audience.click();
+      await expect(audience).toHaveAttribute("aria-expanded", "true", { timeout: 2000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(page.getByLabel("Cited research").first()).toBeVisible();
+    await expect(page.getByLabel("Cited research").first().getByText(/example\.com/).first()).toBeVisible();
     await expect(page.getByText(/Budget reached|needs ≈\d+ more credits/).first()).toBeVisible();
     await shot(page, "autopilot-budget-checkpoint", true);
   });
@@ -148,7 +155,10 @@ test("phase-2 demo: Growth Autopilot, object-aware Studio, hooks (fixture mode)"
     await expectNoLoadingFlash(page);
     await page.getByRole("button", { name: /Spotlight my phone/ }).click();
     await expectNoLoadingFlash(page);
-    await page.getByRole("switch", { name: "Show tracking on preview" }).click();
+    // "Use in Studio" already turns the tracking overlay on; make sure it's on for the shot.
+    const tracking = page.getByRole("switch", { name: "Show tracking on preview" });
+    if ((await tracking.getAttribute("aria-checked")) !== "true") await tracking.click();
+    await expect(tracking).toHaveAttribute("aria-checked", "true");
     await page.waitForTimeout(1500);
     await shot(page, "studio-object-aware");
   });

@@ -62,7 +62,20 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
       const want = Number(String(req.instructions ?? "").match(/Pick exactly (\d+)/)?.[1] ?? 2);
       const rows = [...text.matchAll(/- (var_[a-f0-9]+) \| (\w+) \|/g)].map((m) => ({ id: m[1]!, angle: m[2]! }));
       const picks: { variantId: string; experimentKey: string }[] = [];
-      for (const r of rows) if (picks.length < want && !picks.some((x) => rows.find((y) => y.id === x.variantId)!.angle === r.angle)) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}` });
+      // Match each experiment variant's label to a concept angle ("Demo-first hook" → practical_demo), so
+      // v1/v2 carry the concept the hypothesis describes; otherwise take distinct angles in order.
+      const labels = (text.match(/Experiment variants: (.+)/)?.[1] ?? "").split(";").map((x) => x.replace(/^\s*v\d+(?: \(control\))?:\s*/, "").toLowerCase());
+      const ANGLE: [RegExp, RegExp][] = [
+        [/demo|feature|product/, /demo|feature/],
+        [/problem|pain|emotional|frustrat/, /problem|emotional/],
+        [/founder|story|maker/, /founder|story/],
+      ];
+      const used = (angle: string) => picks.some((x) => rows.find((y) => y.id === x.variantId)!.angle === angle);
+      for (let k = 0; k < want; k++) {
+        const hint = ANGLE.find(([l]) => l.test(labels[k] ?? ""))?.[1];
+        const r = (hint ? rows.find((x) => hint.test(x.angle) && !used(x.angle)) : undefined) ?? rows.find((x) => !used(x.angle));
+        if (r) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}` });
+      }
       args = { picks, rationale: "Different angles test the hypothesis directly." };
     }
     return responsesBody({ model: "muse-wonder-1.0", functionCalls: [{ name: tool, args: resolvePlaceholders(args, req) }] });

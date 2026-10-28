@@ -17,6 +17,8 @@ export function shooter(prefix: string) {
   let n = 0;
   return async (page: Page, name: string, fullPage = false) => {
     n += 1;
+    // Full-page captures start at the top, so the sticky top bar isn't stamped mid-page.
+    if (fullPage) await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}${prefix}-${String(n).padStart(2, "0")}-${name}.png`, fullPage });
   };

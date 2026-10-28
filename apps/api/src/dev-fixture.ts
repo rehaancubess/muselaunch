@@ -167,7 +167,8 @@ const textRoutes = [
     const text = requestText(req);
     const sceneId = text.match(/Edit ONLY these scenes: (\S+)/)?.[1] ?? text.match(/scene id=(\S+)/)?.[1];
     const block = sceneId ? (text.split(`scene id=${sceneId} `)[1] ?? "").split(/\n\s+\d+\. scene id=/)[0]! : "";
-    const layerId = block.match(/layer id=(\S+) text/)?.[1];
+    // The scene's headline when it has one, else its first text layer.
+    const layerId = block.match(/layer id=(\S+) text(?: "[^"]*")? role=headline/)?.[1] ?? block.match(/layer id=(\S+) text/)?.[1];
     if (!sceneId || !layerId) return { summary: "No text layer to change in that scene", targetSceneIds: sceneId ? [sceneId] : [], ops: [] };
     // Hook copies (composition.variants "hooks") carry a brief: give each one its own opening line.
     const brief = text.match(/Hook brief: (.+)/)?.[1] ?? "";
