@@ -1,6 +1,6 @@
 import type { AppEvidence, Claim } from "@muselaunch/contracts";
 import type { Platform } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { routedJson, untrusted, type FallbackEvent } from "@muselaunch/providers";
 import { z } from "zod";
 import { clip, normalizeText } from "./util";
 
@@ -52,10 +52,12 @@ const ValidatorOutput = z.object({
  * Deterministic checks (prohibited claims, unsupported figures/superlatives) always run; Spark
  * then checks product assertions against the verified claim library and listing evidence.
  * Never reports `ok` without the model check: if Meta isn't configured this throws.
+ * Route `claims.validate` (Muse Spark unless listed in SPARK_OPEN_TASKS). With `onFallback` (a run
+ * recorder), a Meta capacity failure falls back to Muse Spark Open once, recorded on the run.
  */
 export async function validateClaims(
   p: Platform,
-  input: { workspaceId: string; appId: string; texts: { id: string; text: string }[]; jobId?: string; agentRunId?: string },
+  input: { workspaceId: string; appId: string; texts: { id: string; text: string }[]; jobId?: string; agentRunId?: string; onFallback?: (e: FallbackEvent) => Promise<void> | void },
 ): Promise<{ ok: boolean; issues: { id: string; issue: string }[] }> {
   const texts = input.texts.filter((t) => t.text.trim());
   if (!texts.length) return { ok: true, issues: [] };
@@ -77,31 +79,35 @@ export async function validateClaims(
     for (const s of unsupportedSpecifics(t.text, supportText)) issues.push({ id: t.id, issue: s });
   }
 
-  const out = await generateJson(p, {
-    ctx: { workspaceId: input.workspaceId, task: "claims.validate", appId: input.appId, jobId: input.jobId, agentRunId: input.agentRunId },
-    model: "spark",
-    cacheKey: "agents.claims.validate",
-    reasoningEffort: "low",
-    maxOutputTokens: 3000,
-    instructions:
-      "You are MuseLaunch's claim validator for app marketing. For each text, flag every assertion about the product (features, capabilities, results, performance, numbers, rankings, awards, user counts, reviews/testimonials, pricing, comparisons with competitors) that is NOT directly supported by the verified claims or listing evidence provided, or that matches a prohibited claim. " +
-      "Do not flag calls to action, questions, descriptions of the viewer's problem, or creative framing that asserts no product fact. Do not flag style or grammar. " +
-      "Each issue must quote the problematic phrase and say what is unsupported. Return an entry for every text id (empty issues when fine).",
-    input: [
-      "Verified claims (usable as-is):",
-      verified.length ? verified.map((c) => `- ${c.text}`).join("\n") : "- (none verified yet)",
-      "",
-      "Prohibited claims:",
-      prohibited.length ? prohibited.map((c) => `- ${c}`).join("\n") : "- (none)",
-      "",
-      untrusted("listing_evidence", evidence.map((e) => `- [${e.kind}] ${e.fact}`).join("\n") || "(none)", 15_000),
-      "",
-      "Texts to check (JSON lines):",
-      untrusted("copy_to_check", texts.map((t) => JSON.stringify({ id: t.id, text: clip(t.text, 3000) })).join("\n"), 40_000),
-    ].join("\n"),
-    schema: ValidatorOutput,
-    schemaName: "ClaimValidation",
-  });
+  const out = await routedJson(
+    p,
+    {
+      ctx: { workspaceId: input.workspaceId, task: "claims.validate", appId: input.appId, jobId: input.jobId, agentRunId: input.agentRunId },
+      model: "spark",
+      cacheKey: "agents.claims.validate",
+      reasoningEffort: "low",
+      maxOutputTokens: 3000,
+      instructions:
+        "You are MuseLaunch's claim validator for app marketing. For each text, flag every assertion about the product (features, capabilities, results, performance, numbers, rankings, awards, user counts, reviews/testimonials, pricing, comparisons with competitors) that is NOT directly supported by the verified claims or listing evidence provided, or that matches a prohibited claim. " +
+        "Do not flag calls to action, questions, descriptions of the viewer's problem, or creative framing that asserts no product fact. Do not flag style or grammar. " +
+        "Each issue must quote the problematic phrase and say what is unsupported. Return an entry for every text id (empty issues when fine).",
+      input: [
+        "Verified claims (usable as-is):",
+        verified.length ? verified.map((c) => `- ${c.text}`).join("\n") : "- (none verified yet)",
+        "",
+        "Prohibited claims:",
+        prohibited.length ? prohibited.map((c) => `- ${c}`).join("\n") : "- (none)",
+        "",
+        untrusted("listing_evidence", evidence.map((e) => `- [${e.kind}] ${e.fact}`).join("\n") || "(none)", 15_000),
+        "",
+        "Texts to check (JSON lines):",
+        untrusted("copy_to_check", texts.map((t) => JSON.stringify({ id: t.id, text: clip(t.text, 3000) })).join("\n"), 40_000),
+      ].join("\n"),
+      schema: ValidatorOutput,
+      schemaName: "ClaimValidation",
+    },
+    { route: "claims.validate", onFallback: input.onFallback },
+  );
   const ids = new Set(texts.map((t) => t.id));
   for (const r of out.data.results) {
     if (!ids.has(r.id)) continue;

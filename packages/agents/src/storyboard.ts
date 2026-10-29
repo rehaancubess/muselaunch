@@ -1,11 +1,12 @@
 import { ScenePurpose, TEMPLATE_IDS, type MediaAsset, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
 import { TEMPLATE_CATALOG } from "@muselaunch/compositions";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { validateClaims } from "./claims";
 import { dnaSummary, loadAppContext, productAssets, requireDna } from "./context";
 import { retrieveMemory } from "./memory";
+import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
 import { RunRecorder } from "./runs";
 import { clip, hashId } from "./util";
 
@@ -164,7 +165,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
   const app = await loadAppContext(ws, appId);
   const dna = requireDna(app);
   const brief = campaign.briefId ? await ws.collection("campaignBriefs").get(campaign.briefId) : null;
-  const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "storyboard", model: p.cfg.META_MODEL_SPARK, goal: `Storyboard for "${variant.title}" (${aspectRatio}, ${targetDurationSec}s)`, appId });
+  const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "storyboard", model: plannedEngine(p, "storyboard.generate").model, goal: `Storyboard for "${variant.title}" (${aspectRatio}, ${targetDurationSec}s)`, appId });
   try {
     await ctx.progress(10, "collecting real product media");
     const assets = await productAssets(ws, appId);
@@ -199,21 +200,21 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       .join("\n");
     const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets };
 
-    await ctx.progress(30, "Muse Spark is writing the storyboard");
-    let out = await generateJson(p, { ctx: rec.callCtx("storyboard.generate"), model: "spark", instructions: INSTRUCTIONS, input, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens: 8000, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
-    await rec.modelStep("Write storyboard (Muse Spark)", out, { assets: usable.length, target: targetDurationSec }, out.data.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}`).join("\n"));
+    await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is writing the storyboard`);
+    let out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.generate"), instructions: INSTRUCTIONS, input, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens: 8000, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
+    await rec.modelStep(`Write storyboard (${engineName(out.model)})`, out, { assets: usable.length, target: targetDurationSec }, out.data.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}`).join("\n"));
     let check = checkStoryboard(out.data, checkCtx);
-    let claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.scenes.map((s, i) => ({ id: `scene_${i + 1}`, text: [s.onScreenText, s.narration].filter(Boolean).join(" — ") })) });
+    let claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.scenes.map((s, i) => ({ id: `scene_${i + 1}`, text: [s.onScreenText, s.narration].filter(Boolean).join(" — ") })), onFallback: fallbackTo(rec) });
     if (check.problems.length || !claimCheck.ok) {
       ctx.throwIfCancelled();
       const issues = [...check.problems, ...claimCheck.issues.map((x) => `${x.id.replace("_", " ")}: ${x.issue}`)];
       await rec.step({ kind: "decision", title: `Storyboard needs repair (${issues.length} issues)`, output: issues });
       const repair = `${input}\n\nYour previous storyboard had these problems:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious storyboard:\n${JSON.stringify(out.data).slice(0, 12_000)}\n\nReturn a corrected storyboard JSON.`;
-      out = await generateJson(p, { ctx: rec.callCtx("storyboard.repair"), model: "spark", instructions: INSTRUCTIONS, input: repair, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens: 8000, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
-      await rec.modelStep("Repair storyboard (Muse Spark)", out, issues, out.data.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}`).join("\n"));
+      out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.repair"), instructions: INSTRUCTIONS, input: repair, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens: 8000, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
+      await rec.modelStep(`Repair storyboard (${engineName(out.model)})`, out, issues, out.data.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}`).join("\n"));
       check = checkStoryboard(out.data, checkCtx);
       if (check.problems.length) throw new AppError("PROVIDER_ERROR", `Storyboard still invalid after repair: ${check.problems.join(" ")}`, { retryable: true, userMessage: "The storyboard couldn't be built from your real app media. Add screenshots or retry." });
-      claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.scenes.map((s, i) => ({ id: `scene_${i + 1}`, text: [s.onScreenText, s.narration].filter(Boolean).join(" — ") })) });
+      claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.scenes.map((s, i) => ({ id: `scene_${i + 1}`, text: [s.onScreenText, s.narration].filter(Boolean).join(" — ") })), onFallback: fallbackTo(rec) });
     }
     if (check.fixes.length) await rec.step({ kind: "decision", title: "Deterministic storyboard fixes", output: check.fixes });
     await rec.step({ kind: "decision", title: claimCheck.ok ? "Claim check passed" : `Claim check: ${claimCheck.issues.length} issue(s) for review`, status: claimCheck.ok ? "succeeded" : "failed", output: claimCheck.issues });

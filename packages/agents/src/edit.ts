@@ -3,11 +3,12 @@ import { applyPatch, describeForLLM, PatchError, sceneHash, TEMPLATE_CATALOG } f
 import type { WorkspaceDb } from "@muselaunch/db";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { validateClaims } from "./claims";
 import { dnaSummary, loadAppContext, productAssets } from "./context";
 import { retrieveMemory } from "./memory";
+import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
 import { RunRecorder } from "./runs";
 import { clip, hashId } from "./util";
 
@@ -229,10 +230,14 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
   const clipCtx = await loadClipContext(ws, appId, ctx.payload.clipAnalysisIds);
   const intent = multiVersionIntent(instruction);
   const effects = Boolean(clipCtx);
+  // Explicit routes (providers/router.ts): scene-scoped edits can run on Muse Spark Open when listed in
+  // SPARK_OPEN_TASKS; the repair after a failed validation has its own route (Muse Spark by default).
+  const route: TextRoute = intent && !intent.remaining ? "composition.variant_briefs" : sceneIds.length ? "composition.edit.scoped" : "composition.edit";
+  const planned = plannedEngine(p, route);
   const rec = await RunRecorder.start(ctx, {
     id: runId,
     kind: effects ? "effects_direction" : "scene_edit",
-    model: p.cfg.META_MODEL_SPARK,
+    model: planned.model,
     goal: clip(`${effects ? "Direct object-aware effects" : "Edit"} "${comp.title}" v${baseVersion}: ${instruction}`, 4000),
     appId,
   });
@@ -269,28 +274,30 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
     ]
       .filter(Boolean)
       .join("\n");
-    await ctx.progress(20, "Muse Spark is planning the edit");
-    let out = await generateJson(p, { ctx: rec.callCtx("composition.edit"), model: "spark", instructions: INSTRUCTIONS, input, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
-    await rec.modelStep("Propose scene-scoped patch (Muse Spark)", out, { instruction, sceneIds }, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
+    await ctx.progress(20, `${planned.name} is planning the edit`);
+    let out = await sparkJson(p, rec, route, { ctx: rec.callCtx("composition.edit"), instructions: INSTRUCTIONS, input, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
+    let modelNote = out.fallback?.title;
+    await rec.modelStep(`Propose scene-scoped patch (${engineName(out.model)})`, out, { instruction, sceneIds }, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
     const clipTargets = clipCtx?.targets;
     let check = checkEdit(base.doc, out.data, { sceneIds, assets, clipTargets });
-    let claims = check.problems.length || !check.changedTexts.length ? { ok: true, issues: [] as { id: string; issue: string }[] } : await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.changedTexts });
+    let claims = check.problems.length || !check.changedTexts.length ? { ok: true, issues: [] as { id: string; issue: string }[] } : await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.changedTexts, onFallback: fallbackTo(rec) });
     if (check.problems.length || !claims.ok) {
       ctx.throwIfCancelled();
       const issues = [...check.problems, ...claims.issues.map((x) => `Text layer ${x.id}: ${x.issue}`)];
       await rec.step({ kind: "decision", title: `Patch rejected by validation (${issues.length}); one repair attempt`, status: "failed", output: issues });
       const repair = `${input}\n\nYour previous patch was invalid:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious patch:\n${JSON.stringify(out.data).slice(0, 12_000)}\n\nReturn a corrected patch.`;
-      out = await generateJson(p, { ctx: rec.callCtx("composition.edit.repair"), model: "spark", instructions: INSTRUCTIONS, input: repair, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
-      await rec.modelStep("Repair patch (Muse Spark)", out, issues, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
+      out = await sparkJson(p, rec, "composition.edit.repair", { ctx: rec.callCtx("composition.edit.repair"), instructions: INSTRUCTIONS, input: repair, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
+      modelNote = out.fallback?.title;
+      await rec.modelStep(`Repair patch (${engineName(out.model)})`, out, issues, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
       check = checkEdit(base.doc, out.data, { sceneIds, assets, clipTargets });
-      claims = check.problems.length || !check.changedTexts.length ? { ok: true, issues: [] } : await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.changedTexts });
+      claims = check.problems.length || !check.changedTexts.length ? { ok: true, issues: [] } : await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: check.changedTexts, onFallback: fallbackTo(rec) });
     }
 
     const memoryRefs = memory.items.map((m) => m.id);
     if (check.problems.length || !check.doc) {
-      if (existingPatch) await patches.update(patchId, { status: "invalid", validationErrors: check.problems.slice(0, 20).map((x) => clip(x, 500)), agentRunId: rec.id, memoryRefs }, { actor: ctx.actor });
+      if (existingPatch) await patches.update(patchId, { status: "invalid", validationErrors: check.problems.slice(0, 20).map((x) => clip(x, 500)), agentRunId: rec.id, memoryRefs, model: out.model, modelNote }, { actor: ctx.actor });
       await rec.finish("failed", { error: { code: "VALIDATION_FAILED", message: clip(check.problems.join("; "), 4000), retryable: false } });
-      throw new AppError("PROVIDER_ERROR", `AI edit could not produce a valid patch: ${check.problems.slice(0, 3).join("; ")}`, { retryable: false, userMessage: "Muse Spark couldn't make that change safely. Try rephrasing or selecting the scene to edit.", details: { problems: check.problems.slice(0, 20) } });
+      throw new AppError("PROVIDER_ERROR", `AI edit could not produce a valid patch: ${check.problems.slice(0, 3).join("; ")}`, { retryable: false, userMessage: `${engineName(out.model)} couldn't make that change safely. Try rephrasing or selecting the scene to edit.`, details: { problems: check.problems.slice(0, 20) } });
     }
 
     const fields: Partial<CompositionPatch> = {
@@ -302,6 +309,9 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
       agentRunId: rec.id,
       memoryRefs,
       instruction,
+      // The model that wrote these ops (shown in the Studio), and why when it was a fallback.
+      model: out.model,
+      modelNote,
     };
     let patch = existingPatch
       ? await patches.update(patchId, fields, { actor: ctx.actor })
@@ -355,9 +365,8 @@ async function routeToVariants(input: {
   const { ctx, rec, intent } = input;
   const p = ctx.platform;
   const first = input.base.scenes[0];
-  const out = await generateJson(p, {
+  const out = await sparkJson(p, rec, "composition.variant_briefs", {
     ctx: rec.callCtx("composition.variant_briefs"),
-    model: "spark",
     cacheKey: "agents.variant_briefs",
     reasoningEffort: "low",
     maxOutputTokens: 2000,
@@ -377,10 +386,10 @@ async function routeToVariants(input: {
     schema: VariantBriefs,
     schemaName: "VariantBriefs",
   });
-  await rec.modelStep(`Write ${intent.count} ${intent.mode} briefs (Muse Spark)`, out, input.instruction, out.data.variants.map((v) => `${v.label}: ${v.brief}`).join("\n"));
+  await rec.modelStep(`Write ${intent.count} ${intent.mode} briefs (${engineName(out.model)})`, out, input.instruction, out.data.variants.map((v) => `${v.label}: ${v.brief}`).join("\n"));
   const variants = out.data.variants.slice(0, intent.count);
-  if (variants.length < 2) throw new AppError("PROVIDER_ERROR", "Muse Spark returned too few variant briefs", { retryable: true });
-  const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId: ctx.payload.appId, jobId: ctx.job.id, agentRunId: rec.id, texts: variants.map((v, i) => ({ id: `variant_${i + 1}`, text: v.brief })) });
+  if (variants.length < 2) throw new AppError("PROVIDER_ERROR", `${engineName(out.model)} returned too few variant briefs`, { retryable: true });
+  const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId: ctx.payload.appId, jobId: ctx.job.id, agentRunId: rec.id, texts: variants.map((v, i) => ({ id: `variant_${i + 1}`, text: v.brief })), onFallback: fallbackTo(rec) });
   await rec.step({ kind: "decision", title: check.ok ? "Variant briefs passed the claim check" : `Variant briefs: ${check.issues.length} claim issue(s) for review`, status: check.ok ? "succeeded" : "failed", output: check.issues });
   const targets = variants.map((v) => clip(`${v.label}: ${v.brief}`, 200));
   const job = await ctx.enqueue("composition.variants", { appId: ctx.payload.appId, compositionId: ctx.payload.compositionId, mode: intent.mode, targets }, { idempotencyKey: `composition.variants:${intent.mode}:${ctx.payload.patchId}`, credits: { operation: "composition.variants" } });

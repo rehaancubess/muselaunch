@@ -1,7 +1,7 @@
 import { AgentBudget, type AgentKind, type AgentPlan, type AgentRun, type AgentStep, type AgentUsage, type EntityRef, type ErrorInfo, type SourceRef } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import type { JobContext } from "@muselaunch/platform";
-import type { CallContext, LlmTextResult } from "@muselaunch/providers";
+import type { CallContext, FallbackEvent, LlmTextResult } from "@muselaunch/providers";
 import { brief, clip, nowIso } from "./util";
 
 type StepKind = AgentStep["kind"];
@@ -124,6 +124,21 @@ export class RunRecorder {
   async modelStep(title: string, r: LlmTextResult, input?: unknown, output?: unknown): Promise<AgentStep> {
     this.addModelUsage(r);
     return this.step({ kind: "model_call", title, model: r.model, input, output: output ?? r.text, citations: r.citations });
+  }
+
+  /**
+   * A visible decision step for a model fallback ("Muse Spark was rate-limited; used Muse Spark Open
+   * (open weights) instead"). The fallback's own model call follows as a normal model step.
+   */
+  async fallbackStep(e: FallbackEvent): Promise<AgentStep> {
+    return this.step({
+      kind: "decision",
+      title: e.title,
+      status: e.status === "failed" ? "failed" : "succeeded",
+      model: e.to.model,
+      input: { route: e.route, task: e.task, failed: `${e.from.name} (${e.from.model})`, error: e.error },
+      output: e.status === "failed" ? { fallback: e.to.label, error: e.fallbackError } : { usedInstead: e.to.label, reason: e.reason, meteredAs: e.to.provider },
+    });
   }
 
   async tool(stepId: string, tool: string, args: Record<string, unknown>, outcome: { result?: unknown; error?: ErrorInfo }, durationMs: number): Promise<void> {

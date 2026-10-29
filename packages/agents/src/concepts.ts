@@ -1,9 +1,10 @@
 import { AngleType, Channel, type CampaignVariant, type Deliverable } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { dnaSummary, loadAppContext, requireDna } from "./context";
 import { retrieveMemory } from "./memory";
+import { engineName, plannedEngine, sparkJson } from "./models";
 import { RunRecorder } from "./runs";
 import { autoCampaignName, clip, hashId, jaccard, truncateWords, uniq } from "./util";
 
@@ -89,7 +90,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
 
   const app = await loadAppContext(ws, appId);
   const dna = requireDna(app);
-  const rec = await RunRecorder.start(ctx, { id: runId, kind: "campaign_concepts", model: p.cfg.META_MODEL_SPARK, goal: clip(`Concepts for "${campaign.name}": ${campaign.request ?? campaign.goal}`, 4000), appId });
+  const rec = await RunRecorder.start(ctx, { id: runId, kind: "campaign_concepts", model: plannedEngine(p, "concepts.generate").model, goal: clip(`Concepts for "${campaign.name}": ${campaign.request ?? campaign.goal}`, 4000), appId });
   try {
     await ctx.progress(10, "gathering research and memory");
     const [findingsPage, oppsPage, segmentsPage, evidencePage] = await Promise.all([
@@ -124,20 +125,20 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       `Audience segments (id: name): ${segmentsPage.items.map((s) => `${s.id}: ${s.name}`).join("; ") || "(none)"}`,
     ].join("\n");
 
-    await ctx.progress(30, "Muse Spark is developing concepts");
-    let out = await generateJson(p, { ctx: rec.callCtx("concepts.generate"), model: "spark", instructions: INSTRUCTIONS, input, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
-    await rec.modelStep("Generate brief + concepts (Muse Spark)", out, { findings: findings.length, opportunities: opps.length, memory: memory.items.length }, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
+    await ctx.progress(30, `${plannedEngine(p, "concepts.generate").name} is developing concepts`);
+    let out = await sparkJson(p, rec, "concepts.generate", { ctx: rec.callCtx("concepts.generate"), instructions: INSTRUCTIONS, input, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
+    await rec.modelStep(`Generate brief + concepts (${engineName(out.model)})`, out, { findings: findings.length, opportunities: opps.length, memory: memory.items.length }, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
     let problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
     if (out.data.variants.length < count) problems.push(`Only ${out.data.variants.length} concepts returned; ${count} required.`);
     if (problems.length) {
       ctx.throwIfCancelled();
       const used = new Set(out.data.variants.map((v) => v.angleType));
       const repair = `${input}\n\nYour previous concepts were not strategically distinct:\n${problems.map((x) => `- ${x}`).join("\n")}\nUnused allowed angle types: ${allowed.filter((a) => !used.has(a)).join(", ")}.\nPrevious concepts:\n${JSON.stringify(out.data.variants.map((v) => ({ title: v.title, angleType: v.angleType, hook: v.hook })))}\nReturn the full JSON again with ${count} distinct concepts.`;
-      out = await generateJson(p, { ctx: rec.callCtx("concepts.distinctness_repair"), model: "spark", instructions: INSTRUCTIONS, input: repair, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
-      await rec.modelStep("Repair: make concepts distinct (Muse Spark)", out, problems, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
+      out = await sparkJson(p, rec, "concepts.generate", { ctx: rec.callCtx("concepts.distinctness_repair"), instructions: INSTRUCTIONS, input: repair, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
+      await rec.modelStep(`Repair: make concepts distinct (${engineName(out.model)})`, out, problems, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
       problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
       if (problems.length || out.data.variants.length < count) {
-        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: "Muse Spark couldn't produce clearly different concepts. Please retry or refine the request." });
+        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: `${engineName(out.model)} couldn't produce clearly different concepts. Please retry or refine the request.` });
       }
     }
     ctx.throwIfCancelled();

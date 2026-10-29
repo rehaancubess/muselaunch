@@ -1,10 +1,11 @@
 import { Channel, CopyItemKind, type CopyPack } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { validateClaims } from "./claims";
 import { dnaSummary, loadAppContext, requireDna } from "./context";
 import { retrieveMemory } from "./memory";
+import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
 import { RunRecorder } from "./runs";
 import { clip, hashId } from "./util";
 
@@ -84,7 +85,8 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
   if (variant && variant.campaignId !== campaignId) throw new AppError("BAD_REQUEST", "Variant does not belong to this campaign");
   const brief = campaign.briefId ? await ws.collection("campaignBriefs").get(campaign.briefId) : null;
   const storyboard = variant?.storyboardId ? await ws.collection("storyboards").get(variant.storyboardId) : null;
-  const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "copywriting", model: p.cfg.META_MODEL_SPARK, goal: `Copy for ${chans.join(", ")} — ${campaign.name}`, appId });
+  const planned = plannedEngine(p, "copy.generate");
+  const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "copywriting", model: planned.model, goal: `Copy for ${chans.join(", ")} — ${campaign.name}`, appId });
   try {
     const memory = await retrieveMemory(p, { workspaceId: ctx.workspaceId, appId, task: "copywriting", query: `${campaign.request ?? campaign.name} ${variant?.hook ?? ""}`, jobId: ctx.job.id, agentRunId: rec.id });
     const input = [
@@ -103,16 +105,16 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
     ]
       .filter(Boolean)
       .join("\n");
-    await ctx.progress(20, "Muse Spark is writing copy");
-    let out = await generateJson(p, { ctx: rec.callCtx("copy.generate"), model: "spark", instructions: INSTRUCTIONS, input, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
-    await rec.modelStep("Write channel copy (Muse Spark)", out, chans);
+    await ctx.progress(20, `${planned.name} is writing copy`);
+    let out = await sparkJson(p, rec, "copy.generate", { ctx: rec.callCtx("copy.generate"), instructions: INSTRUCTIONS, input, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
+    await rec.modelStep(`Write channel copy (${engineName(out.model)})`, out, chans);
     let packs = out.data.packs.filter((x) => chans.includes(x.channel));
     let limits = copyLimitProblems(packs);
     const missing = chans.filter((c) => !packs.some((x) => x.channel === c));
     if (limits.length || missing.length) {
       const issues = [...limits, ...missing.map((m) => `Missing pack for ${m}.`)];
-      out = await generateJson(p, { ctx: rec.callCtx("copy.repair"), model: "spark", instructions: INSTRUCTIONS, input: `${input}\n\nFix these problems and return all packs again:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious output:\n${JSON.stringify(out.data).slice(0, 15_000)}`, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
-      await rec.modelStep("Repair copy limits (Muse Spark)", out, issues);
+      out = await sparkJson(p, rec, "copy.generate", { ctx: rec.callCtx("copy.repair"), instructions: INSTRUCTIONS, input: `${input}\n\nFix these problems and return all packs again:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious output:\n${JSON.stringify(out.data).slice(0, 15_000)}`, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
+      await rec.modelStep(`Repair copy limits (${engineName(out.model)})`, out, issues);
       packs = out.data.packs.filter((x) => chans.includes(x.channel));
       limits = copyLimitProblems(packs);
     }
@@ -124,7 +126,7 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
       const pack = packs.find((x) => x.channel === c);
       if (!pack) continue;
       const items = pack.items.map((it, i) => ({ id: `${c}_${i + 1}`, kind: it.kind, text: it.text, claimIds: it.claimIds.filter((x) => verified.has(x)) }));
-      const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: items.map((it) => ({ id: it.id, text: it.text })) });
+      const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: items.map((it) => ({ id: it.id, text: it.text })), onFallback: fallbackTo(rec) });
       const limitIssues = items.flatMap((it) => {
         const max = CHANNEL_RULES[c]?.limits[it.kind];
         return max && it.text.length > max ? [{ itemId: it.id, issue: `Exceeds the ${c} ${it.kind} limit (${it.text.length}/${max} characters)` }] : [];
