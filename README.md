@@ -37,7 +37,7 @@ Install Node.js once (`winget install OpenJS.NodeJS.LTS` in PowerShell), then do
 |---|---|
 | `start-demo.cmd` | The whole product with **no keys**: labelled test answers stand in for the AI; rendering, storage, jobs and credits are real. |
 | `start-live.cmd` | The whole product with **real AI**, using the keys in `.env`. Data is in memory. Real calls spend real credits, capped by the spend ceilings in `.env`. |
-| `check-keys.cmd` | Checks your setup and makes three tiny live calls to Muse Spark Open (`check-keys.cmd meta` / `media` / `glimmer` for the others). |
+| `check-keys.cmd` | Checks your setup and makes a few tiny live calls with every key that's set in `.env` (Meta, Baseten, Glimmer). `check-keys.cmd media agents autopilot` runs the deeper checks. Results also go to `fixtures/live/last-run.log`. |
 | `setup-glimmer.cmd` | Downloads Muse Glimmer (about 18 GB) into Ollama on your GPU, connects MuseLaunch to it and runs a live Brand Guardian check. |
 
 Both start scripts open the site at http://localhost:3000. Close their two server windows to stop.

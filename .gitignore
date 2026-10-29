@@ -15,6 +15,7 @@ coverage/
 .render-tmp/
 # raw live API captures may contain private app data; only redacted fixtures are committed
 fixtures/live/raw/
+fixtures/live/last-run.log
 service-account*.json
 *.log
 .DS_Store

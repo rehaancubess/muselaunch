@@ -3,7 +3,7 @@
  * a summary. Redacted responses are saved under fixtures/live/ so the team can build exact
  * parsers. Run on a machine with network access:  pnpm smoke:live [area...]
  */
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
@@ -22,8 +22,20 @@ const p = createPlatform();
 // Raw (redacted) HTTP exchanges with Meta/Glimmer/Baseten → fixtures/live/raw/wire/ (gitignored).
 installWireCapture(p);
 const dir = fileURLToPath(new URL("./smoke/", import.meta.url));
-const only = process.argv.slice(2);
-const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.startsWith("_") && (!only.length || only.some((o) => f.includes(o))));
+// "keys" = the quick check for every key that's set (what check-keys.cmd runs by default).
+const args = process.argv.slice(2);
+const only = args.flatMap((a) => (a === "keys" ? configuredKeyChecks() : [a]));
+const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.startsWith("_") && (!args.length || only.some((o) => f.includes(o))));
+
+// Every result line also goes to fixtures/live/last-run.log, so a run started by double-clicking a
+// .cmd file can be read back afterwards (keys are never printed; errors are redacted by the clients).
+const logLines: string[] = [`${new Date().toISOString()} smoke:live ${args.join(" ") || "(all)"}`];
+const log = (line: string) => {
+  console.log(line);
+  logLines.push(line);
+};
+if (args.includes("keys") && !files.length) log("No keys are set in .env yet (META_API_KEY, BASETEN_API_KEY or GLIMMER_BASE_URL).");
+
 let failed = 0;
 for (const f of files) {
   const started = Date.now();
@@ -31,14 +43,22 @@ for (const f of files) {
     // Imported inside the try: a module that fails to load fails only its own smoke.
     const mod = (await import(pathToFileURL(dir + f).href)) as { run: (p: unknown) => Promise<string> };
     const summary = await mod.run(p);
-    console.log(`✅ ${f.replace(".ts", "")} (${Date.now() - started} ms): ${summary}`);
+    log(`✅ ${f.replace(".ts", "")} (${Date.now() - started} ms): ${summary}`);
   } catch (err) {
     failed++;
     const e = err as { code?: string; message?: string; opts?: { details?: unknown } };
     // details carry the documented error fields (status, type, code, param, retryAfter).
-    console.log(`❌ ${f.replace(".ts", "")}: ${e.code ?? ""} ${e.message ?? err}${e.opts?.details ? ` ${JSON.stringify(e.opts.details)}` : ""}`);
+    log(`❌ ${f.replace(".ts", "")}: ${e.code ?? ""} ${e.message ?? err}${e.opts?.details ? ` ${JSON.stringify(e.opts.details)}` : ""}`);
   }
 }
 const saved = await flushWire();
-console.log(`wire: ${saved} raw exchange(s) saved under ${WIRE_DIR}`);
+log(`wire: ${saved} raw exchange(s) saved under ${WIRE_DIR}`);
+const liveDir = fileURLToPath(new URL("../fixtures/live/", import.meta.url));
+mkdirSync(liveDir, { recursive: true });
+writeFileSync(`${liveDir}last-run.log`, `${logLines.join("\n")}\n`);
 process.exit(failed ? 1 : 0);
+
+function configuredKeyChecks(): string[] {
+  const set = (k: string) => Boolean(process.env[k]?.trim());
+  return [set("META_API_KEY") && "meta-text", set("BASETEN_API_KEY") && "baseten", set("GLIMMER_BASE_URL") && "glimmer"].filter((x): x is string => Boolean(x));
+}
