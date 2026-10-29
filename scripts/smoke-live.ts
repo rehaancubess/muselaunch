@@ -15,7 +15,7 @@ process.env.STORAGE_DRIVER = "local";
 const { createPlatform } = await import("@muselaunch/platform");
 const { flushWire, installWireCapture, WIRE_DIR } = await import("./smoke/_wire");
 const p = createPlatform();
-// Raw (redacted) HTTP exchanges with Meta/Glimmer → fixtures/live/raw/wire/ (gitignored).
+// Raw (redacted) HTTP exchanges with Meta/Glimmer/Baseten → fixtures/live/raw/wire/ (gitignored).
 installWireCapture(p);
 const dir = fileURLToPath(new URL("./smoke/", import.meta.url));
 const only = process.argv.slice(2);

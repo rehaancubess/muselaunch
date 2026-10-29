@@ -1,15 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { redactForTrace, type Platform } from "@muselaunch/platform";
-import { GlimmerClient, installGlimmerClient, installMetaClient, MetaClient } from "@muselaunch/providers";
+import { GlimmerClient, installGlimmerClient, installMetaClient, installSparkOpenClient, MetaClient, SparkOpenClient } from "@muselaunch/providers";
 
 /**
- * Raw wire capture for live smoke runs: every HTTP exchange with the Meta Model API (and Glimmer)
- * is written to fixtures/live/raw/wire/ (gitignored) BEFORE our parsers touch it, so request and
- * response shapes can be checked against the docs. Redaction: no request headers except
- * content-type/accept; secret-looking response headers, cookies and query params are masked; long
- * strings (base64 media, mask payloads) are truncated by `redactForTrace`; private reasoning text
- * from Glimmer streams is replaced by its length.
+ * Raw wire capture for live smoke runs: every HTTP exchange with the Meta Model API (and Glimmer,
+ * and Baseten for Muse Spark Open) is written to fixtures/live/raw/wire/ (gitignored) BEFORE our
+ * parsers touch it, so request and response shapes can be checked against the docs. Redaction: no
+ * request headers except content-type/accept; secret-looking response headers, cookies and query
+ * params are masked; long strings (base64 media, mask payloads) are truncated by `redactForTrace`;
+ * private reasoning text (Glimmer / Spark Open, streamed or not) is replaced by its length, keeping
+ * the field name it arrived in.
  */
 export const WIRE_DIR = fileURLToPath(new URL("../../fixtures/live/raw/wire/", import.meta.url));
 
@@ -21,6 +22,7 @@ export function installWireCapture(p: Platform): void {
   mkdirSync(WIRE_DIR, { recursive: true });
   installMetaClient(p, new MetaClient(p, { fetch: recordingFetch("meta") }));
   if (p.cfg.GLIMMER_BASE_URL) installGlimmerClient(p, new GlimmerClient(p, { fetch: recordingFetch("glimmer") }));
+  if (p.cfg.BASETEN_API_KEY) installSparkOpenClient(p, new SparkOpenClient(p, { fetch: recordingFetch("baseten") }));
 }
 
 /** Wait for in-flight captures to be written. Returns how many exchanges were saved. */
@@ -47,7 +49,7 @@ function recordingFetch(label: string, inner: typeof fetch = fetch): typeof fetc
       (async () => {
         const text = await copy.text().catch((e: unknown) => `[body read failed: ${String(e)}]`);
         const contentType = res.headers.get("content-type") ?? "";
-        const body = contentType.includes("text/event-stream") ? summariseSse(text) : parseMaybeJson(text);
+        const body = contentType.includes("text/event-stream") ? summariseSse(text) : hideReasoning(parseMaybeJson(text));
         await save(n, label, request, { status: res.status, statusText: res.statusText, headers: headerObject(res.headers), body }, started);
       })(),
     );
@@ -90,6 +92,18 @@ function headerObject(h: Headers): Record<string, string> {
     out[k] = SECRET.test(k) ? "[redacted]" : v;
   });
   return out;
+}
+
+/** Non-streamed Chat Completions bodies: replace private reasoning text by its length (field name kept). */
+function hideReasoning(body: unknown): unknown {
+  const choices = (body as { choices?: Record<string, any>[] } | null)?.choices;
+  if (!Array.isArray(choices)) return body;
+  for (const c of choices) {
+    const m = c?.message;
+    if (!m) continue;
+    for (const k of ["reasoning_content", "reasoning"]) if (typeof m[k] === "string") m[k] = `[${m[k].length} chars of private reasoning]`;
+  }
+  return body;
 }
 
 function parseMaybeJson(text: string): unknown {

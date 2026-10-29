@@ -38,11 +38,33 @@ if (env.MUSE_IMAGE_ENABLED === "true" && (env.OPERATOR_COUNTRY ?? "IN") === "IN"
 console.log("\nProvider keys");
 const keys: [string, string][] = [
   ["META_API_KEY", "Meta Model API (Wonder, Spark, SAM, Voice)"],
+  ["BASETEN_API_KEY", "Baseten Model APIs (Muse Spark Open, open weights)"],
   ["OPENAI_API_KEY", "OpenAI Images / TTS"],
   ["GLIMMER_BASE_URL", "Muse Glimmer endpoint"],
   ["TOKEN_ENCRYPTION_KEY", "OAuth token encryption (required in production)"],
 ];
 for (const [k, label] of keys) (env[k] ? ok : warn)(`${label}: ${env[k] ? "set" : "not set"}`);
+
+console.log("\nMuse Spark Open (Baseten)");
+{
+  const { TEXT_ROUTES } = await import("@muselaunch/providers");
+  const EXPECTED_MODEL = "meta-models/muse-spark-open-1026";
+  const model = env.SPARK_OPEN_MODEL || EXPECTED_MODEL;
+  const tasks = env.SPARK_OPEN_TASKS === undefined ? ["copy.generate", "composition.variant_briefs"] : env.SPARK_OPEN_TASKS.split(",").map((s) => s.trim()).filter(Boolean);
+  const fallback = !["0", "false", "no", "off"].includes((env.SPARK_OPEN_FALLBACK ?? "1").toLowerCase());
+  if (!env.BASETEN_API_KEY) {
+    warn("Not connected (BASETEN_API_KEY not set): every route stays on Muse Spark and there is no fallback");
+  } else {
+    ok(`Key set · base URL ${env.BASETEN_BASE_URL || "https://inference.baseten.co/v1"}`);
+    (model === EXPECTED_MODEL ? ok : bad)(`Model ${model}${model === EXPECTED_MODEL ? "" : ` — the hackathon key only works with ${EXPECTED_MODEL}`}`);
+    const unknown = tasks.filter((t) => !(t in TEXT_ROUTES));
+    const known = tasks.filter((t) => t in TEXT_ROUTES);
+    ok(`Runs on Spark Open: ${known.join(", ") || "nothing (fallback only)"}`);
+    if (unknown.length) warn(`Unknown SPARK_OPEN_TASKS entries (ignored): ${unknown.join(", ")}. Known: ${Object.keys(TEXT_ROUTES).join(", ")}`);
+    (fallback ? ok : warn)(`Fallback when the Meta Model API is limited: ${fallback ? "on" : "off"}`);
+    console.log("  ℹ️  Live check (three tiny calls, raw exchanges saved): pnpm smoke:live baseten");
+  }
+}
 
 console.log("\nReachability");
 async function probe(label: string, url: string, headers: Record<string, string> = {}) {

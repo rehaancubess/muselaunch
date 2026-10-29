@@ -14,6 +14,8 @@ export interface SparkOpenTextResult extends LlmTextResult {
   provider: "baseten";
   /** Length of the private reasoning (the text itself is never returned). */
   reasoningChars: number;
+  /** Where the reasoning arrived (reasoning_content per Baseten's docs). */
+  reasoningSource: SparkOpenResult["reasoningSource"];
   finishReason?: string;
   usageEstimated: boolean;
 }
@@ -37,6 +39,7 @@ function toResult(r: SparkOpenResult): SparkOpenTextResult {
     costUsd: r.costUsd,
     provider: "baseten",
     reasoningChars: r.reasoning.length,
+    reasoningSource: r.reasoningSource,
     finishReason: r.finishReason,
     usageEstimated: r.usageEstimated,
   };
