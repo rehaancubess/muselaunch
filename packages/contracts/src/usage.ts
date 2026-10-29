@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { BaseEntity, Id } from "./common";
 
-export const ProviderId = z.enum(["meta", "openai", "glimmer", "stock", "tts", "web", "publishing", "analytics", "render"]);
+/** `baseten` (additive): Muse Spark Open, Meta's open-weights model served by Baseten Model APIs. */
+export const ProviderId = z.enum(["meta", "openai", "glimmer", "stock", "tts", "web", "publishing", "analytics", "render", "baseten"]);
 export type ProviderId = z.infer<typeof ProviderId>;
 
 /** Canonical Meta model ids (verify against /v1/models at runtime). */
@@ -12,6 +13,29 @@ export const META_MODELS = {
   voice: "muse-voice-transcribe-1.0",
   image: "muse-image-1.0",
 } as const;
+
+/**
+ * Muse Spark Open on Baseten. The hackathon key only works with this exact slug (Baseten's docs show
+ * the unversioned `meta-models/muse-spark-open`).
+ */
+export const SPARK_OPEN_MODEL = "meta-models/muse-spark-open-1026";
+/** How Muse Spark Open is named wherever a model name is shown. "Open weights" is said only of Spark Open and Glimmer. */
+export const SPARK_OPEN_LABEL = "Muse Spark Open · open weights via Baseten";
+
+export function isSparkOpenModel(model?: string | null): boolean {
+  return Boolean(model && /muse-spark-open/i.test(model));
+}
+
+/** Friendly model name for UI and run titles (ids stay visible next to it for transparency). */
+export function modelDisplayName(model?: string | null, opts: { short?: boolean } = {}): string {
+  if (!model) return "";
+  // Checked before "muse-spark": a Spark Open id must never be shown as Muse Spark.
+  if (isSparkOpenModel(model)) return opts.short ? "Muse Spark Open" : SPARK_OPEN_LABEL;
+  if (model.startsWith("muse-wonder")) return "Muse Wonder";
+  if (model.startsWith("muse-spark")) return "Muse Spark";
+  if (model.includes("glimmer")) return "Muse Glimmer";
+  return model;
+}
 
 export const UsageOperation = z.enum([
   "responses",

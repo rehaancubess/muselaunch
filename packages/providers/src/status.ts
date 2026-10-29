@@ -40,6 +40,15 @@ export function providerStatuses(p: Platform, endUserCountry?: string): Provider
       detail: imageProvider === "openai" ? "Generated images are labelled as OpenAI-generated" : "Set OPENAI_API_KEY",
     },
     {
+      id: "muse-spark-open",
+      label: "Muse Spark Open",
+      role: "Meta's open-weights Spark on Baseten: high-volume copy and variant steps, and the fallback when the Meta Model API is limited",
+      state: cfg.BASETEN_API_KEY ? "live" : "not_configured",
+      detail: cfg.BASETEN_API_KEY
+        ? `${cfg.SPARK_OPEN_MODEL} (open weights via Baseten) · runs: ${cfg.SPARK_OPEN_TASKS.join(", ") || "nothing by default"} · fallback ${cfg.SPARK_OPEN_FALLBACK ? "on" : "off"}`
+        : "Set BASETEN_API_KEY (Baseten Model APIs) to connect",
+    },
+    {
       id: "muse-glimmer",
       label: "Muse Glimmer",
       role: "Self-hosted brand memory & preference reasoning",

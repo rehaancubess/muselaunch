@@ -1,0 +1,10 @@
+{
+  "_fixture": "Documented error envelope, NOT live output: Baseten errors use {\"error\": \"<message>\"} (https://docs.baseten.co/inference/errors); statuses 400/401/402/404/429/500/529 per the Model APIs overview. Messages are synthetic.",
+  "400": { "error": "n greater than 1 is not supported" },
+  "401": { "error": "Missing API key" },
+  "402": { "error": "Payment required: Model API credits exhausted" },
+  "404": { "error": "Model meta-models/muse-spark-open-9999 not found" },
+  "429": { "error": "Rate limit exceeded for model meta-models/muse-spark-open-1026" },
+  "500": { "error": "Failed to route request" },
+  "529": { "error": "Overloaded" }
+}

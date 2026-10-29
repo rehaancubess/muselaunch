@@ -439,5 +439,9 @@ export const CompositionPatch = BaseEntity.extend({
   validationErrors: z.array(z.string().max(500)).default([]),
   agentRunId: Id.optional(),
   memoryRefs: z.array(Id).default([]),
+  /** AI patches: the model that wrote the ops (e.g. "muse-spark-1.3", "meta-models/muse-spark-open-1026"). Additive. */
+  model: z.string().max(80).optional(),
+  /** Why that model was used when it wasn't the planned one (a visible fallback). Additive. */
+  modelNote: z.string().max(300).optional(),
 });
 export type CompositionPatch = z.infer<typeof CompositionPatch>;

@@ -63,6 +63,17 @@ export const ConfigSchema = z.object({
   META_MODEL_IMAGE: z.string().default("muse-image-1.0"),
   META_TIMEOUT_MS: z.coerce.number().default(180_000),
 
+  // Muse Spark Open: Meta's open-weights model on Baseten Model APIs (OpenAI-compatible Chat Completions)
+  BASETEN_API_KEY: z.string().optional(),
+  BASETEN_BASE_URL: z.string().default("https://inference.baseten.co/v1"),
+  /** The hackathon key only works with this exact slug (Baseten's docs show `meta-models/muse-spark-open`). */
+  SPARK_OPEN_MODEL: z.string().default("meta-models/muse-spark-open-1026"),
+  /** Routes sent to Muse Spark Open when BASETEN_API_KEY is set (providers/router.ts lists them). Empty = fallback only. */
+  SPARK_OPEN_TASKS: csv.default(["copy.generate", "composition.variant_briefs"]),
+  /** Retry a failed Muse Spark call once on Muse Spark Open (rate limit, outage, timeout, credits). Always recorded in the run. */
+  SPARK_OPEN_FALLBACK: bool.default(true),
+  SPARK_OPEN_TIMEOUT_MS: z.coerce.number().default(180_000),
+
   // Muse Glimmer (self-hosted, OpenAI-compatible)
   GLIMMER_BASE_URL: z.string().optional(),
   GLIMMER_API_KEY: z.string().optional(),

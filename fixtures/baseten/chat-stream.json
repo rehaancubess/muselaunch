@@ -1,0 +1,10 @@
+{
+  "_fixture": "ASSUMED shape, NOT live output. Baseten documents reasoning only for non-streaming responses; these OpenAI-compatible chunks assume delta.reasoning_content, then delta.content, a finish_reason, a final usage chunk (stream_options.include_usage, https://docs.baseten.co/reference/inference-api/chat-completions) and `data: [DONE]` (https://docs.baseten.co/inference/errors: check [DONE] and finish_reason). `pnpm smoke:live baseten` records the real stream to confirm or correct this.",
+  "chunks": [
+    { "id": "chatcmpl-fixture-0002", "object": "chat.completion.chunk", "model": "meta-models/muse-spark-open-1026", "choices": [{ "index": 0, "delta": { "role": "assistant", "reasoning_content": "The founder wants one caption. " } }] },
+    { "id": "chatcmpl-fixture-0002", "object": "chat.completion.chunk", "model": "meta-models/muse-spark-open-1026", "choices": [{ "index": 0, "delta": { "reasoning_content": "Keep it under 125 characters." } }] },
+    { "id": "chatcmpl-fixture-0002", "object": "chat.completion.chunk", "model": "meta-models/muse-spark-open-1026", "choices": [{ "index": 0, "delta": { "content": "Fixture: one calm tap " } }] },
+    { "id": "chatcmpl-fixture-0002", "object": "chat.completion.chunk", "model": "meta-models/muse-spark-open-1026", "choices": [{ "index": 0, "delta": { "content": "to deep focus." }, "finish_reason": "stop" }] },
+    { "id": "chatcmpl-fixture-0002", "object": "chat.completion.chunk", "model": "meta-models/muse-spark-open-1026", "choices": [], "usage": { "prompt_tokens": 900, "completion_tokens": 150, "total_tokens": 1050, "prompt_tokens_details": { "cached_tokens": 0 }, "completion_tokens_details": { "reasoning_tokens": 120 } } }
+  ]
+}

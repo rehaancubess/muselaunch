@@ -1,0 +1,27 @@
+{
+  "_fixture": "Documented shape, NOT live output. Baseten Chat Completions, non-streaming, for a model that always reasons: reasoning in message.reasoning_content, answer in message.content (https://docs.baseten.co/inference/model-apis/reasoning, whose example this reasoning text follows); usage with completion_tokens_details.reasoning_tokens and prompt_tokens_details.cached_tokens (https://docs.baseten.co/reference/inference-api/chat-completions). Token counts are synthetic. Replace with a redacted capture from `pnpm smoke:live baseten`.",
+  "response": {
+    "id": "chatcmpl-fixture-0001",
+    "object": "chat.completion",
+    "created": 1793260000,
+    "model": "meta-models/muse-spark-open-1026",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "reasoning_content": "The user is asking whether 91 is a prime number... 91 = 7 × 13, so it is not prime...",
+          "content": "No. 91 = 7 × 13, so it is not prime."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1200,
+      "completion_tokens": 300,
+      "total_tokens": 1500,
+      "prompt_tokens_details": { "cached_tokens": 200 },
+      "completion_tokens_details": { "reasoning_tokens": 240 }
+    }
+  }
+}

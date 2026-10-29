@@ -1,6 +1,7 @@
 /**
  * Provider price table (USD) used for cost metering and spend guards.
  * Meta prices from https://dev.meta.ai/docs/pricing-rate-limits (verified 2026-10-27).
+ * Baseten Model APIs prices from https://www.baseten.co/pricing/ (verified 2026-10-29).
  * Override any entry with PROVIDER_PRICES_JSON (same shape) without a code change.
  */
 export interface TokenPrice {
@@ -17,6 +18,11 @@ export const PRICES = {
     "muse-spark-1.1": { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
     // Self-hosted: no per-token charge (GPU time is tracked separately via runtimeMs).
     "muse-glimmer": { inputPerM: 0, outputPerM: 0, cachedInputPerM: 0 },
+    // Baseten "Meta AI Muse Spark Open": $1.25 input / $0.15 cached input / $4.25 output per 1M tokens.
+    // Reasoning is billed as output: "Baseten includes reasoning tokens in completion_tokens and counts
+    // them toward your total usage and billing" (docs.baseten.co/inference/model-apis/reasoning).
+    "meta-models/muse-spark-open-1026": { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
+    "meta-models/muse-spark-open": { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
   } as Record<string, TokenPrice>,
   metaWebSearchPerQuery: 2.5 / 1000,
   museImagePerImage: 0.01,
