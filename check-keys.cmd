@@ -8,6 +8,8 @@ setlocal
 cd /d "%~dp0"
 title MuseLaunch key check
 set COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+rem FFmpeg installed by setup-tools.cmd may not be on this window's PATH yet.
+call scripts\windows\ffmpeg-path.cmd
 set "PNPM=pnpm"
 where pnpm >nul 2>nul
 if errorlevel 1 set "PNPM=npx --yes pnpm@10.28.0"

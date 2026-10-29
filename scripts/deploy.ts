@@ -129,7 +129,23 @@ if (!args.has("--skip-indexes") && !DRY) {
 }
 
 // ---- 2. Secrets ----
-const SECRETS = ["META_API_KEY", "BASETEN_API_KEY", "OPENAI_API_KEY", "GLIMMER_API_KEY", "TOKEN_ENCRYPTION_KEY", "WORKER_SHARED_SECRET", "STORAGE_SIGNING_SECRET"].filter((k) => env[k]);
+const SECRETS = [
+  "META_API_KEY",
+  "BASETEN_API_KEY",
+  "OPENAI_API_KEY",
+  "GLIMMER_API_KEY",
+  "TOKEN_ENCRYPTION_KEY",
+  "WORKER_SHARED_SECRET",
+  "STORAGE_SIGNING_SECRET",
+  // Social OAuth client secrets and the YouTube public-data key (only those set in .env).
+  "YOUTUBE_CLIENT_SECRET",
+  "YOUTUBE_API_KEY",
+  "INSTAGRAM_APP_SECRET",
+  "FACEBOOK_APP_SECRET",
+  "TIKTOK_CLIENT_SECRET",
+  "LINKEDIN_CLIENT_SECRET",
+  "X_CLIENT_SECRET",
+].filter((k) => env[k]);
 for (const name of SECRETS) {
   sh(`gcloud secrets create ${name} --replication-policy=automatic --project ${PROJECT}`, { allowFail: true, quiet: true });
   sh(`gcloud secrets versions add ${name} --data-file=- --project ${PROJECT}`, { input: env[name]!, quiet: true });
@@ -200,6 +216,8 @@ const common = [
         ...(env.BASETEN_BASE_URL ? [`BASETEN_BASE_URL=${env.BASETEN_BASE_URL}`] : []),
       ]
     : []),
+  // Social OAuth client ids (public) for the platforms configured in .env; their secrets are above.
+  ...["YOUTUBE_CLIENT_ID", "INSTAGRAM_APP_ID", "FACEBOOK_APP_ID", "TIKTOK_CLIENT_KEY", "TIKTOK_AUDITED", "LINKEDIN_CLIENT_ID", "LINKEDIN_API_VERSION", "X_CLIENT_ID"].filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
   `TASKS_LOCATION=${REGION}`,
   `TASKS_INVOKER_SA=${TASKS_SA}`,
   "JOB_DISPATCH=cloudtasks",

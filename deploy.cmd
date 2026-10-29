@@ -1,13 +1,13 @@
 @echo off
 rem Puts MuseLaunch online on Google Cloud (project and region from .env: FIREBASE_PROJECT_ID, DEPLOY_REGION).
 rem Safe to run again: it updates what's there. The first run takes about 20-30 minutes.
-rem Needs the Google Cloud CLI once:  winget install Google.CloudSDK   (then open a new window).
+rem Needs the Google Cloud CLI once: double-click setup-tools.cmd first.
 rem Every step is also written to .data\logs\deploy.log.
 setlocal
 cd /d "%~dp0"
 title MuseLaunch deploy
 
-where gcloud >nul 2>nul
+call scripts\windows\gcloud-path.cmd
 if errorlevel 1 goto nogcloud
 where node >nul 2>nul
 if errorlevel 1 goto nonode
@@ -44,8 +44,7 @@ pause
 exit /b 0
 
 :nogcloud
-echo The Google Cloud CLI isn't installed. In PowerShell run:  winget install Google.CloudSDK
-echo Then close this window and double-click deploy.cmd again.
+echo The Google Cloud CLI isn't installed yet: double-click setup-tools.cmd first, then deploy.cmd again.
 pause
 exit /b 1
 
