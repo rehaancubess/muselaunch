@@ -20,7 +20,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { formatMs, formatTokens, formatUsd, modelLabel, prettyJson, stepDurationMs } from "./types";
+import { formatMs, formatTokens, formatUsd, modelLabel, prettyJson, providerNote, stepDurationMs } from "./types";
 
 // ---------------------------------------------------------------------------
 // Budget
@@ -297,7 +297,7 @@ export function UsageTable({ usage }: { usage: ModelUsageEvent[] }) {
                   <span className="inline-flex items-center gap-1.5">
                     {u.dataMode === "self_hosted" ? <Server aria-hidden className="size-3.5" /> : null}
                     {u.model}
-                    {u.dataMode === "self_hosted" ? <span className="text-ink-3">self-hosted</span> : null}
+                    {providerNote(u) ? <span className="text-ink-3">{providerNote(u)}</span> : null}
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right tabular">{formatTokens(u.inputTokens)}</td>
@@ -310,7 +310,7 @@ export function UsageTable({ usage }: { usage: ModelUsageEvent[] }) {
           </tbody>
         </table>
       </div>
-      <p className="text-caption text-ink-3">Costs are estimates from token counts and published prices; self-hosted Muse Glimmer calls have no per-token charge.</p>
+      <p className="text-caption text-ink-3">Costs are estimates from token counts and published prices (Meta Model API; Baseten for Muse Spark Open, where reasoning tokens are billed as output); self-hosted Muse Glimmer calls have no per-token charge.</p>
     </div>
   );
 }

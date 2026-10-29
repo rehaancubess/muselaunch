@@ -1,5 +1,5 @@
 "use client";
-import type { ModelUsageEvent } from "@muselaunch/contracts";
+import { modelDisplayName, type ModelUsageEvent } from "@muselaunch/contracts";
 import { EmptyState, PageHeader, Section, Skeleton, StatusPill } from "@muselaunch/ui";
 import { Cpu, ReceiptText } from "lucide-react";
 import BillingRoot from "@/features/billing";
@@ -38,8 +38,11 @@ function Usage({ workspaceId }: { workspaceId: string }) {
                   {data.items.map((u: ModelUsageEvent) => (
                     <tr key={u.id}>
                       <td className="px-4 py-2.5">
-                        <span className="font-medium text-ink">{u.model}</span>
-                        <span className="block text-caption text-ink-3">{u.provider === "glimmer" ? "Self-hosted" : u.provider}</span>
+                        <span className="font-medium text-ink">{modelDisplayName(u.model)}</span>
+                        <span className="block text-caption text-ink-3">
+                          {u.model !== modelDisplayName(u.model) ? `${u.model} · ` : ""}
+                          {u.provider === "glimmer" ? "Self-hosted" : u.provider === "baseten" ? "Baseten" : u.provider}
+                        </span>
                       </td>
                       <td className="max-w-56 truncate px-4 py-2.5 text-ink-2">{u.task}</td>
                       <td className="px-4 py-2.5 text-right tabular text-ink-2">{u.inputTokens != null ? `${u.inputTokens.toLocaleString()} / ${(u.outputTokens ?? 0).toLocaleString()}` : u.images ? `${u.images} image${u.images === 1 ? "" : "s"}` : u.audioSeconds ? `${Math.round(u.audioSeconds)}s audio` : "—"}</td>

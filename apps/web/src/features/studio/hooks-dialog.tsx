@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
+import { useTextEngine } from "@/lib/engines";
 import { fetchEstimate } from "@/lib/estimate";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
@@ -45,6 +46,8 @@ export function hooksAskedFor(instruction: string): number | null {
 }
 
 function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; appId: string; hook: HookRef; index: number }) {
+  // Each hook is a scene-scoped edit of the opening scene (route composition.edit.scoped).
+  const engine = useTextEngine("composition.edit.scoped");
   const router = useRouter();
   const base = wsPath(workspaceId, `/compositions/${hook.compositionId}`);
   const settled = useRef(false);
@@ -75,7 +78,7 @@ function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; ap
       <div className="h-[340px] rounded-lg bg-mist p-2">
         {running && !edited ? (
           <div className="flex h-full flex-col justify-center gap-3 px-2">
-            <JobProgress job={job} variant="row" title="Muse Spark is writing this hook" onCancel={() => void live.cancel()} cancelling={live.cancelling} />
+            <JobProgress job={job} variant="row" title={`${engine.name} is writing this hook`} onCancel={() => void live.cancel()} cancelling={live.cancelling} />
           </div>
         ) : (
           <PreviewPlayer compact html={preview.data?.html} width={comp.data?.version.doc.width ?? 1080} height={comp.data?.version.doc.height ?? 1920} durationSec={comp.data?.durationSec ?? 0} posterSec={preview.data?.posterSec} loading={preview.isLoading || comp.isLoading} error={preview.error?.userMessage} onRetry={() => preview.refetch()} />
@@ -95,6 +98,7 @@ function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; ap
 
 export function HooksDialog({ workspaceId, appId, base, composition }: { workspaceId: string; appId: string; base: string; composition: Composition }) {
   const [open, setOpen] = useState(false);
+  const engine = useTextEngine("composition.edit.scoped");
   const [mode, setMode] = useState<"auto" | "custom">("auto");
   const [autoCount, setAutoCount] = useState(3);
   const [briefs, setBriefs] = useState(["", "", ""]);
@@ -159,7 +163,7 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
     }
   };
   const per = estimate?.credits ?? 0;
-  const total: EstimateResult | null = estimate ? { credits: per * count, breakdown: [{ label: `${count} hook${count === 1 ? "" : "s"} × Muse Spark edit`, credits: per * count }], available: estimate.available } : null;
+  const total: EstimateResult | null = estimate ? { credits: per * count, breakdown: [{ label: `${count} hook${count === 1 ? "" : "s"} × ${engine.name} edit`, credits: per * count }], available: estimate.available } : null;
 
   return (
     <Dialog

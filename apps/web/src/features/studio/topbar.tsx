@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { BrandGuardianBadge, BrandOverrideForm, brandBlockOf, type ReviewBrief } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
+import { useTextEngine } from "@/lib/engines";
 import type { EstimateResponse, Page, SignedUrl } from "@/lib/api-types";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
@@ -260,6 +261,8 @@ function ExportDialog({ workspaceId, campaignId }: { workspaceId: string; campai
 }
 
 function AudienceDialog({ workspaceId, appId, base }: { workspaceId: string; appId: string; base: string }) {
+  // Audience versions are whole-video edits (route composition.edit).
+  const engine = useTextEngine("composition.edit");
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [targets, setTargets] = useState(["", "", ""]);
@@ -290,7 +293,7 @@ function AudienceDialog({ workspaceId, appId, base }: { workspaceId: string; app
         </Button>
       }
       title="Make versions for different audiences"
-      description="Each version is a copy of this video whose on-screen text Muse Spark adapts for that audience, using only verified claims. You review each change before applying it."
+      description={`Each version is a copy of this video whose on-screen text ${engine.name} adapts for that audience, using only verified claims. You review each change before applying it.`}
       footer={
         job ? null : (
           <Button onClick={start} loading={submitting} disabled={!valid.length}>

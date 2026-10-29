@@ -1,11 +1,12 @@
 "use client";
-import type { Job } from "@muselaunch/contracts";
+import { modelDisplayName, type Job } from "@muselaunch/contracts";
 import { Badge, Button, JobProgress, Notice, SegmentedControl, Textarea, cn, useToast } from "@muselaunch/ui";
 import { Check, Mic, ScanSearch, Sparkles, Undo2, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceRecorder } from "@/features/media";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { useAiEditCommand } from "@/lib/commands";
+import { useTextEngine } from "@/lib/engines";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
 import { hooksAskedFor, requestHooks } from "./hooks-dialog";
@@ -81,6 +82,12 @@ function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: { base: 
           {(p.validationErrors[0] ?? detail.data?.preview?.errors[0]) || ""}
         </Notice>
       ) : null}
+      {p.model ? (
+        <p className="text-caption text-ink-3" title={p.model}>
+          Made by {modelDisplayName(p.model)}
+          {p.modelNote ? ` · ${p.modelNote}` : ""}
+        </p>
+      ) : null}
       {p.memoryRefs.length ? <p className="text-caption text-ink-3">Used {p.memoryRefs.length} saved brand preference{p.memoryRefs.length === 1 ? "" : "s"}.</p> : null}
       {p.status === "proposed" ? (
         <div className="flex gap-2">
@@ -108,6 +115,8 @@ function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchRead
   const job = live.job;
   const notConnected = job?.status === "failed" && job.error?.code === "PROVIDER_NOT_CONFIGURED";
   const hooks = hooksAskedFor(turn.instruction);
+  // Planned engine for this turn (routes in providers/router.ts); the patch names the model that answered.
+  const engine = useTextEngine(turn.scope.length ? "composition.edit.scoped" : "composition.edit");
   return (
     <li className="space-y-2">
       <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-md bg-accent px-3 py-2 text-body-sm text-white">
@@ -126,7 +135,7 @@ function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchRead
             The Spark model key isn't configured, so no edit was made. You can still edit directly in the timeline and inspector.
           </Notice>
         ) : (
-          <JobProgress job={job} variant="row" title="Muse Spark is editing" onCancel={() => void live.cancel()} onRetry={() => void live.retry()} cancelling={live.cancelling} retrying={live.retrying} />
+          <JobProgress job={job} variant="row" title={`${engine.name} is editing`} onCancel={() => void live.cancel()} onRetry={() => void live.retry()} cancelling={live.cancelling} retrying={live.retrying} />
         )
       ) : null}
       {turn.patchId && (!job || job.status === "succeeded" || job.status === "needs_approval") ? <PatchCard base={base} patchId={turn.patchId} doc={doc} onApplied={onApplied} onUndo={onUndo} disabled={disabled} /> : null}
@@ -173,6 +182,7 @@ export function AiPanel({
 }) {
   const [text, setText] = useState("");
   const [scope, setScope] = useState<"scene" | "all">("all");
+  const engine = useTextEngine(scope === "scene" && selectedSceneId ? "composition.edit.scoped" : "composition.edit");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sending, setSending] = useState(false);
   const [voice, setVoice] = useState(false);
@@ -303,7 +313,9 @@ export function AiPanel({
           disabled={disabled}
         />
         <div className={cn("flex items-center justify-between")}>
-          <span className="min-w-0 truncate text-caption text-ink-3">Muse Spark · charged per edit</span>
+          <span className="min-w-0 truncate text-caption text-ink-3" title={engine.label}>
+            {engine.label} · charged per edit
+          </span>
           <div className="flex shrink-0 items-center gap-1.5">
             <Button type="button" size="sm" variant={voice ? "secondary" : "ghost"} icon={<Mic className="size-4" aria-hidden />} onClick={() => setVoice((v) => !v)} disabled={disabled} aria-pressed={voice}>
               {voice ? "Close" : "Speak"}

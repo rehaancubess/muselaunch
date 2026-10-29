@@ -1,6 +1,6 @@
 "use client";
 import { ErrorState, List, ListRow, Notice, PageHeader, ProvenanceBadge, Section, Skeleton, type Provenance } from "@muselaunch/ui";
-import { BarChart3, Bot, Brain, Film, Globe, Image as ImageIcon, Mic, ScanFace, Sparkles, Volume2 } from "lucide-react";
+import { BarChart3, Bot, Brain, Film, Globe, Image as ImageIcon, Mic, ScanFace, Sparkle, Sparkles, Volume2 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { readLastApp } from "@/components/shell/app-shell";
@@ -23,6 +23,7 @@ const STATE_BADGE: Record<ProviderState, { kind: Provenance; label: string }> = 
 const ICONS: Record<string, ReactNode> = {
   "muse-wonder": <Bot aria-hidden />,
   "muse-spark": <Sparkles aria-hidden />,
+  "muse-spark-open": <Sparkle aria-hidden />,
   sam: <ScanFace aria-hidden />,
   "muse-voice": <Mic aria-hidden />,
   "muse-image": <ImageIcon aria-hidden />,

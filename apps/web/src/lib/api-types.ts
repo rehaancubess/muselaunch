@@ -60,7 +60,10 @@ export type SignedUrl = { url: string; expiresAt: string };
 
 export type ProviderState = "live" | "not_configured" | "restricted" | "manual_only" | "pending_approval";
 export type ProviderStatus = { id: string; label: string; role: string; state: ProviderState; detail: string };
-export type ProviderStatusResponse = { items: ProviderStatus[]; country: string | null; jobDispatch: string; storage: string; db: string };
+/** Which text engine each route uses on this deployment (providers/router.ts `textRouting`). */
+export type TextEngine = "muse-spark" | "muse-spark-open";
+export type TextRoutingStatus = { sparkOpen: { configured: boolean; model: string; label: string; tasks: string[]; fallback: boolean }; routes: Record<string, TextEngine> };
+export type ProviderStatusResponse = { items: ProviderStatus[]; country: string | null; jobDispatch: string; storage: string; db: string; textRouting?: TextRoutingStatus };
 
 // ---- Module B (App DNA) — INTERFACES.md: GET /apps/:appId/dna → { profile, evidence, claims, import }
 export type AppDnaResponse = { profile: BrandProfile | null; evidence: AppEvidence[]; claims: Claim[]; import: AppImport | null };

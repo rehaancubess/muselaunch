@@ -103,5 +103,8 @@ describe("API", () => {
     const museImage = res.items.find((i: { id: string }) => i.id === "muse-image");
     expect(wonder.state).toBe("not_configured");
     expect(museImage.state).toBe("restricted");
+    // Muse Spark Open: "Not connected" without BASETEN_API_KEY, and every route stays on Muse Spark.
+    expect(res.items.find((i: { id: string }) => i.id === "muse-spark-open").state).toBe("not_configured");
+    expect(res.textRouting).toMatchObject({ sparkOpen: { configured: false, fallback: false }, routes: { "copy.generate": "muse-spark", "composition.variant_briefs": "muse-spark" } });
   });
 });

@@ -7,6 +7,7 @@ import {
   AUTOPILOT_ROUND_CREDITS,
   BUILT_ON,
   CONTROL,
+  OPEN_WEIGHTS_NOTE,
   CREDIT_ROWS,
   FAQ,
   FREE_CREDITS,
@@ -156,6 +157,7 @@ function BuiltOn() {
               </li>
             ))}
           </ul>
+          <p className="mt-5 text-center text-footnote text-ink-3 text-pretty">{OPEN_WEIGHTS_NOTE}</p>
         </div>
       </div>
     </section>

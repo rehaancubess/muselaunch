@@ -4,7 +4,7 @@
  * (for ADMIN_UIDS only) operator ops. Rendered on /w/[workspaceId]/settings/credits.
  * Payments are not enabled in the beta: upgrades are recorded requests, never a fake checkout.
  */
-import type { Plan, PlanId, Subscription, UpgradeRequestRecord, UsageSummary } from "@muselaunch/contracts";
+import { modelDisplayName, type Plan, type PlanId, type Subscription, type UpgradeRequestRecord, type UsageSummary } from "@muselaunch/contracts";
 import { Badge, Button, Card, Notice, ProgressBar, Section, SegmentedControl, Skeleton, Stat, Textarea, useToast } from "@muselaunch/ui";
 import { CreditCard, ShieldAlert } from "lucide-react";
 import { useState } from "react";
@@ -25,6 +25,15 @@ type QuotasResponse = { plan: Plan; day: string; timezone: string; concurrentJob
 type GroupBy = UsageSummary["groupBy"];
 
 const fmtUsd = (v: number) => `$${v < 0.01 && v > 0 ? v.toFixed(4) : v.toFixed(2)}`;
+
+/** Usage row names: model keys are "provider/model"; Muse Spark Open is labelled as open weights via Baseten. */
+function usageRowLabel(groupBy: GroupBy, key: string): { label: string; detail?: string } {
+  if (groupBy === "provider") return key === "baseten" ? { label: "Baseten", detail: "Muse Spark Open, open weights" } : { label: key };
+  if (groupBy !== "model") return { label: key };
+  const model = key.slice(key.indexOf("/") + 1);
+  const name = modelDisplayName(model);
+  return name === model ? { label: key } : { label: name, detail: key };
+}
 const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export default function BillingRoot() {
@@ -203,7 +212,10 @@ function UsageSection({ workspaceId }: { workspaceId: string }) {
                   {u.rows.length ? (
                     u.rows.map((r) => (
                       <tr key={r.key}>
-                        <td className="px-5 py-2 font-medium">{r.key}</td>
+                        <td className="px-5 py-2 font-medium">
+                          {usageRowLabel(groupBy, r.key).label}
+                          {usageRowLabel(groupBy, r.key).detail ? <span className="block text-caption font-normal text-ink-3">{usageRowLabel(groupBy, r.key).detail}</span> : null}
+                        </td>
                         <td className="px-3 py-2 text-right tabular">{r.calls}</td>
                         <td className="px-3 py-2 text-right tabular">{r.errors || "—"}</td>
                         <td className="px-3 py-2 text-right tabular">

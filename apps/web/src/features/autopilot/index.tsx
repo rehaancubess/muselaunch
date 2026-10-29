@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { QueryState } from "@/components/states";
 import { wsPath } from "@/lib/api";
+import { useSparkOpenRouting } from "@/lib/engines";
 import { relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useWorkspace } from "@/lib/workspace";
@@ -136,6 +137,11 @@ export default function AutopilotRoot({ appId, initialGoal }: { appId: string; i
 }
 
 function HowItWorks() {
+  const open = useSparkOpenRouting();
+  const routed = open?.configured ? open.tasks.filter((t) => t === "copy.generate" || t === "composition.variant_briefs" || t === "composition.edit.scoped") : [];
+  const openNote = open?.configured
+    ? ` Muse Spark Open (open weights via Baseten) ${routed.length ? `writes ${routed.map((t) => (t === "copy.generate" ? "post copy" : t === "composition.variant_briefs" ? "variant briefs" : "scene edits")).join(" and ")}` : "is on standby"}${open.fallback ? " and steps in when the Meta Model API is limited, shown in each run" : ""}.`
+    : "";
   const steps = [
     ["Researches", "your audience, trends and competitors — every finding links to its source."],
     ["Decides", "who to reach and one testable hypothesis, citing the research."],
@@ -157,7 +163,9 @@ function HowItWorks() {
           </li>
         ))}
       </ol>
-      <p className="text-footnote text-ink-3 text-pretty">Muse Wonder orchestrates; Muse Spark writes and edits; the Brand Guardian (Muse Glimmer) reviews. Every model call is metered against your credits.</p>
+      <p className="text-footnote text-ink-3 text-pretty">
+        Muse Wonder orchestrates; Muse Spark writes and edits; the Brand Guardian (Muse Glimmer) reviews.{openNote} Every model call is metered against your credits.
+      </p>
     </aside>
   );
 }

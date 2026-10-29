@@ -1,4 +1,4 @@
-import type { AgentRun, AgentStep, ModelUsageEvent, ToolInvocation } from "@muselaunch/contracts";
+import { modelDisplayName, type AgentRun, type AgentStep, type ModelUsageEvent, type ToolInvocation } from "@muselaunch/contracts";
 
 /** GET /agent-runs/:runId (module B, campaigns.ts). `tools` is an additive field. */
 export interface AgentRunDetail {
@@ -24,13 +24,19 @@ export const RUN_KIND_LABEL: Record<AgentRun["kind"], string> = {
   effects_direction: "Effects direction",
 };
 
-/** Friendly names for the Meta models (ids stay visible for transparency). */
+/**
+ * Friendly names for the models (ids stay visible for transparency). Muse Spark Open is always
+ * "Muse Spark Open · open weights via Baseten", never "Muse Spark".
+ */
 export function modelLabel(model?: string): string {
-  if (!model) return "";
-  if (model.startsWith("muse-wonder")) return "Muse Wonder";
-  if (model.startsWith("muse-spark")) return "Muse Spark";
-  if (model.includes("glimmer")) return "Muse Glimmer";
-  return model;
+  return modelDisplayName(model);
+}
+
+/** Where a metered call ran, for usage tables. */
+export function providerNote(u: Pick<ModelUsageEvent, "provider" | "dataMode">): string | null {
+  if (u.provider === "baseten") return "open weights via Baseten";
+  if (u.dataMode === "self_hosted") return "self-hosted";
+  return null;
 }
 
 export function formatUsd(n: number): string {

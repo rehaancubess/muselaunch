@@ -5,11 +5,17 @@ import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
 import { AppError, toAppError } from "@muselaunch/platform";
-import { untrusted } from "@muselaunch/providers";
+import { chooseTextModel, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
 import { defaultGoal, dnaJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
+
+/** Who a delegated step will run on (providers/router.ts), named honestly in the Autopilot log. */
+function engine(env: LoopEnv, route: TextRoute): string {
+  const c = chooseTextModel(env.p, route);
+  return c.engine === "muse-spark-open" ? "Muse Spark Open (open weights via Baseten)" : c.name;
+}
 
 export interface StepInfo {
   phase: "enter" | "resume" | "approved";
@@ -308,8 +314,8 @@ const planCreative: StageFn = async (env, step) => {
     );
     if (h?.experimentId) await env.ws.collection("experiments").update(h.experimentId, { campaignId }, { actor: env.ctx.actor });
     env.set({ campaignId });
-    const job = await env.delegate("campaign.generate_concepts", { appId: env.appId, campaignId, count: Math.max(3, n) }, { key: "concepts", label: "Delegated campaign concepts to Muse Spark (strategically distinct angles grounded in App DNA, research and memory).", credits: { operation: "campaign.generate_concepts" } });
-    return { kind: "wait", jobIds: [job.id], tag: "plan_creative:concepts", reason: "Muse Spark is developing distinct concepts" };
+    const job = await env.delegate("campaign.generate_concepts", { appId: env.appId, campaignId, count: Math.max(3, n) }, { key: "concepts", label: `Delegated campaign concepts to ${engine(env, "concepts.generate")} (strategically distinct angles grounded in App DNA, research and memory).`, credits: { operation: "campaign.generate_concepts" } });
+    return { kind: "wait", jobIds: [job.id], tag: "plan_creative:concepts", reason: `${chooseTextModel(env.p, "concepts.generate").name} is developing distinct concepts` };
   }
   const campaignId = env.ap.campaignId!;
   const variants = (await env.ws.collection("campaignVariants").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 })).items.filter((v) => v.status !== "rejected");
@@ -379,7 +385,7 @@ const produce: StageFn = async (env, step) => {
     const jobs: Job[] = [];
     for (const variantId of env.ap.variantIds) {
       jobs.push(
-        await env.delegate("storyboard.generate", { appId: env.appId, campaignId, variantId, aspectRatio: "9:16", targetDurationSec: 15 }, { key: `storyboard:${variantId}`, label: "Delegated a storyboard to Muse Spark (real screenshots for demo scenes); it builds an editable HyperFrames composition.", credits: { operation: "storyboard.generate" } }),
+        await env.delegate("storyboard.generate", { appId: env.appId, campaignId, variantId, aspectRatio: "9:16", targetDurationSec: 15 }, { key: `storyboard:${variantId}`, label: `Delegated a storyboard to ${engine(env, "storyboard.generate")} (real screenshots for demo scenes); it builds an editable HyperFrames composition.`, credits: { operation: "storyboard.generate" } }),
       );
     }
     return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "produce:storyboards", reason: `Writing ${jobs.length} storyboard(s)` };
@@ -544,7 +550,7 @@ const verify: StageFn = async (env, step) => {
         continue;
       } catch (raw) {
         const e = toAppError(raw);
-        env.note("observation", `The Brand Guardian's suggested fix for “${b.title}” couldn't be applied (${e.opts.userMessage ?? e.message}); asking Muse Spark for a scene-scoped fix instead.`, [ref("brandReviews", b.review!.id)]);
+        env.note("observation", `The Brand Guardian's suggested fix for “${b.title}” couldn't be applied (${e.opts.userMessage ?? e.message}); asking ${engine(env, "composition.edit.scoped")} for a scene-scoped fix instead.`, [ref("brandReviews", b.review!.id)]);
       }
     }
     // 2) Scene-scoped AI edit of exactly the flagged scenes.
@@ -557,7 +563,7 @@ const verify: StageFn = async (env, step) => {
     const job = await env.delegate(
       "composition.edit",
       { appId: env.appId, compositionId: b.compositionId, baseVersion: b.version, instruction, sceneIds: b.sceneIds, patchId, autoApply: true },
-      { key: `fix:${b.compositionId}:r${round + 1}`, label: `${label(b, `asked Muse Spark for a scene-scoped fix of ${b.issues.length} issue(s) in`)}.`, credits: { operation: "composition.edit" } },
+      { key: `fix:${b.compositionId}:r${round + 1}`, label: `${label(b, `asked ${engine(env, "composition.edit.scoped")} for a scene-scoped fix of ${b.issues.length} issue(s) in`)}.`, credits: { operation: "composition.edit" } },
     );
     waitIds.push(job.id);
   }
@@ -659,7 +665,7 @@ const schedule: StageFn = async (env, step) => {
     if (gate) return gate;
     const jobs: Job[] = [];
     for (const variantId of env.ap.variantIds) {
-      jobs.push(await env.delegate("copy.generate", { appId: env.appId, campaignId, variantId, channels: [channel] }, { key: `copy:${variantId}`, label: `Delegated ${channel} copy to Muse Spark (claim-validated).`, credits: { operation: "copy.generate" } }));
+      jobs.push(await env.delegate("copy.generate", { appId: env.appId, campaignId, variantId, channels: [channel] }, { key: `copy:${variantId}`, label: `Delegated ${channel} copy to ${engine(env, "copy.generate")} (claim-validated).`, credits: { operation: "copy.generate" } }));
     }
     return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "schedule:copy", reason: "Writing post copy" };
   }

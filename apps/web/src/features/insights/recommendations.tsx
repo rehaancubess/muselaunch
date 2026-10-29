@@ -1,5 +1,5 @@
 "use client";
-import type { Experiment, GrowthRecommendation, Job } from "@muselaunch/contracts";
+import { modelDisplayName, type Experiment, type GrowthRecommendation, type Job } from "@muselaunch/contracts";
 import { Badge, Button, Card, CostEstimate, EmptyState, Input, JobProgress, Section, useToast } from "@muselaunch/ui";
 import { Brain, Lightbulb, Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -21,7 +21,7 @@ const KIND_LABEL: Record<GrowthRecommendation["kind"], string> = {
   other: "Other",
 };
 
-const modelName = (id?: string) => (!id ? null : /wonder/i.test(id) ? "Muse Wonder" : /spark/i.test(id) ? "Muse Spark" : id);
+const modelName = (id?: string) => (!id ? null : modelDisplayName(id));
 
 export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { workspaceId: string; appId: string; onOpenExperiment: (id: string) => void }) {
   const toast = useToast();

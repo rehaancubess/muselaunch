@@ -2,7 +2,10 @@ import { DEFAULT_CREDIT_PRICES as PRICE, DEFAULT_PLANS } from "@muselaunch/contr
 
 /** Landing copy that's long enough to keep out of the layout. Everything here must stay true. */
 
-export const BUILT_ON = ["Muse Wonder", "Muse Spark 1.3", "SAM 3.1", "Muse Voice Transcribe", "Muse Glimmer", "HyperFrames"] as const;
+export const BUILT_ON = ["Muse Wonder", "Muse Spark 1.3", "Muse Spark Open", "SAM 3.1", "Muse Voice Transcribe", "Muse Glimmer", "HyperFrames"] as const;
+
+/** "Open weights" is said only of these two: Glimmer runs self-hosted, Spark Open on Baseten. */
+export const OPEN_WEIGHTS_NOTE = "Muse Glimmer (self-hosted) and Muse Spark Open (on Baseten) run Meta’s open weights.";
 
 export const STEPS = [
   {
@@ -128,6 +131,6 @@ export const FAQ = [
   },
   {
     q: "Which AI models does MuseLaunch use?",
-    a: "Meta’s Muse Wonder plans research and runs Growth Autopilot. Muse Spark 1.3 analyses your app and writes campaigns, scripts and edits. SAM 3.1 tracks people and objects in your footage. Muse Voice Transcribe handles recordings and spoken edits. A self-hosted Muse Glimmer model reviews brand fit and remembers your preferences. HyperFrames renders the videos.",
+    a: "Meta’s Muse Wonder plans research and runs Growth Autopilot. Muse Spark 1.3 analyses your app and writes campaigns, scripts and edits. Muse Spark Open, Meta’s open-weights model on Baseten, writes post copy and variant briefs, and steps in when the Meta Model API is limited (each run shows which model did what). SAM 3.1 tracks people and objects in your footage. Muse Voice Transcribe handles recordings and spoken edits. A self-hosted Muse Glimmer model, also open weights, reviews brand fit and remembers your preferences. HyperFrames renders the videos.",
   },
 ] as const;
