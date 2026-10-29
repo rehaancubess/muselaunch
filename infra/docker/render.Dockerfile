@@ -9,9 +9,13 @@ RUN corepack enable && apt-get update && apt-get install -y --no-install-recomme
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
-RUN PUPPETEER_SKIP_DOWNLOAD=1 pnpm install --frozen-lockfile \
- && npx -y @puppeteer/browsers install chrome-headless-shell@stable --path /opt/chrome \
- && ln -s "$(find /opt/chrome -type f -name chrome-headless-shell | head -1)" /usr/local/bin/chrome-headless-shell
+RUN PUPPETEER_SKIP_DOWNLOAD=1 pnpm install --frozen-lockfile
+# Chrome for HyperFrames. Installed from /tmp: inside the workspace npx finds the @puppeteer/browsers
+# dependency but pnpm doesn't link its `browsers` bin, which failed with "browsers: not found".
+RUN cd /tmp \
+ && npx -y --package=@puppeteer/browsers@2 browsers install chrome-headless-shell@stable --path /opt/chrome \
+ && ln -s "$(find /opt/chrome -type f -name chrome-headless-shell | head -1)" /usr/local/bin/chrome-headless-shell \
+ && /usr/local/bin/chrome-headless-shell --version
 ENV NODE_ENV=production RENDER_CHROME_PATH=/usr/local/bin/chrome-headless-shell RENDER_CONCURRENCY=1
 ENV SERVICE=worker WORKER_POOLS=render
 EXPOSE 8080
