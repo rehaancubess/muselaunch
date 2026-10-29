@@ -1,6 +1,6 @@
 # Getting access (owner checklist)
 
-Put every key in `D:\muselaunch\.env` (never in chat, never committed). Run `pnpm doctor` after each
+Put every key in `D:\muselaunch\.env` (never in chat, never committed). Run `pnpm run doctor` after each
 step: it tells you what is connected.
 
 ## 1. Meta Model API (required) — ~5 min
@@ -81,7 +81,7 @@ unavailable, times out or runs out of credits. Your hackathon key comes with **$
 
    Use exactly `meta-models/muse-spark-open-1026`: the hackathon key only works with that model.
    Baseten's docs show `meta-models/muse-spark-open`, which this key can't call.
-2. `pnpm doctor` → the **Muse Spark Open (Baseten)** section shows the key, the model, which steps run
+2. `pnpm run doctor` → the **Muse Spark Open (Baseten)** section shows the key, the model, which steps run
    on it and whether the fallback is on.
 3. `pnpm smoke:live baseten` makes three tiny calls (well under $0.05): plain text, streamed JSON and
    one small image. It prints where the model's reasoning arrived, token usage (reasoning tokens are

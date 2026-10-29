@@ -14,7 +14,7 @@ set "WHICH=%~1"
 if "%WHICH%"=="" set "WHICH=baseten"
 
 echo Checking setup...
-call %PNPM% doctor
+call %PNPM% run doctor
 echo.
 echo Live check: %WHICH%
 call %PNPM% smoke:live %WHICH%

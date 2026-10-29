@@ -48,7 +48,7 @@ Close and reopen PowerShell, then check: `node -v` (22 or newer), `pnpm -v`, `ff
 cd D:\muselaunch
 copy .env.example .env
 pnpm install
-pnpm doctor          # checks Node, FFmpeg, your .env and which providers you can reach
+pnpm run doctor          # checks Node, FFmpeg, your .env and which providers you can reach
 ```
 
 ### 3. Quick local mode (no Google Cloud needed)

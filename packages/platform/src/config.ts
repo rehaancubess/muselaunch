@@ -121,7 +121,10 @@ let cached: Config | undefined;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { fresh?: boolean } = {}): Config {
   if (cached && !opts.fresh && env === process.env) return cached;
-  const parsed = ConfigSchema.safeParse(env);
+  // `KEY=` lines in .env (as copied from .env.example) mean "not set", not an empty secret: an empty
+  // string would otherwise reach SDKs as a credential (or override a default) and fail at startup.
+  const cleaned = Object.fromEntries(Object.entries(env).filter(([, v]) => v === undefined || v.trim() !== ""));
+  const parsed = ConfigSchema.safeParse(cleaned);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid configuration:\n${msg}`);

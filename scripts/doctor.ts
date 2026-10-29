@@ -1,5 +1,5 @@
 /**
- * `pnpm doctor` — checks the local machine and .env, and which providers are reachable.
+ * `pnpm run doctor` — checks the local machine and .env, and which providers are reachable.
  * Prints keys as set/unset only (never their values).
  */
 import { execFileSync } from "node:child_process";
