@@ -2,9 +2,15 @@
  * FIXTURE MODE API — local demos and the Playwright journey only. NEVER deploy this entrypoint.
  *
  * Runs the real API, job runner and every module's handlers (memory DB, local storage, inline jobs,
- * dev auth), but answers Meta / Glimmer / public-web calls from LABELLED fixtures under `fixtures/`
- * (documented response shapes with synthetic content). Rendering is real (HyperFrames + FFmpeg) when
- * RENDER_CHROME_PATH points at a chrome-headless-shell.
+ * dev auth), but answers Meta / Muse Spark Open (Baseten) / Glimmer / public-web calls from LABELLED
+ * fixtures under `fixtures/` (documented response shapes with synthetic content). Rendering is real
+ * (HyperFrames + FFmpeg) when RENDER_CHROME_PATH points at a chrome-headless-shell.
+ *
+ * Muse Spark Open is "connected" here, so the routed steps (post copy, variant briefs) run on it and the
+ * agent runs show "Muse Spark Open · open weights via Baseten". Its Chat Completions calls are answered
+ * by the same routes as Meta (see installFakeSparkOpen). To see the visible fallback, start with
+ * FIXTURE_META_RATE_LIMIT=CompositionEdit (schema names, or "all"): the fake Meta then answers those
+ * calls with its documented 429 (fixture-routes/spark-open.ts).
  *
  * `GET /health` reports `fixtureMode: true`; the web app shows a persistent "Fixture mode" banner and
  * labels providers as fixtures, so nothing here can be mistaken for live AI output.
@@ -37,6 +43,7 @@ const defaults: Record<string, string> = {
   PUBLIC_WEB_URL: "http://localhost:3000",
   API_PUBLIC_URL: "http://localhost:8080",
   META_API_KEY: "fixture-mode-no-real-key",
+  BASETEN_API_KEY: "fixture-mode-no-real-key",
   GLIMMER_BASE_URL: "http://glimmer.fixture.local/v1",
   GLIMMER_LABEL: "Fixture (no model running)",
   SIGNUP_CREDITS: "2000",
@@ -262,6 +269,7 @@ const metaFetch = (async (input: string | URL | Request, init: RequestInit = {})
     if (String(req.model ?? "").startsWith("sam")) return media.fetch(input, init);
     for (const r of textRoutes) {
       const body = r(req, 0);
+      if (body instanceof Response) return body; // e.g. a simulated, labelled 429 (fixture-routes/spark-open.ts)
       if (body !== undefined) return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
     }
     return new Response(JSON.stringify({ error: { message: `fixture mode: no fixture for ${schemaName(req) ?? "this request"}`, type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
@@ -269,6 +277,12 @@ const metaFetch = (async (input: string | URL | Request, init: RequestInit = {})
   return media.fetch(input, init);
 }) as typeof fetch;
 installMetaClient(p, new MetaClient(p, { fetch: metaFetch, apiKey: "fixture-mode-no-real-key" }));
+
+// ---------------------------------------------------------------- fake Muse Spark Open (Baseten Chat Completions)
+// The same routes answer Spark Open: each Chat Completions request is seen as the Responses-shaped request
+// the routes expect (schema name from the prompted <json_schema name>), and the reply is a documented
+// Chat Completions body whose reasoning is a "Fixture:" placeholder. Routes see req.model = the Spark Open slug.
+agentsT.installFakeSparkOpen(p, textRoutes);
 
 // ---------------------------------------------------------------- fake Glimmer (memory ranking)
 agentsT.installFakeGlimmer(p, (messages) => {
@@ -296,5 +310,5 @@ outer.all("*", (c) => inner.fetch(c.req.raw));
 
 const port = Number(process.env.PORT ?? p.cfg.API_PORT);
 serve({ fetch: outer.fetch, port }, () => {
-  console.log(`\n  MuseLaunch API in FIXTURE MODE on :${port} (labelled fixtures, not live AI)\n  Render: ${process.env.RENDER_CHROME_PATH ? "real HyperFrames via " + process.env.RENDER_CHROME_PATH : "set RENDER_CHROME_PATH to render videos"}\n`);
+  console.log(`\n  MuseLaunch API in FIXTURE MODE on :${port} (labelled fixtures, not live AI)\n  Muse Spark Open: fixture (routes ${p.cfg.SPARK_OPEN_TASKS.join(", ") || "none"}; simulated Meta 429s: ${process.env.FIXTURE_META_RATE_LIMIT || "off"})\n  Render: ${process.env.RENDER_CHROME_PATH ? "real HyperFrames via " + process.env.RENDER_CHROME_PATH : "set RENDER_CHROME_PATH to render videos"}\n`);
 });

@@ -19,6 +19,11 @@
  * Rules: build outputs only from ids/text present in the request (so they validate), keep any prose
  * prefixed "Fixture:" where a user could see it, and never fabricate metrics. Files starting with "_"
  * are ignored. Unmatched requests fail visibly with "fixture mode: no fixture for <schema>".
+ *
+ * Muse Spark Open (Baseten Chat Completions) is answered by the SAME `meta` routes: its request is
+ * converted to the Responses shape (`instructions`, input_text parts, `text.format.name` from the
+ * prompted `<json_schema name>`) with `req.model` = "meta-models/muse-spark-open-1026", so a structured
+ * route works for both engines. A route may return a `Response` to simulate a documented HTTP error.
  */
 export type J = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 export type MetaRoute = (req: J, index: number) => unknown;
