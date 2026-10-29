@@ -226,7 +226,21 @@ const common = [
   `WORKER_URL_MEDIA=${url(SVC.worker)}`,
   `WORKER_URL_RENDER=${url(SVC.render)}`,
 ];
-const envFlag = (extra: string[] = []) => `--set-env-vars="^@^${[...common, ...extra].join("@")}"`;
+// Env vars go through a YAML file: values contain commas (SPARK_OPEN_TASKS) and @ (service-account
+// emails), which break --set-env-vars delimiters, and a file avoids cmd.exe/sh quoting differences.
+const envDir = mkdtempSync(join(tmpdir(), "ml-env-"));
+let envFiles = 0;
+const envFlag = (extra: string[] = []) => {
+  const file = join(envDir, `env-${++envFiles}.yaml`);
+  const yaml = [...common, ...extra]
+    .map((kv) => {
+      const i = kv.indexOf("=");
+      return `${kv.slice(0, i)}: ${JSON.stringify(kv.slice(i + 1))}`;
+    })
+    .join("\n");
+  if (!DRY) writeFileSync(file, `${yaml}\n`);
+  return `--env-vars-file="${file}"`;
+};
 const deploy = (svc: string, image: string, flags: string) =>
   sh(`gcloud run deploy ${svc} --image=${REPO}/${image}:${tag} --region=${REGION} --project=${PROJECT} --service-account=${RUN_SA} ${flags} --quiet`);
 
