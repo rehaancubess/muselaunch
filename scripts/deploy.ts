@@ -86,7 +86,7 @@ sh(`gcloud iam service-accounts add-iam-policy-binding ${RUN_SA} --member=servic
 sh(`gcloud iam service-accounts add-iam-policy-binding ${TASKS_SA} --member=serviceAccount:${RUN_SA} --role=roles/iam.serviceAccountUser --project ${PROJECT} --quiet`, { quiet: true });
 
 // ---- 2. Secrets ----
-const SECRETS = ["META_API_KEY", "OPENAI_API_KEY", "GLIMMER_API_KEY", "TOKEN_ENCRYPTION_KEY", "WORKER_SHARED_SECRET", "STORAGE_SIGNING_SECRET"].filter((k) => env[k]);
+const SECRETS = ["META_API_KEY", "BASETEN_API_KEY", "OPENAI_API_KEY", "GLIMMER_API_KEY", "TOKEN_ENCRYPTION_KEY", "WORKER_SHARED_SECRET", "STORAGE_SIGNING_SECRET"].filter((k) => env[k]);
 for (const name of SECRETS) {
   sh(`gcloud secrets create ${name} --replication-policy=automatic --project ${PROJECT}`, { allowFail: true, quiet: true });
   sh(`gcloud secrets versions add ${name} --data-file=- --project ${PROJECT}`, { input: env[name]!, quiet: true });
@@ -138,6 +138,15 @@ const common = [
   "TRACE_MODEL_IO=true",
   ...(env.ADMIN_UIDS ? [`ADMIN_UIDS=${env.ADMIN_UIDS.replace(/,/g, ";")}`] : []),
   ...(env.GLIMMER_BASE_URL_PROD ?? env.GLIMMER_BASE_URL ? [`GLIMMER_BASE_URL=${env.GLIMMER_BASE_URL_PROD ?? env.GLIMMER_BASE_URL}`, `GLIMMER_MODEL=${env.GLIMMER_MODEL ?? "muse-glimmer"}`, `GLIMMER_LABEL=${env.GLIMMER_LABEL_PROD ?? "self-hosted"}`] : []),
+  // Muse Spark Open (open weights on Baseten): key is a secret above; routing and fallback as in .env.
+  ...(env.BASETEN_API_KEY
+    ? [
+        `SPARK_OPEN_MODEL=${env.SPARK_OPEN_MODEL || "meta-models/muse-spark-open-1026"}`,
+        ...(env.SPARK_OPEN_TASKS !== undefined ? [`SPARK_OPEN_TASKS=${env.SPARK_OPEN_TASKS}`] : []),
+        `SPARK_OPEN_FALLBACK=${env.SPARK_OPEN_FALLBACK ?? "1"}`,
+        ...(env.BASETEN_BASE_URL ? [`BASETEN_BASE_URL=${env.BASETEN_BASE_URL}`] : []),
+      ]
+    : []),
   `TASKS_LOCATION=${REGION}`,
   `TASKS_INVOKER_SA=${TASKS_SA}`,
   "JOB_DISPATCH=cloudtasks",

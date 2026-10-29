@@ -85,3 +85,30 @@ Growth Autopilot is the default for everything; "I'll do it myself" is the expli
 - `GET /needs-you?appId=` → `{ items: NeedsYouItem[], count }` (any member): pending, unexpired approvals that need a person — post publish, outreach send, an autopilot's live spend/continue checkpoint, a strategy run's spend. Each item has `canDecide`, `requiredCap`, `stale`, and `approve`/`reject` `{path, body}` naming the EXISTING decision routes (`/approvals/:id/approve` with the shown `snapshotHash`, `/autopilots/:id/checkpoint/approve|reject`, `/agent-runs/:runId/approve|reject`), which keep their checks (publish / outreach.send / content.approve + billing.manage for spend). Nothing is auto-approved.
 - `PATCH /` (workspace.ts) accepts `settings.autopilot {enabled?, autoApproveRenders?, maxCreditsPerRun?: number|null}` (workspace.manage; changing autoApproveRenders or maxCreditsPerRun also needs billing.manage).
 - Hook (installAutopilotHooks): with Autopilot on, a succeeded `analytics.sync` / `analytics.import_csv` that wrote observations enqueues `recommendations.generate` (credits reserved as usual, attributed to the importer if they still hold analytics.write; at most once per app per 6 h): `autoRecommendOnNewData`.
+
+## Muse Spark Open + text-model router (@muselaunch/providers; callers in B)
+
+Muse Spark Open is Meta's open-weights Spark model on Baseten Model APIs (`BASETEN_BASE_URL`, OpenAI-compatible Chat Completions, model `SPARK_OPEN_MODEL` = `meta-models/muse-spark-open-1026`). It always reasons; the answer is `content`, reasoning (`reasoning_content`) is private. No JSON mode: JSON is prompted, extracted from the answer, Zod-validated, one repair.
+
+```ts
+// spark-open/: metered (provider "baseten", dataMode "third_party"), spend guard, Baseten error mapping
+export class SparkOpenClient { configured: boolean; model: string; chat(ctx: CallContext, req: SparkOpenRequest): Promise<SparkOpenResult> }
+export function sparkOpenText(p, call: LlmCall & { stream?: boolean }): Promise<SparkOpenTextResult>;           // LlmTextResult & { provider: "baseten", reasoningChars, reasoningSource, … }
+export function sparkOpenJson(p, call: LlmCall & { schema, schemaName, stream? }): Promise<SparkOpenTextResult & { data }>;
+export function installSparkOpenClient(p, client): void;   // tests / fixture mode
+
+// router.ts
+export const TEXT_ROUTES: Record<"copy.generate" | "composition.variant_briefs" | "composition.edit.scoped" | "composition.edit" | "composition.edit.repair" | "claims.validate" | "storyboard.generate" | "concepts.generate", string>;
+export function chooseTextModel(p, route: string): TextModelChoice;   // { engine: "muse-spark" | "muse-spark-open", provider, model, name, label, reason }
+export function textRouting(p): { sparkOpen: { configured, model, label, tasks, fallback }, routes: Record<TextRoute, engine> };
+export function routedJson(p, call: LlmCall & { schema, schemaName }, opts: { route: string; onFallback?: (e: FallbackEvent) => void | Promise<void> }): Promise<LlmTextResult & { data, provider: "meta" | "baseten", fallback?: FallbackEvent }>;
+export function routedText(p, call: LlmCall, opts): Promise<LlmTextResult & { provider, fallback? }>;
+export function fallbackReason(err): "rate_limited" | "unavailable" | "timeout" | "credits" | null;
+```
+
+- Routing: a route runs on Spark Open when it is in `SPARK_OPEN_TASKS` (default `copy.generate,composition.variant_briefs`) and `BASETEN_API_KEY` is set. Wonder calls, web-search calls and Meta file-id inputs never route.
+- Fallback (`SPARK_OPEN_FALLBACK`, default on): a Muse Spark call failing with RATE_LIMITED, PROVIDER_UNAVAILABLE, TIMEOUT (after the SDK retry) or a 402/quota/credits error runs once on Spark Open, only when the caller passes `onFallback` (it must record a visible step; no recorder = no fallback). If the fallback fails too, Meta's error code and retry semantics are kept, with `details.fallback`.
+- B helpers (`packages/agents/src/models.ts`): `sparkJson(p, rec, route, call)`, `engineName(model)`, `plannedEngine(p, route)`, `fallbackTo(rec)`; `RunRecorder.fallbackStep(e)` writes the decision step. `validateClaims(p, { …, onFallback? })` (additive).
+- Contracts (additive): `ProviderId` gains `"baseten"`; `SPARK_OPEN_MODEL`, `SPARK_OPEN_LABEL`, `isSparkOpenModel`, `modelDisplayName(model, {short?})`; `CompositionPatch.model?`, `CompositionPatch.modelNote?`.
+- API: `GET /v1/status/providers` adds `textRouting`; the provider list adds `muse-spark-open` (`not_configured` without a key). Web: `useTextEngine(route)` (`apps/web/src/lib/engines.ts`).
+- Fixture mode: `installFakeSparkOpen(p, routes)` (@muselaunch/agents/testing) answers Spark Open with the same routes as the fake Meta; `FIXTURE_META_RATE_LIMIT=<schema,…|all>` simulates Meta 429s to show the fallback.

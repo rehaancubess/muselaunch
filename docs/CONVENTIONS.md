@@ -59,6 +59,7 @@ export const handlers: HandlerRegistry = {
 - Every external AI call goes through a metered wrapper: `metaClient(platform).metered(ctx, {model, operation, estimatedUsd}, fn)`.
   It checks spend ceilings, records a `ModelUsageEvent` (tokens/images/frames/audio seconds/cost), and stores a redacted trace.
 - Non-Meta providers (OpenAI images/TTS, Glimmer, stock) record usage the same way via `platform.usage.record(...)`.
+- Muse Spark-role text calls go through the router (`routedJson` / `sparkJson` in module B) with a route name, so they can run on Muse Spark Open (Baseten, provider `baseten`) or fall back to it visibly. Never call Spark Open behind the router's back, and never label its output "Muse Spark".
 - Use Meta **Standard** mode models only for customer material (never `*-contributor`).
 - Muse Image: only via the eligibility gate `museImageEligible(cfg, country)`. Default deployment (operator in India) never calls it.
 - User-supplied URLs: `safeFetch` only.

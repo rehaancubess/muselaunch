@@ -6,7 +6,19 @@ An AI growth studio for indie app developers: connect your app, and MuseLaunch l
 researches your market, plans distinct campaigns, produces editable promo videos from your real app
 footage, prepares publishing and creator outreach with your approval, measures results, and proposes
 the next experiment. Built on Meta's models (Muse Wonder, Muse Spark 1.3, SAM 3.1, Muse Voice
-Transcribe, self-hosted Muse Glimmer) with HyperFrames for rendering.
+Transcribe, and two open-weights models: self-hosted Muse Glimmer and Muse Spark Open on Baseten) with
+HyperFrames for rendering.
+
+| Model | Runs on | Used for |
+|---|---|---|
+| Muse Wonder | Meta Model API | Research planning, growth strategy, Growth Autopilot decisions (tool use) |
+| Muse Spark 1.3 | Meta Model API | App DNA (multimodal), cited research, concepts, storyboards, scene edits, claim checks, insights |
+| Muse Spark Open (open weights) | Baseten Model APIs | Post copy and hook/audience variant briefs by default (`SPARK_OPEN_TASKS`); visible fallback when the Meta Model API is rate-limited, down, timing out or out of credits |
+| SAM 3.1 | Meta Model API | Segmenting and tracking people and objects in founder footage |
+| Muse Voice Transcribe | Meta Model API | Founder recordings, captions, spoken edits |
+| Muse Glimmer (open weights) | Self-hosted (llama.cpp / Ollama / Modal) | Brand memory and the Brand Guardian |
+
+Every agent run shows which model did each step, and usage is metered under the provider that ran it.
 
 - Three tabs: **Discover**, **Creator** (default), **Insights**
 - Every research claim cites a real source; every number names its source; nothing is simulated
@@ -60,8 +72,8 @@ pnpm --filter @muselaunch/api dev     # http://localhost:8080
 pnpm --filter @muselaunch/web dev     # http://localhost:3000
 ```
 
-Add `META_API_KEY` (and `OPENAI_API_KEY`, `GLIMMER_BASE_URL`) to `.env` to turn on the real AI
-features. Anything without a key shows **Not connected**; nothing is faked.
+Add `META_API_KEY` (and `BASETEN_API_KEY`, `OPENAI_API_KEY`, `GLIMMER_BASE_URL`) to `.env` to turn on
+the real AI features. Anything without a key shows **Not connected**; nothing is faked.
 
 #### Fixture mode (development and tests only)
 
@@ -72,8 +84,10 @@ pnpm dev:fixture                      # API on :8080 with labelled fake model re
 pnpm --filter @muselaunch/web dev     # the web app shows a "Fixture mode" banner
 ```
 
-Model calls (Muse Spark, Muse Wonder, SAM, Voice, Glimmer) and the App Store lookup are answered
-from `fixtures/` and `apps/api/src/fixture-routes/`; rendering, storage, jobs and billing are real.
+Model calls (Muse Spark, Muse Spark Open, Muse Wonder, SAM, Voice, Glimmer) and the App Store lookup
+are answered from `fixtures/` and `apps/api/src/fixture-routes/`; rendering, storage, jobs and billing
+are real. Post copy and variant briefs run on (fixture) Muse Spark Open, so runs show which steps used
+it; start with `FIXTURE_META_RATE_LIMIT=CompositionEdit` to see the visible fallback on AI edits.
 Use the sample listing shown in the banner. Fixture mode refuses to start when `NODE_ENV` or
 `APP_ENV` is `production`. To add fake responses for a new feature, add a file to
 `apps/api/src/fixture-routes/` (the contract and an example are in `_types.ts`).
@@ -105,10 +119,11 @@ chrome-headless-shell binary if the renderer can't find one.
 pnpm smoke:live            # all providers
 pnpm smoke:live meta       # Meta text models (Spark, Wonder)
 pnpm smoke:live meta media # + SAM 3.1 and Voice Transcribe
+pnpm smoke:live baseten    # Muse Spark Open on Baseten (text, streamed JSON, image in)
 ```
 
 This makes a few tiny real calls and saves redacted parsed results to `fixtures/live/` so we can
-match parsers to the real response shapes. Every raw HTTP exchange with Meta/Glimmer (request and
+match parsers to the real response shapes. Every raw HTTP exchange with Meta/Glimmer/Baseten (request and
 response bodies, response headers; no API keys) is also written to `fixtures/live/raw/wire/`
 (gitignored).
 
@@ -145,7 +160,7 @@ apps/worker     Background job worker (agents, media, render pools)
 packages/contracts     Shared Zod schemas: the integration boundary
 packages/db            Tenant-scoped repository (Firestore + in-memory)
 packages/platform      Config, storage, jobs, credits, metering, auth, safe fetch
-packages/providers     Meta / OpenAI / Glimmer / publishing / analytics adapters
+packages/providers     Meta / Muse Spark Open (Baseten) / OpenAI / Glimmer / publishing / analytics adapters, text-model router
 packages/agents        Wonder + Spark agents, App DNA, research, campaigns, Glimmer memory
 packages/compositions  Composition schema ops, templates, HyperFrames compiler
 packages/render        HyperFrames render worker, exports

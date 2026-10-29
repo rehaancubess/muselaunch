@@ -16,7 +16,8 @@ step: it tells you what is connected.
    `fixtures/live/raw/wire/` (gitignored); check them before sharing.
 
 Models used: `muse-wonder-1.0`, `muse-spark-1.3`, `sam-3.1`, `muse-voice-transcribe-1.0` (all
-Standard mode — customer data never uses Contributor mode).
+Standard mode — customer data never uses Contributor mode). Muse Spark Open runs on Baseten instead
+(section 5).
 
 ## 2. Muse Image — ask the organisers (do not enable yet)
 
@@ -63,14 +64,58 @@ see https://dev.meta.ai/docs/muse-glimmer/deploy#llama-cpp.
 For the public beta we'll deploy Glimmer on partner GPU credits (below) so it doesn't depend on your
 PC being on; your 5090 stays the development/demo machine.
 
-## 5. Partner GPU credits (for hosting Glimmer publicly)
+## 5. Muse Spark Open on Baseten (hackathon credits) — ~5 min
+
+Muse Spark Open is Meta's open-weights Spark model, served by Baseten's Model APIs (OpenAI-compatible
+Chat Completions at `https://inference.baseten.co/v1`). MuseLaunch uses it for high-volume steps (post
+copy, hook/audience variant briefs) and as a visible fallback when the Meta Model API is rate-limited,
+unavailable, times out or runs out of credits. Your hackathon key comes with **$100 in credits and
+2M tokens per minute**.
+
+1. Create an API key in your Baseten account settings and put it in `.env`:
+
+   ```
+   BASETEN_API_KEY=...
+   SPARK_OPEN_MODEL=meta-models/muse-spark-open-1026
+   ```
+
+   Use exactly `meta-models/muse-spark-open-1026`: the hackathon key only works with that model.
+   Baseten's docs show `meta-models/muse-spark-open`, which this key can't call.
+2. `pnpm doctor` → the **Muse Spark Open (Baseten)** section shows the key, the model, which steps run
+   on it and whether the fallback is on.
+3. `pnpm smoke:live baseten` makes three tiny calls (well under $0.05): plain text, streamed JSON and
+   one small image. It prints where the model's reasoning arrived, token usage (reasoning tokens are
+   billed as output), the echoed model and rate-limit headers. Redacted raw exchanges go to
+   `fixtures/live/raw/wire/` (no key; reasoning text replaced by its length). Send me that output.
+4. Optional: set a monthly budget in Baseten's billing settings. MuseLaunch's own spend ceilings apply
+   to Baseten calls too.
+
+What runs where (`.env`):
+
+- `SPARK_OPEN_TASKS=copy.generate,composition.variant_briefs` (default): post copy and variant briefs.
+  Add `composition.edit.scoped` to also send scene-scoped edits (hook rewrites, Brand Guardian fixes)
+  once the smoke test and a few real edits look good; a repair after a failed edit still goes to Muse
+  Spark. An empty value means fallback only.
+- `SPARK_OPEN_FALLBACK=1` (default): a Muse Spark call that hits a rate limit, an outage, a timeout or a
+  credits error is retried once on Spark Open. The agent run shows "Muse Spark was rate-limited; used
+  Muse Spark Open (open weights) instead", and usage is billed to Baseten, never to Meta.
+- Without `BASETEN_API_KEY`, Integrations shows Muse Spark Open as **Not connected** and everything
+  stays on Muse Spark.
+
+Price (https://www.baseten.co/pricing/, Oct 2026): $1.25 input / $0.15 cached input / $4.25 output per
+1M tokens, the same as Muse Spark 1.3 on the Meta Model API.
+
+Production: `pnpm deploy:gcp` stores `BASETEN_API_KEY` in Secret Manager and passes the
+`SPARK_OPEN_*` settings to the services.
+
+## 6. Partner GPU credits (for hosting Glimmer publicly)
 
 The event page lists Baseten ($100 + 2M TPM), Modal ($100) and Fireworks ($25) credits for **select**
-participants, for Meta's open-weight models. Check your acceptance email and the Discord for claim
-links. Claim **Modal** first (scale-to-zero GPU endpoints suit a beta). Tell me when it's active and
-I'll add the deploy script.
+participants, for Meta's open-weight models. The Baseten credits are a Model APIs key for Muse Spark
+Open (section 5), not GPU hosting. For Glimmer, claim **Modal** first (scale-to-zero GPU endpoints suit
+a beta). Tell me when it's active and I'll add the deploy script.
 
-## 6. Google Cloud & Firebase — ~20 min
+## 7. Google Cloud & Firebase — ~20 min
 
 1. https://console.cloud.google.com → **New project** (e.g. `muselaunch-prod`). Note the **project ID**.
 2. **Billing** → link a billing account. Then **Billing → Budgets & alerts** → create a budget (e.g.
@@ -97,7 +142,7 @@ gcloud auth application-default login     # lets your local API use Firestore/St
 6. Put `FIREBASE_PROJECT_ID=` and `STORAGE_BUCKET=` (shown in Firebase Storage, e.g.
    `your-project.firebasestorage.app`) in `.env`.
 
-## 7. Optional, later
+## 8. Optional, later
 
 | Integration | What you need | Until then |
 |---|---|---|
