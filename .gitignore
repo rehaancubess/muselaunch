@@ -21,3 +21,6 @@ service-account*.json
 .DS_Store
 Thumbs.db
 apps/web/public/vendor/
+
+# Local agent worktrees and tool state
+.claude/
