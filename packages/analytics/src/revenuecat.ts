@@ -3,6 +3,7 @@ import { nowIso } from "@muselaunch/db";
 import { AppError, toAppError, type JobHandler, type Platform } from "@muselaunch/platform";
 import { RC_DAILY_CHARTS, RC_OVERVIEW_METRICS, RevenueCatClient, parseChartPoints, parsePeriodDays, rcTimestampMs } from "@muselaunch/providers";
 import { DAY_MS, hashId, isoDay, upsertObservation } from "./observations";
+import { hasSocialInsights, syncSocialInsights } from "./youtube/social-sync";
 
 /** Tests inject a fake fetch per platform (documented fixtures, never live output). */
 const fetchOverrides = new WeakMap<Platform, typeof fetch>();
@@ -85,6 +86,8 @@ export async function disconnectAnalyticsAccount(p: Platform, workspaceId: strin
   const repo = p.db.ws(workspaceId).collection("connectedAccounts");
   const account = await repo.getOrThrow(accountId);
   if (!account.purposes.includes("analytics")) throw new AppError("BAD_REQUEST", "Not an analytics connection");
+  // OAuth connections (YouTube…) are revoked at the provider from Connections, never just forgotten here.
+  if (account.provider !== "revenuecat") throw new AppError("BAD_REQUEST", `Disconnect ${account.provider} from Connections`, { userMessage: "Disconnect this account under Connections, so access is also revoked at the provider." });
   if (account.secretId) await p.secrets.delete(workspaceId, account.secretId);
   // Observations already synced stay (they're real, labelled history); no further syncs happen.
   return repo.update(accountId, { status: "revoked", secretId: undefined }, { actor });
@@ -97,6 +100,8 @@ export const analyticsSyncHandler: JobHandler<"analytics.sync"> = async (ctx) =>
   const account = await accounts.getOrThrow(connectionId);
   if (account.appId && account.appId !== appId) throw new AppError("BAD_REQUEST", "Connection belongs to a different app", { retryable: false });
   if (account.provider !== "revenuecat") {
+    // Social connections with an insights adapter (YouTube): per-post stats of this app's publications.
+    if (hasSocialInsights(account)) return syncSocialInsights(ctx, account);
     throw new AppError("PROVIDER_NOT_CONFIGURED", `Analytics sync for ${account.provider} is not available yet`, { retryable: false, userMessage: `Automatic ${account.provider} analytics aren't available in the beta. Import a CSV or enter numbers manually.` });
   }
   if (account.status !== "connected" || !account.secretId) throw new AppError("PROVIDER_NOT_CONFIGURED", "RevenueCat connection is not active", { retryable: false, userMessage: "Reconnect RevenueCat to sync." });

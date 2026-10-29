@@ -48,6 +48,8 @@ export const MetricName = z.enum([
   "active_customers",
   /** Store/RevenueCat transactions count in the window. */
   "transactions",
+  /** Average playback length of ONE post (YouTube Analytics averageViewDuration). Never added across posts. */
+  "avg_view_duration_sec",
 ]);
 export type MetricName = z.infer<typeof MetricName>;
 
@@ -433,3 +435,157 @@ export const InsightsOverview = z.object({
   generatedAt: IsoDateTime,
 });
 export type InsightsOverview = z.infer<typeof InsightsOverview>;
+
+// ---------------------------------------------------------------------------
+// YouTube channel analysis (module F). Public data via the YouTube Data API v3; every number is
+// copied from (or computed only from) the API response stored with its fetch time and video URLs.
+// ---------------------------------------------------------------------------
+
+/** Whose channel it is, from the founder's point of view (changes how the AI reads it). */
+export const YouTubeChannelRelation = z.enum(["mine", "competitor", "creator", "inspiration"]);
+export type YouTubeChannelRelation = z.infer<typeof YouTubeChannelRelation>;
+
+export const AnalyzeYouTubeChannelRequest = z.object({
+  /** Channel URL, @handle, channel id (UC…) or a video URL from the channel. */
+  channel: z.string().trim().min(2).max(300),
+  relation: YouTubeChannelRelation.default("competitor"),
+  /** Most recent uploads to read (one playlistItems page). */
+  maxVideos: z.number().int().min(5).max(50).default(50),
+});
+export type AnalyzeYouTubeChannelRequest = z.infer<typeof AnalyzeYouTubeChannelRequest>;
+
+/** Length groups. The API has no "is a Short" flag, so uploads are grouped by duration only. */
+export const YouTubeLengthGroup = z.enum(["short", "mid", "long", "live", "unknown"]);
+export type YouTubeLengthGroup = z.infer<typeof YouTubeLengthGroup>;
+
+export const YouTubeVideoStat = z.object({
+  videoId: z.string().min(1).max(64),
+  url: HttpUrl,
+  title: z.string().max(300),
+  publishedAt: IsoDateTime,
+  durationSec: z.number().int().nonnegative().nullable(),
+  lengthGroup: YouTubeLengthGroup,
+  /** statistics.viewCount (lifetime, at fetch time). */
+  views: z.number().int().nonnegative().nullable(),
+  /** statistics.likeCount; null when the creator hides likes. */
+  likes: z.number().int().nonnegative().nullable(),
+  /** statistics.commentCount; null when comments are off. */
+  comments: z.number().int().nonnegative().nullable(),
+  /** (likes + comments) / views, computed; null when any of them is missing or views is 0. */
+  engagementRate: z.number().nonnegative().nullable(),
+  /** Whole days between publishing and the fetch. */
+  ageDays: z.number().nonnegative(),
+  /** views / max(ageDays, 1), computed. */
+  viewsPerDay: z.number().nonnegative().nullable(),
+  /** views / the channel's median views in this sample, computed. */
+  vsMedian: z.number().nonnegative().nullable(),
+});
+export type YouTubeVideoStat = z.infer<typeof YouTubeVideoStat>;
+
+export const YouTubeGroupStat = z.object({
+  key: z.string().max(40),
+  label: z.string().max(80),
+  videos: z.number().int().nonnegative(),
+  medianViews: z.number().nullable(),
+  medianViewsPerDay: z.number().nullable(),
+  medianEngagementRate: z.number().nullable(),
+  videoIds: z.array(z.string().max(64)).max(50),
+});
+export type YouTubeGroupStat = z.infer<typeof YouTubeGroupStat>;
+
+export const YouTubeTitlePattern = z.object({
+  key: z.string().max(40),
+  label: z.string().max(80),
+  with: YouTubeGroupStat,
+  without: YouTubeGroupStat,
+});
+export type YouTubeTitlePattern = z.infer<typeof YouTubeTitlePattern>;
+
+/** Deterministic statistics over the analysed uploads (no AI involved). */
+export const YouTubeChannelStats = z.object({
+  videosAnalyzed: z.number().int().nonnegative(),
+  /** Uploads returned by the API but left out of the numbers (e.g. upcoming premieres, no stats). */
+  excluded: z.array(z.object({ videoId: z.string().max(64), reason: z.string().max(200) })).max(50),
+  window: z.object({ firstPublishedAt: IsoDateTime, lastPublishedAt: IsoDateTime }).nullable(),
+  totals: z.object({ views: z.number().nonnegative(), likes: z.number().nonnegative(), comments: z.number().nonnegative(), videosWithHiddenLikes: z.number().int().nonnegative(), videosWithCommentsOff: z.number().int().nonnegative() }),
+  medians: z.object({ views: z.number().nullable(), likes: z.number().nullable(), comments: z.number().nullable(), engagementRate: z.number().nullable(), viewsPerDay: z.number().nullable() }),
+  meanViews: z.number().nullable(),
+  topByViews: z.array(z.string().max(64)).max(10),
+  topByViewsPerDay: z.array(z.string().max(64)).max(10),
+  byLength: z.array(YouTubeGroupStat).max(5),
+  /** Day of week posted (UTC). */
+  byWeekday: z.array(YouTubeGroupStat).max(7),
+  /** Time of day posted (UTC, 4-hour blocks). */
+  byHour: z.array(YouTubeGroupStat).max(6),
+  titlePatterns: z.array(YouTubeTitlePattern).max(8),
+  cadence: z.object({ uploadsPerWeek: z.number().nullable(), medianDaysBetween: z.number().nullable() }),
+  /** Plain-language caveats shown with the numbers. */
+  notes: z.array(z.string().max(400)).max(12),
+});
+export type YouTubeChannelStats = z.infer<typeof YouTubeChannelStats>;
+
+/** Measured statements MuseLaunch writes from the stats (no AI): saved as sourced research findings. */
+export const YouTubeKeyFinding = z.object({
+  key: z.string().max(40),
+  statement: z.string().max(1500),
+  videoIds: z.array(z.string().max(64)).max(10),
+  findingId: Id.optional(),
+});
+export type YouTubeKeyFinding = z.infer<typeof YouTubeKeyFinding>;
+
+/** The text model's reading of the stats. Always shown as interpretation, never as measured fact. */
+export const YouTubeInterpretation = z.object({
+  status: z.enum(["ready", "unavailable", "failed"]),
+  /** Model id that wrote it (display with modelDisplayName); absent when no model ran. */
+  model: z.string().max(80).optional(),
+  provider: z.string().max(40).optional(),
+  summary: z.string().max(2000).default(""),
+  findingNotes: z.array(z.object({ key: z.string().max(40), interpretation: z.string().max(800) })).max(8).default([]),
+  hooksToTest: z.array(z.object({ hook: z.string().max(200), angle: z.string().max(500), videoIds: z.array(z.string().max(64)).max(3).default([]) })).max(5).default([]),
+  formatsToTest: z.array(z.object({ format: z.string().max(160), why: z.string().max(500), statKeys: z.array(z.string().max(40)).max(4).default([]) })).max(4).default([]),
+  cautions: z.array(z.string().max(400)).max(10).default([]),
+  /** Server-side checks: model text with numbers that aren't in the data is dropped, never shown. */
+  validation: z.object({ droppedSentences: z.number().int().nonnegative(), droppedItems: z.number().int().nonnegative(), unknownVideoIds: z.number().int().nonnegative(), notes: z.array(z.string().max(300)).max(10) }).default({ droppedSentences: 0, droppedItems: 0, unknownVideoIds: 0, notes: [] }),
+  /** Why there is no interpretation (not configured, spend ceiling, model error). */
+  error: z.string().max(500).optional(),
+  generatedAt: IsoDateTime.optional(),
+});
+export type YouTubeInterpretation = z.infer<typeof YouTubeInterpretation>;
+
+/** One analysed channel per app (re-analysing replaces it). */
+export const YouTubeChannelAnalysis = BaseEntity.extend({
+  appId: Id,
+  /** What the user pasted. */
+  input: z.string().max(300),
+  relation: YouTubeChannelRelation,
+  /** True when the channel is the one connected for publishing in this workspace. */
+  connectedChannel: z.boolean().default(false),
+  channel: z.object({
+    id: z.string().max(64),
+    title: z.string().max(200),
+    handle: z.string().max(120).optional(),
+    url: HttpUrl,
+    publishedAt: IsoDateTime.optional(),
+    country: z.string().max(8).optional(),
+    thumbnailUrl: HttpUrl.optional(),
+    /** statistics.subscriberCount (YouTube rounds public counts); null when hidden. */
+    subscriberCount: z.number().int().nonnegative().nullable(),
+    viewCount: z.number().int().nonnegative().nullable(),
+    videoCount: z.number().int().nonnegative().nullable(),
+    uploadsPlaylistId: z.string().max(64).optional(),
+  }),
+  /** When the YouTube API responses were fetched. */
+  fetchedAt: IsoDateTime,
+  videos: z.array(YouTubeVideoStat).max(50),
+  stats: YouTubeChannelStats,
+  keyFindings: z.array(YouTubeKeyFinding).max(8).default([]),
+  interpretation: YouTubeInterpretation,
+  /** Where the numbers come from (channel page + API, with fetch time). */
+  sources: z.array(SourceRef).max(60).default([]),
+  /** YouTube Data API quota units used by the fetch (free, but limited per project per day). */
+  quota: z.object({ units: z.number().int().nonnegative(), calls: z.array(z.object({ method: z.string().max(60), units: z.number().int().nonnegative() })).max(10) }),
+  /** Brand-memory items written (only for the founder's own channel). */
+  memoryIds: z.array(Id).max(5).default([]),
+  jobId: Id.optional(),
+});
+export type YouTubeChannelAnalysis = z.infer<typeof YouTubeChannelAnalysis>;

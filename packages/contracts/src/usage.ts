@@ -76,6 +76,8 @@ export const ModelUsageEvent = BaseEntity.extend({
   images: z.number().int().nonnegative().optional(),
   frames: z.number().int().nonnegative().optional(),
   audioSeconds: z.number().nonnegative().optional(),
+  /** Provider quota units consumed (e.g. YouTube Data API units). Free, but limited per project per day. */
+  quotaUnits: z.number().int().nonnegative().optional(),
   runtimeMs: z.number().int().nonnegative(),
   costUsdEstimate: z.number().nonnegative(),
   status: z.enum(["ok", "error"]),

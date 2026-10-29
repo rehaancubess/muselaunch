@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AspectRatio, BaseEntity, EntityRef, ErrorInfo, Id, IsoDateTime } from "./common";
+import { YouTubeChannelRelation } from "./analytics";
 import { ResearchKind } from "./research";
 
 /**
@@ -42,6 +43,8 @@ export const JobPayloads = {
   "publish.post": z.object({ scheduledPostId: Id, approvalId: Id }),
   "analytics.sync": z.object({ connectionId: Id, appId: Id, since: IsoDateTime.optional() }),
   "analytics.import_csv": z.object({ appId: Id, importBatchId: Id }),
+  /** Public YouTube channel analysis: Data API fetch + deterministic stats + labelled AI interpretation. */
+  "analytics.youtube_channel": z.object({ appId: Id, channel: z.string().min(2).max(300), relation: YouTubeChannelRelation.default("competitor"), maxVideos: z.number().int().min(5).max(50).default(50) }),
   "experiment.analyze": z.object({ appId: Id, experimentId: Id }),
   "recommendations.generate": z.object({ appId: Id }),
   "memory.ingest": z.object({ appId: Id.optional(), ref: EntityRef }),
@@ -88,6 +91,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "publish.post": "agents",
   "analytics.sync": "agents",
   "analytics.import_csv": "agents",
+  "analytics.youtube_channel": "agents",
   "experiment.analyze": "agents",
   "recommendations.generate": "agents",
   "memory.ingest": "agents",

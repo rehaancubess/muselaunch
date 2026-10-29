@@ -2,12 +2,14 @@ import type { ConnectedAccount, MetricName, Publication } from "@muselaunch/cont
 
 /**
  * Social insights adapter interface (module F reads, module E owns the OAuth connections).
- * Implementations live next to E's publishing adapters once platform app review is granted.
- * Until then no adapter is registered and Insights reports social metrics as "not connected"
- * (users can import or enter numbers manually, labelled as such).
+ * An adapter is registered per provider (YouTube: ./youtube.ts). Providers without one report
+ * social metrics as "not connected" (users can import or enter numbers manually, labelled as such).
  */
 export interface SocialPostInsight {
-  metric: Extract<MetricName, "impressions" | "views" | "reach" | "watch_time_sec" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "followers_gained" | "clicks">;
+  metric: Extract<
+    MetricName,
+    "impressions" | "views" | "reach" | "watch_time_sec" | "likes" | "comments" | "shares" | "saves" | "profile_visits" | "followers_gained" | "clicks" | "avg_view_duration_sec"
+  >;
   value: number;
   /** The platform's own definition, shown next to the number. */
   definition: string;
@@ -16,10 +18,32 @@ export interface SocialPostInsight {
   apiRequestId?: string;
 }
 
+/** One HTTP call an adapter made (metered by the caller: usage row + quota units). */
+export interface SocialInsightsRequest {
+  api: string;
+  method: string;
+  status: "ok" | "error";
+  ms: number;
+  /** Provider quota units (YouTube Data API: 1 per list call). */
+  quotaUnits?: number;
+  errorCode?: string;
+}
+
 export interface SocialInsightsAdapter {
   readonly provider: ConnectedAccount["provider"];
   /** Fetch per-post insights for a publication made through this account. */
-  fetchPostInsights(input: { account: ConnectedAccount; accessToken: string; publication: Publication; signal?: AbortSignal }): Promise<SocialPostInsight[]>;
+  fetchPostInsights(input: {
+    account: ConnectedAccount;
+    accessToken: string;
+    publication: Publication;
+    signal?: AbortSignal;
+    /** Injected fetch (tests use recorded/documented responses). */
+    fetch?: typeof fetch;
+    /** Called once per HTTP request so the caller can meter it. */
+    onRequest?: (r: SocialInsightsRequest) => void;
+    /** Honest notes about what couldn't be fetched (missing scope, no data yet). */
+    onNote?: (note: string) => void;
+  }): Promise<SocialPostInsight[]>;
 }
 
 const registry = new Map<string, SocialInsightsAdapter>();

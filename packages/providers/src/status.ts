@@ -64,6 +64,13 @@ export function providerStatuses(p: Platform, endUserCountry?: string): Provider
       state: cfg.GLIMMER_BASE_URL ? "live" : "not_configured",
       detail: cfg.GLIMMER_BASE_URL ? `${cfg.GLIMMER_MODEL} (${cfg.GLIMMER_LABEL})` : "Set GLIMMER_BASE_URL to a running llama.cpp/SGLang/vLLM/Ollama endpoint",
     },
+    {
+      id: "youtube-data",
+      label: "YouTube Data API",
+      role: "Public channel and video stats for YouTube analysis in Insights",
+      state: cfg.YOUTUBE_API_KEY ? "live" : "not_configured",
+      detail: cfg.YOUTUBE_API_KEY ? "API key set (free; 3 quota units per channel analysis)" : "Set YOUTUBE_API_KEY (setup-youtube.cmd creates one)",
+    },
     { id: "tts", label: "Text-to-speech", role: "Optional narration (labelled external TTS)", state: cfg.OPENAI_API_KEY ? "live" : "not_configured", detail: cfg.OPENAI_API_KEY ? cfg.OPENAI_TTS_MODEL : "Optional" },
     {
       id: "stock",

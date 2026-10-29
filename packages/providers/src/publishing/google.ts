@@ -72,7 +72,8 @@ function googleOAuth(scopes: string[], identity: OAuthSpec["identity"]): OAuthSp
 
 export const YOUTUBE_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos";
 export const YOUTUBE_CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
-const YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"];
+/** youtube.readonly also lets Insights read the stats of the channel's videos; yt-analytics.readonly adds watch time, shares and subscribers (YouTube Analytics API). */
+const YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/yt-analytics.readonly"];
 
 /** YouTube rejects "<" and ">" in titles/descriptions; titles ≤100 chars, descriptions ≤5000 bytes, tags ≤500 chars total. */
 export function youtubeMetadata(req: PublishRequest) {
@@ -175,13 +176,13 @@ export const youtubeAdapter: ProviderAdapter = {
   provider: "youtube",
   label: "YouTube",
   channels: ["youtube"],
-  purposes: ["publishing"],
-  capabilities: ["publish_video"],
+  purposes: ["publishing", "analytics"],
+  capabilities: ["publish_video", "read_insights"],
   env: { clientId: "YOUTUBE_CLIENT_ID", clientSecret: "YOUTUBE_CLIENT_SECRET" },
   review: {
     required: true,
     summary:
-      "Google OAuth client with YouTube Data API v3 enabled. While the consent screen is in Testing, only listed test users (max 100) can connect and refresh tokens expire after 7 days; youtube.upload is a sensitive scope, so public use needs Google OAuth verification. videos.insert has a default limit of 100 calls/day per project.",
+      "Google OAuth client with YouTube Data API v3 and YouTube Analytics API enabled. While the consent screen is in Testing, only listed test users (max 100) can connect and refresh tokens expire after 7 days; the YouTube scopes (upload, readonly, yt-analytics.readonly) need Google OAuth verification for public use. videos.insert has a default limit of 100 calls/day per project.",
     docsUrl: "https://developers.google.com/youtube/v3/docs/videos/insert",
   },
   accepts: { video: true, image: false, textOnly: false },

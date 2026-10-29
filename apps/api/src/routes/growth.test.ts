@@ -236,7 +236,10 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     const conns = await alice.get(`${A}/connections`);
     const acc = conns.body.items.find((a: J) => a.provider === "youtube");
     accountId = acc.id;
-    expect(acc).toMatchObject({ status: "connected", externalAccountId: "UCFIXTURE0000000000000001", displayName: "Fixture Apps", capabilities: ["publish_video"] });
+    expect(acc).toMatchObject({ status: "connected", externalAccountId: "UCFIXTURE0000000000000001", displayName: "Fixture Apps", capabilities: ["publish_video", "read_insights"] });
+    // The fixture grant has no yt-analytics.readonly: said plainly, never assumed.
+    expect(acc.limitations).toEqual([expect.stringContaining("yt-analytics.readonly")]);
+    expect(url.searchParams.get("scope")).toContain("https://www.googleapis.com/auth/yt-analytics.readonly");
     expect(JSON.stringify(conns.body)).not.toContain("FIXTURE_ACCESS");
     expect(JSON.stringify(conns.body)).not.toContain("FIXTURE_REFRESH");
     expect(conns.body.providers.find((x: J) => x.provider === "tiktok")).toMatchObject({ configured: false, state: "not_configured" });

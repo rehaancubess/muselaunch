@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { AgentRun, AgentStep, ToolInvocation } from "./agents";
-import { AttributionLink, Experiment, ExperimentResult, GrowthRecommendation, ImportBatch, MetricObservation } from "./analytics";
+import { AttributionLink, Experiment, ExperimentResult, GrowthRecommendation, ImportBatch, MetricObservation, YouTubeChannelAnalysis } from "./analytics";
 import { App, AppEvidence, AppImport, BrandPreference, BrandProfile, Claim, Competitor, TrackedCreator } from "./app";
 import { CreditLedgerEntry, CreditReservation, Subscription } from "./billing";
 import { Campaign, CampaignBrief, CampaignVariant, CopyPack, Storyboard } from "./campaign";
@@ -69,6 +69,7 @@ export const ENTITY_SCHEMAS = {
   clipAnalyses: ClipAnalysis,
   brandReviews: BrandReview,
   autopilots: Autopilot,
+  youtubeAnalyses: YouTubeChannelAnalysis,
 } as const;
 
 export type EntityName = keyof typeof ENTITY_SCHEMAS;
@@ -126,6 +127,7 @@ export const ID_PREFIX: Record<EntityName, string> = {
   clipAnalyses: "cla",
   brandReviews: "brv",
   autopilots: "apl",
+  youtubeAnalyses: "yta",
 };
 
 /** Input to `create`: system fields are set by the repository. */

@@ -1,0 +1,623 @@
+{
+  "_fixture": "Documented YouTube Data API v3 / YouTube Analytics API v2 response shapes with synthetic values. Not live data.",
+  "_source": [
+    "https://developers.google.com/youtube/v3/docs/channels/list",
+    "https://developers.google.com/youtube/v3/docs/playlistItems/list",
+    "https://developers.google.com/youtube/v3/docs/videos/list",
+    "https://developers.google.com/youtube/v3/docs/errors",
+    "https://developers.google.com/youtube/analytics/reference/reports/query"
+  ],
+  "channelId": "UCFIXTUREfocus0000000001",
+  "channels": {
+    "kind": "youtube#channelListResponse",
+    "etag": "FIXTUREchannelsEtag",
+    "pageInfo": {
+      "totalResults": 1,
+      "resultsPerPage": 1
+    },
+    "items": [
+      {
+        "kind": "youtube#channel",
+        "etag": "FIXTUREchannelEtag",
+        "id": "UCFIXTUREfocus0000000001",
+        "snippet": {
+          "title": "Fixture Focus Apps",
+          "description": "Fixture channel",
+          "customUrl": "@fixturefocus",
+          "publishedAt": "2021-03-04T10:00:00Z",
+          "country": "US",
+          "thumbnails": {
+            "default": {
+              "url": "https://yt3.ggpht.com/FIXTURE=s88",
+              "width": 88,
+              "height": 88
+            }
+          }
+        },
+        "contentDetails": {
+          "relatedPlaylists": {
+            "likes": "",
+            "uploads": "UUFIXTUREfocus0000000001"
+          }
+        },
+        "statistics": {
+          "viewCount": "1830000",
+          "subscriberCount": "12400",
+          "hiddenSubscriberCount": false,
+          "videoCount": "212"
+        }
+      }
+    ]
+  },
+  "channelsEmpty": {
+    "kind": "youtube#channelListResponse",
+    "etag": "FIXTUREemptyEtag",
+    "pageInfo": {
+      "totalResults": 0,
+      "resultsPerPage": 1
+    }
+  },
+  "playlistItems": {
+    "kind": "youtube#playlistItemListResponse",
+    "etag": "FIXTUREplaylistEtag",
+    "nextPageToken": "FIXTUREnext",
+    "pageInfo": {
+      "totalResults": 212,
+      "resultsPerPage": 50
+    },
+    "items": [
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi0",
+        "id": "FIXTUREpi0",
+        "contentDetails": {
+          "videoId": "FXvid000001",
+          "videoPublishedAt": "2026-10-27T15:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi1",
+        "id": "FIXTUREpi1",
+        "contentDetails": {
+          "videoId": "FXvid000002",
+          "videoPublishedAt": "2026-10-24T15:30:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi2",
+        "id": "FIXTUREpi2",
+        "contentDetails": {
+          "videoId": "FXvid000003",
+          "videoPublishedAt": "2026-10-21T17:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi3",
+        "id": "FIXTUREpi3",
+        "contentDetails": {
+          "videoId": "FXvid000004",
+          "videoPublishedAt": "2026-10-18T15:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi4",
+        "id": "FIXTUREpi4",
+        "contentDetails": {
+          "videoId": "FXvid000005",
+          "videoPublishedAt": "2026-10-14T18:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi5",
+        "id": "FIXTUREpi5",
+        "contentDetails": {
+          "videoId": "FXvid000006",
+          "videoPublishedAt": "2026-10-11T15:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi6",
+        "id": "FIXTUREpi6",
+        "contentDetails": {
+          "videoId": "FXvid000007",
+          "videoPublishedAt": "2026-10-08T19:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi7",
+        "id": "FIXTUREpi7",
+        "contentDetails": {
+          "videoId": "FXvid000008",
+          "videoPublishedAt": "2026-10-05T16:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi8",
+        "id": "FIXTUREpi8",
+        "contentDetails": {
+          "videoId": "FXvid000009",
+          "videoPublishedAt": "2026-10-02T15:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi9",
+        "id": "FIXTUREpi9",
+        "contentDetails": {
+          "videoId": "FXvid000010",
+          "videoPublishedAt": "2026-09-28T17:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi10",
+        "id": "FIXTUREpi10",
+        "contentDetails": {
+          "videoId": "FXvid000011",
+          "videoPublishedAt": "2026-10-28T09:00:00Z"
+        }
+      },
+      {
+        "kind": "youtube#playlistItem",
+        "etag": "FIXTUREpi11",
+        "id": "FIXTUREpi11",
+        "contentDetails": {
+          "videoId": "FXvid000012"
+        }
+      }
+    ]
+  },
+  "videos": {
+    "kind": "youtube#videoListResponse",
+    "etag": "FIXTUREvideosEtag",
+    "pageInfo": {
+      "totalResults": 11,
+      "resultsPerPage": 11
+    },
+    "items": [
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag1",
+        "id": "FXvid000001",
+        "snippet": {
+          "publishedAt": "2026-10-27T15:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "How I plan my week in 60 seconds?",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT45S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "15400",
+          "likeCount": "820",
+          "commentCount": "64"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag2",
+        "id": "FXvid000002",
+        "snippet": {
+          "publishedAt": "2026-10-24T15:30:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "3 focus tricks that actually work",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT38S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "22100",
+          "likeCount": "1300",
+          "commentCount": "91"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag3",
+        "id": "FXvid000003",
+        "snippet": {
+          "publishedAt": "2026-10-21T17:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Deep work setup tour (full walkthrough)",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT12M4S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "4100",
+          "likeCount": "210",
+          "commentCount": "33"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag4",
+        "id": "FXvid000004",
+        "snippet": {
+          "publishedAt": "2026-10-18T15:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Why your to-do list fails?",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT52S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "9800",
+          "likeCount": "450",
+          "commentCount": "40"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag5",
+        "id": "FXvid000005",
+        "snippet": {
+          "publishedAt": "2026-10-14T18:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Pomodoro vs time blocking: I tried both",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT8M30S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "3500",
+          "likeCount": "160",
+          "commentCount": "25"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag6",
+        "id": "FXvid000006",
+        "snippet": {
+          "publishedAt": "2026-10-11T15:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "5 apps I use every day",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT58S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "18800",
+          "likeCount": "990",
+          "commentCount": "77"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag7",
+        "id": "FXvid000007",
+        "snippet": {
+          "publishedAt": "2026-10-08T19:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Weekly review LIVE",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT1H2M",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "1200",
+          "likeCount": "60",
+          "commentCount": "140"
+        },
+        "liveStreamingDetails": {
+          "actualStartTime": "2026-10-08T19:00:05Z",
+          "actualEndTime": "2026-10-08T20:02:11Z"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag8",
+        "id": "FXvid000008",
+        "snippet": {
+          "publishedAt": "2026-10-05T16:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Plan with me: Sunday reset",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT2M10S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "6400",
+          "likeCount": "300",
+          "commentCount": "18"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag9",
+        "id": "FXvid000009",
+        "snippet": {
+          "publishedAt": "2026-10-02T15:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "My morning routine for focus",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT41S",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "12500",
+          "commentCount": "30"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag10",
+        "id": "FXvid000010",
+        "snippet": {
+          "publishedAt": "2026-09-28T17:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Notion vs paper planner?",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "none",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "PT15M",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "2900",
+          "likeCount": "120"
+        }
+      },
+      {
+        "kind": "youtube#video",
+        "etag": "FIXTUREetag11",
+        "id": "FXvid000011",
+        "snippet": {
+          "publishedAt": "2026-10-28T09:00:00Z",
+          "channelId": "UCFIXTUREfocus0000000001",
+          "title": "Launch premiere: Focusly 2.0",
+          "description": "Fixture description",
+          "channelTitle": "Fixture Focus Apps",
+          "liveBroadcastContent": "upcoming",
+          "categoryId": "28"
+        },
+        "contentDetails": {
+          "duration": "P0D",
+          "dimension": "2d",
+          "definition": "hd",
+          "caption": "false",
+          "licensedContent": false,
+          "contentRating": {},
+          "projection": "rectangular"
+        },
+        "statistics": {
+          "favoriteCount": "0",
+          "viewCount": "0",
+          "likeCount": "0",
+          "commentCount": "0"
+        }
+      }
+    ]
+  },
+  "analyticsReport": {
+    "kind": "youtubeAnalytics#resultTable",
+    "columnHeaders": [
+      {
+        "name": "views",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "estimatedMinutesWatched",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "averageViewDuration",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "likes",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "comments",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "shares",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      },
+      {
+        "name": "subscribersGained",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      }
+    ],
+    "rows": [
+      [
+        1480,
+        2310,
+        94,
+        81,
+        12,
+        9,
+        4
+      ]
+    ]
+  },
+  "analyticsReportEmpty": {
+    "kind": "youtubeAnalytics#resultTable",
+    "columnHeaders": [
+      {
+        "name": "views",
+        "columnType": "METRIC",
+        "dataType": "INTEGER"
+      }
+    ]
+  },
+  "errors": {
+    "quotaExceeded": {
+      "error": {
+        "code": 403,
+        "message": "The request cannot be completed because you have exceeded your quota.",
+        "errors": [
+          {
+            "message": "The request cannot be completed because you have exceeded your quota.",
+            "domain": "youtube.quota",
+            "reason": "quotaExceeded"
+          }
+        ]
+      }
+    },
+    "keyInvalid": {
+      "error": {
+        "code": 400,
+        "message": "API key not valid. Please pass a valid API key.",
+        "errors": [
+          {
+            "message": "API key not valid. Please pass a valid API key.",
+            "domain": "global",
+            "reason": "badRequest"
+          }
+        ],
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "API_KEY_INVALID",
+            "domain": "googleapis.com",
+            "metadata": {
+              "service": "youtube.googleapis.com"
+            }
+          }
+        ]
+      }
+    },
+    "insufficientScope": {
+      "error": {
+        "code": 403,
+        "message": "Request had insufficient authentication scopes.",
+        "errors": [
+          {
+            "message": "Insufficient Permission",
+            "domain": "global",
+            "reason": "insufficientPermissions"
+          }
+        ],
+        "status": "PERMISSION_DENIED"
+      }
+    }
+  }
+}

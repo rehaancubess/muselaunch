@@ -107,6 +107,9 @@ export const ConfigSchema = z.object({
   PEXELS_API_KEY: z.string().optional(),
   PIXABAY_API_KEY: z.string().optional(),
 
+  // Public YouTube data (YouTube Data API v3 key, restricted to that API): channel analysis in Insights
+  YOUTUBE_API_KEY: z.string().optional(),
+
   // Spend & safety
   GLOBAL_DAILY_SPEND_CEILING_USD: z.coerce.number().default(40),
   WORKSPACE_MONTHLY_SPEND_CEILING_USD: z.coerce.number().default(25),

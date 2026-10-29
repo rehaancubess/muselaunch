@@ -6,8 +6,9 @@ export type MetricUnit = MetricObservation["unit"];
  * - flow: additive per window (installs per day) → sum of non-overlapping windows
  * - stock: point-in-time level (active subscriptions) → latest snapshot
  * - unique: de-duplicated counts (reach) → not additive across windows
+ * - average: a per-post average (average view duration) → never added; shown only for a single post
  */
-export type MetricKind = "flow" | "stock" | "unique";
+export type MetricKind = "flow" | "stock" | "unique" | "average";
 
 export const METRIC_INFO: Record<MetricName, { label: string; unit: MetricUnit; kind: MetricKind; social?: boolean }> = {
   impressions: { label: "Impressions", unit: "count", kind: "flow", social: true },
@@ -36,6 +37,7 @@ export const METRIC_INFO: Record<MetricName, { label: string; unit: MetricUnit; 
   new_customers: { label: "New customers (RevenueCat)", unit: "count", kind: "flow" },
   active_customers: { label: "Active customers (RevenueCat)", unit: "count", kind: "unique" },
   transactions: { label: "Transactions", unit: "count", kind: "flow" },
+  avg_view_duration_sec: { label: "Average view duration", unit: "seconds", kind: "average", social: true },
 };
 
 /** Metrics shown on the Insights overview, in display order. */

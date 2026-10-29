@@ -1,4 +1,5 @@
 import {
+  AnalyzeYouTubeChannelRequest,
   CommitImportRequest,
   ConnectRevenueCatRequest,
   CreateExperimentRequest,
@@ -17,12 +18,16 @@ import {
   createTrackedLink,
   disconnectAnalyticsAccount,
   dismissRecommendation,
+  hasSocialInsights,
   insightsOverview,
+  listYouTubeAnalyses,
   recordManualObservation,
   remapImport,
   rollbackImport,
   setLinkActive,
+  startYouTubeAnalysis,
   updateExperiment,
+  youtubeConfigured,
 } from "@muselaunch/analytics";
 import { AppError, trackedLinkUrl } from "@muselaunch/platform";
 import { Hono } from "hono";
@@ -57,19 +62,23 @@ analyticsRoutes.post("/apps/:appId/analytics/revenuecat", requireCap("accounts.m
 analyticsRoutes.get("/apps/:appId/analytics/connections", async (c) => {
   const app = await appOf(c);
   const page = await ws(c).collection("connectedAccounts").list({ limit: 200 });
-  const items = page.items.filter((a) => (!a.appId || a.appId === app.id) && (a.purposes.includes("analytics") || a.capabilities.includes("read_insights") || a.capabilities.includes("read_revenue")));
+  const items = page.items.filter((a) => (!a.appId || a.appId === app.id) && (a.purposes.includes("analytics") || a.capabilities.includes("read_insights") || a.capabilities.includes("read_revenue") || hasSocialInsights(a)));
   return c.json({ items: items.map(({ secretId: _s, ...rest }) => rest), nextCursor: null });
 });
 
 analyticsRoutes.post("/analytics/connections/:id/sync", requireCap("analytics.write"), async (c) => {
   const p = c.get("platform");
   const account = await ws(c).collection("connectedAccounts").getOrThrow(c.req.param("id"));
-  if (!account.appId) throw new AppError("BAD_REQUEST", "Connection isn't linked to an app");
+  // Workspace-wide social connections (e.g. YouTube connected from Settings) sync one app's posts: the caller names it.
+  const raw = await c.req.text();
+  const input = raw.trim() ? z.object({ appId: z.string().max(128).optional() }).parse(JSON.parse(raw)) : {};
+  const appId = account.appId ?? (input.appId && hasSocialInsights(account) ? (await ws(c).collection("apps").getOrThrow(input.appId)).id : undefined);
+  if (!appId) throw new AppError("BAD_REQUEST", "Connection isn't linked to an app");
   if (account.status !== "connected") throw new AppError("CONFLICT", `Connection is ${account.status}`, { userMessage: "Reconnect this account first." });
-  const job = await p.jobs.create(c.get("workspaceId"), "analytics.sync", { connectionId: account.id, appId: account.appId }, {
+  const job = await p.jobs.create(c.get("workspaceId"), "analytics.sync", { connectionId: account.id, appId }, {
     actor: actorOf(c),
-    appId: account.appId,
-    idempotencyKey: idempotencyKey(c, `sync:${account.id}:${Math.floor(Date.now() / 60_000)}`),
+    appId,
+    idempotencyKey: idempotencyKey(c, `sync:${account.id}:${appId}:${Math.floor(Date.now() / 60_000)}`),
     credits: { operation: "analytics.sync" },
   });
   return c.json({ job }, 202);
@@ -79,6 +88,28 @@ analyticsRoutes.delete("/analytics/connections/:id", requireCap("accounts.manage
   const account = await disconnectAnalyticsAccount(c.get("platform"), c.get("workspaceId"), c.req.param("id"), actorOf(c));
   const { secretId: _s, ...rest } = account;
   return c.json({ account: rest });
+});
+
+// ---------------------------------------------------------------------------
+// YouTube channel analysis (public data via YOUTUBE_API_KEY)
+// ---------------------------------------------------------------------------
+
+analyticsRoutes.post("/apps/:appId/youtube/analyze", requireCap("analytics.write"), async (c) => {
+  const app = await appOf(c);
+  const input = await body(c, AnalyzeYouTubeChannelRequest);
+  const job = await startYouTubeAnalysis(c.get("platform"), c.get("workspaceId"), app.id, input, actorOf(c), idempotencyKey(c));
+  return c.json({ job }, 202);
+});
+
+analyticsRoutes.get("/apps/:appId/youtube/analyses", async (c) => {
+  const app = await appOf(c);
+  const items = await listYouTubeAnalyses(c.get("platform"), c.get("workspaceId"), app.id);
+  return c.json({ items, nextCursor: null, configured: youtubeConfigured(c.get("platform")) });
+});
+
+analyticsRoutes.get("/youtube-analyses/:id", async (c) => {
+  const analysis = await ws(c).collection("youtubeAnalyses").getOrThrow(c.req.param("id"));
+  return c.json({ analysis });
 });
 
 // ---------------------------------------------------------------------------

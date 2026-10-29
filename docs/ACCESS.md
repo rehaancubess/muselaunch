@@ -150,6 +150,7 @@ gcloud auth application-default login     # lets your local API use Firestore/St
 | Integration | What you need | Until then |
 |---|---|---|
 | RevenueCat | Secret API key (v2) + project id, entered in Insights → Connect | CSV import (labelled "Imported") |
-| YouTube publishing | Google OAuth client (YouTube Data API v3), app verification for public use | Export package + manual posting |
+| YouTube channel analysis (Insights → YouTube) | An API key restricted to YouTube Data API v3 in `YOUTUBE_API_KEY` (`setup-youtube.cmd`). Free; 3 of the project's 10,000 daily quota units per analysis | "Not connected" notice; nothing is estimated |
+| YouTube publishing + post stats | Google OAuth client with YouTube Data API v3 **and YouTube Analytics API** enabled, app verification for public use. Scopes: `youtube.upload`, `youtube.readonly` (views, likes, comments) and `yt-analytics.readonly` (watch time, average view duration, shares, subscribers). Accounts connected before Oct 29 2026 must reconnect to grant the analytics scope | Export package + manual posting; enter post numbers manually |
 | Instagram / Facebook / TikTok / LinkedIn / X | Developer apps + app review (days–weeks) | Export package + manual posting |
 | Payments | Not needed for the beta (credits only) | "Upgrade request" form |

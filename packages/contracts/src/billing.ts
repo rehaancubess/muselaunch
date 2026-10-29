@@ -135,6 +135,8 @@ export const DEFAULT_CREDIT_PRICES = {
   /** Analytics ingestion makes no AI calls. */
   "analytics.sync": 0,
   "analytics.import_csv": 0,
+  /** One text-model interpretation; the YouTube API calls are free (quota units only). Not charged when no model runs. */
+  "analytics.youtube_channel": 5,
   "outreach.draft": 3,
   "memory.retrieve": 0,
   /** Glimmer runs locally; covers the rules pass and the Spark fallback when Glimmer is offline. */

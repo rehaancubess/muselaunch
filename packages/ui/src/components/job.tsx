@@ -31,6 +31,7 @@ const JOB_LABELS: Record<string, string> = {
   "publish.post": "Publishing post",
   "analytics.sync": "Syncing analytics",
   "analytics.import_csv": "Importing CSV",
+  "analytics.youtube_channel": "Analysing YouTube channel",
   "experiment.analyze": "Analysing experiment",
   "recommendations.generate": "Generating recommendations",
   "memory.ingest": "Updating brand memory",

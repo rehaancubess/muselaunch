@@ -135,7 +135,7 @@ function RevenueCatSection({ workspaceId, appId, onChanged, highlight }: { works
       )}
       {others.length ? (
         <p className="text-footnote text-ink-2">
-          Other connected accounts: {others.map((o) => `${o.displayName} (${o.status}${o.capabilities.includes("read_insights") ? ", insights" : ""})`).join(", ")}. Automatic social insights aren't available in the beta; import or enter post numbers.
+          Other connected accounts: {others.map((o) => `${o.displayName} (${o.status}${o.capabilities.includes("read_insights") ? ", insights" : ""})`).join(", ")}. YouTube post stats sync from the YouTube tab; for other networks, import or enter post numbers.
         </p>
       ) : null}
     </Section>

@@ -16,7 +16,7 @@ import type {
 } from "@muselaunch/contracts";
 import { nowIso, type WorkspaceDb } from "@muselaunch/db";
 import { AppError, type Platform } from "@muselaunch/platform";
-import { ATTRIBUTION_STRENGTH, CLICK_DEFINITION, FUNNEL_METRICS, METRIC_INFO, OVERVIEW_METRICS, SOURCE_PRIORITY, sourceLabel, weakestAttribution } from "./metrics";
+import { ATTRIBUTION_STRENGTH, CLICK_DEFINITION, FUNNEL_METRICS, METRIC_INFO, OVERVIEW_METRICS, SOURCE_PRIORITY, sourceLabel, weakestAttribution, type MetricKind } from "./metrics";
 import { DAY_MS, scopeOf } from "./observations";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ interface Selection {
 
 const ms = (iso: string) => Date.parse(iso);
 
-function inRange(o: MetricObservation, r: Range, kind: "flow" | "stock" | "unique"): boolean {
+function inRange(o: MetricObservation, r: Range, kind: MetricKind): boolean {
   const s = ms(o.windowStart);
   const e = ms(o.windowEnd);
   if (kind === "stock") return e >= r.from && e <= r.to;
@@ -134,7 +134,7 @@ function selectForSource(obs: MetricObservation[], metric: MetricName, r: Range,
   for (const group of byScope.values()) {
     let picked: MetricObservation[];
     if (kind === "flow") picked = selectNonOverlapping(group);
-    else if (kind === "stock") picked = [group.reduce((a, b) => (ms(b.windowEnd) > ms(a.windowEnd) ? b : a))];
+    else if (kind === "stock" || kind === "average") picked = [group.reduce((a, b) => (ms(b.windowEnd) > ms(a.windowEnd) ? b : a))];
     else {
       picked = [group.reduce((a, b) => (ms(b.windowEnd) - ms(b.windowStart) > ms(a.windowEnd) - ms(a.windowStart) ? b : a))];
       if (group.length > 1) notes.add(`${METRIC_INFO[metric].label} counts unique people and can't be added across periods; the widest single reported window is shown.`);
@@ -205,7 +205,10 @@ export function computeMetric(metric: MetricName, all: MetricObservation[], r: R
   let value: number | null = null;
   let currency: string | undefined;
   let byCurrency: { currency: string; value: number }[] | undefined;
-  if (totals.size === 1) {
+  if (info.kind === "average" && used.length > 1) {
+    // Averages of different posts can't be added (or averaged without each post's view counts).
+    notes.add(`${info.label} is reported per post; ${used.length} posts are in this range, so no single number is shown. Filter to one campaign or see each post's numbers.`);
+  } else if (totals.size === 1) {
     const [[cur, v]] = [...totals.entries()] as [[string, number]];
     value = round(v);
     currency = cur || undefined;
@@ -245,7 +248,7 @@ export function computeMetric(metric: MetricName, all: MetricObservation[], r: R
     unit: info.unit,
     currency,
     value,
-    aggregation: used.length ? (info.kind === "flow" ? "sum" : "latest") : "none",
+    aggregation: used.length ? (info.kind === "flow" ? "sum" : info.kind === "average" && used.length > 1 ? "none" : "latest") : "none",
     sources,
     attribution: weakestAttribution(used.map((o) => o.attribution)),
     imported: used.some((o) => o.provenance.imported),

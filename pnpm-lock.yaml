@@ -261,6 +261,9 @@ importers:
       '@muselaunch/db':
         specifier: workspace:*
         version: link:../db
+      '@muselaunch/growth':
+        specifier: workspace:*
+        version: link:../growth
       '@muselaunch/platform':
         specifier: workspace:*
         version: link:../platform

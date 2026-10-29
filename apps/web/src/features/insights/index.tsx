@@ -1,8 +1,8 @@
 "use client";
 /**
  * Owner: module F (Analytics & platform). The Insights tab body: sourced metrics with explicit gaps,
- * funnel, cost vs outcome, experiments, recommendations and data sources (RevenueCat, CSV,
- * manual entry, tracked links). Rendered by .../a/[appId]/insights/page.tsx inside <PageContainer width="wide">.
+ * funnel, cost vs outcome, experiments, recommendations, YouTube (public channel analysis + stats of
+ * published videos) and data sources (RevenueCat, CSV, manual entry, tracked links). Rendered by .../a/[appId]/insights/page.tsx inside <PageContainer width="wide">.
  */
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
 import { useState } from "react";
@@ -11,12 +11,13 @@ import { ExperimentsView } from "./experiments";
 import { OverviewView, type SourcesFocus } from "./overview";
 import { RecommendationsView } from "./recommendations";
 import { SourcesView } from "./sources";
+import { YouTubeView } from "./youtube";
 
 export interface InsightsRootProps {
   appId: string;
 }
 
-type TabKey = "overview" | "experiments" | "next" | "sources";
+type TabKey = "overview" | "experiments" | "next" | "youtube" | "sources";
 
 export default function InsightsRoot({ appId }: InsightsRootProps) {
   const { workspaceId } = useRouteIds();
@@ -30,6 +31,7 @@ export default function InsightsRoot({ appId }: InsightsRootProps) {
         <TabsTrigger value="overview">Overview</TabsTrigger>
         <TabsTrigger value="experiments">Experiments</TabsTrigger>
         <TabsTrigger value="next">What to try next</TabsTrigger>
+        <TabsTrigger value="youtube">YouTube</TabsTrigger>
         <TabsTrigger value="sources">Data sources</TabsTrigger>
       </TabsList>
       <TabsContent value="overview">
@@ -54,6 +56,9 @@ export default function InsightsRoot({ appId }: InsightsRootProps) {
             setTab("experiments");
           }}
         />
+      </TabsContent>
+      <TabsContent value="youtube">
+        <YouTubeView workspaceId={workspaceId} appId={appId} />
       </TabsContent>
       <TabsContent value="sources">
         <SourcesView workspaceId={workspaceId} appId={appId} focus={focus} />

@@ -12,5 +12,6 @@ presents them as real results.
 | `app-store-sales-summary.tsv` | App Store Connect Summary Sales Report (tab-separated; Begin/End Date MM/DD/YYYY; Units; Developer Proceeds per unit; Currency of Proceeds; Product Type Identifier; Subscription). Rows are invented test data. |
 | `play-installs-country.csv` | Google Play Console installs report columns (Date, Package Name, Country, Daily Device Installs, Daily User Installs, …). Rows are invented test data. |
 | `generic-wide.csv`, `generic-long.csv` | Hand-written spreadsheets a founder might export. |
+| `youtube-data-api.json` | YouTube Data API v3 `channels.list` (snippet, contentDetails, statistics), `playlistItems.list` (contentDetails), `videos.list` (snippet, contentDetails, statistics, liveStreamingDetails; statistics are uint64 strings, likeCount/commentCount absent when hidden/off), Google error envelopes (`quotaExceeded`, `API_KEY_INVALID`, `insufficientPermissions`) and a YouTube Analytics API v2 `reports.query` result table. Channel, ids, titles and numbers are invented test data. |
 
 Live responses captured by `pnpm smoke:live analytics` are saved under `fixtures/live/` (redacted).

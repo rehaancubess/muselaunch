@@ -138,6 +138,9 @@ pnpm smoke:live meta media # + SAM 3.1 and Voice Transcribe
 pnpm smoke:live baseten    # Muse Spark Open on Baseten (text, streamed JSON, image in)
 ```
 
+`pnpm smoke:live youtube` checks `YOUTUBE_API_KEY` with one public channel (3 quota units;
+`YOUTUBE_SMOKE_CHANNEL=@handle` picks it).
+
 This makes a few tiny real calls and saves redacted parsed results to `fixtures/live/` so we can
 match parsers to the real response shapes. Every raw HTTP exchange with Meta/Glimmer/Baseten (request and
 response bodies, response headers; no API keys) is also written to `fixtures/live/raw/wire/`

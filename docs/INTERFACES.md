@@ -49,7 +49,7 @@ Job handlers (module → job types):
 - C / render: composition.build, composition.variants, render.preview, render.final, package.export
 - D / media: media.probe, media.segment, media.transcribe, media.image_generate, media.tts
 - E / growth: discover.refresh, outreach.draft, outreach.send, publish.post
-- F / analytics: analytics.sync, analytics.import_csv, experiment.analyze, recommendations.generate
+- F / analytics: analytics.sync (RevenueCat; YouTube per-post stats via the registered `SocialInsightsAdapter`), analytics.import_csv, analytics.youtube_channel (public channel analysis → `youtubeAnalyses` + sourced `researchFindings`), experiment.analyze, recommendations.generate
 
 Pipelines: `campaign.generate_concepts` (B) → user selects → `storyboard.generate` (B) → enqueues `composition.build` (C) → enqueues `render.preview` (C).
 AI edit: route `POST /compositions/:id/ai-edit` (C's route file) creates a `CompositionPatch{status:"proposed"}` and job `composition.edit` (B's handler), which fills the patch ops via Spark + `applyPatch` validation and, if `autoApply`, commits via `commitVersion`.
@@ -63,6 +63,7 @@ AI edit: route `POST /compositions/:id/ai-edit` (C's route file) creates a `Comp
 - D `media.ts`: `POST /assets/:assetId/segment` (202 `{job, segmentation, reused}`, 200 when reused); `GET /assets/:assetId/segmentations`; `GET /segmentations/:id`; `POST /segmentations/:id/correct`; `POST /assets/:assetId/transcribe` (202); `GET /transcripts/:id`; `POST /images/generate` (202, response names the provider); `GET /stock/search`; `POST /stock/import`; `POST /tts` (202).
 - E `discover.ts` / `publishing.ts` / `oauth.ts`: feed, opportunities, trackers, prospects, outreach drafts, approvals, calendar/posts, connections, OAuth callbacks.
 - F `analytics.ts` / `billing.ts` / `public-links.ts`: insights overview, observations, CSV imports, RevenueCat connection/sync, tracked links, experiments, recommendations, plans, usage summary, admin ops, `/r/:slug`.
+- F `analytics.ts` YouTube: `POST /apps/:appId/youtube/analyze` `{channel, relation?, maxVideos?}` → 202 `{job}` (503 `PROVIDER_NOT_CONFIGURED` without `YOUTUBE_API_KEY`, 400 for a link that isn't a channel); `GET /apps/:appId/youtube/analyses` → `{items (summaries), nextCursor, configured}`; `GET /youtube-analyses/:id` → `{analysis}`. `POST /analytics/connections/:id/sync` accepts `{appId}` for workspace-wide YouTube connections.
 
 ## Phase 2 (see docs/PHASE2.md)
 

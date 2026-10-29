@@ -378,6 +378,20 @@ describe("security inventory: every route, every role", () => {
     ).id;
     ids.findingId = "bf_alice_private";
     await ws.collection("autopilots").create({ appId, goal: "ALICE_PRIVATE autopilot goal", status: "paused", stage: "research", budget: { maxCredits: 100 } }, { actor: "alice" });
+    await ws.collection("youtubeAnalyses").create(
+      {
+        appId,
+        input: "@aliceprivate",
+        relation: "competitor",
+        channel: { id: "UCALICEPRIVATE0000000001", title: "ALICE_PRIVATE channel", url: "https://www.youtube.com/@aliceprivate", subscriberCount: null, viewCount: null, videoCount: null },
+        fetchedAt: now,
+        videos: [],
+        stats: { videosAnalyzed: 0, excluded: [], window: null, totals: { views: 0, likes: 0, comments: 0, videosWithHiddenLikes: 0, videosWithCommentsOff: 0 }, medians: { views: null, likes: null, comments: null, engagementRate: null, viewsPerDay: null }, meanViews: null, topByViews: [], topByViewsPerDay: [], byLength: [], byWeekday: [], byHour: [], titlePatterns: [], cadence: { uploadsPerWeek: null, medianDaysBetween: null }, notes: [] },
+        interpretation: { status: "unavailable", error: "ALICE_PRIVATE" },
+        quota: { units: 3, calls: [] },
+      },
+      { actor: "alice" },
+    );
 
     ids.uid = "eddie";
     ids.provider = "youtube";

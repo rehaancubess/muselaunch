@@ -15,6 +15,7 @@
     "@muselaunch/platform": "workspace:*",
     "@muselaunch/providers": "workspace:*",
     "@muselaunch/agents": "workspace:*",
+    "@muselaunch/growth": "workspace:*",
     "zod": "^4.6.7"
   }
 }
