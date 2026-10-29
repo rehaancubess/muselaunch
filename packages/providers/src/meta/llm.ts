@@ -214,7 +214,8 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
     max_output_tokens: maxOut,
     ...(call.previousResponseId ? { previous_response_id: call.previousResponseId } : {}),
     ...(call.reasoningEffort ? { reasoning: { effort: call.reasoningEffort } } : {}),
-    ...(call.temperature !== undefined ? { temperature: call.temperature } : {}),
+    // OpenAI's reasoning models reject `temperature`; the stand-in leaves it at their default.
+    ...(call.temperature !== undefined && !p.cfg.standIn ? { temperature: call.temperature } : {}),
     ...(format ? { text: { format: { type: "json_schema", name: format.name, schema: format.schema, strict: false } } } : {}),
     ...(tools.length ? { tools } : {}),
     ...(call.tools?.length && call.parallelToolCalls !== undefined ? { parallel_tool_calls: call.parallelToolCalls } : {}),
@@ -223,14 +224,14 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
   };
   // With previous_response_id the server replays earlier turns; budget a conservative history allowance.
   const historyAllowance = call.previousResponseId ? 20_000 : 0;
-  const estimatedUsd =
-    estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000 + historyAllowance, maxOut) + (ws ? 5 * PRICES.metaWebSearchPerQuery : 0);
+  const searchPrice = p.cfg.standIn ? PRICES.openaiWebSearchPerQuery : PRICES.metaWebSearchPerQuery;
+  const estimatedUsd = estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000 + historyAllowance, maxOut) + (ws ? 5 * searchPrice : 0);
   return client.metered(call.ctx, { model, operation: "responses", estimatedUsd }, async () => {
     const res = (await client.openai.responses.create(request as never, { signal: call.ctx.signal })) as unknown as ResponsesResult;
     // Failed, incomplete and refused responses still used (and were billed for) tokens: meter them.
     const billed = (err: AppError) => {
       const x = extract(res);
-      return MetaClient.billed(err, { requestId: res.id, ...x.usage, costUsd: tokenCost(model, x.usage) + x.searchCalls * PRICES.metaWebSearchPerQuery });
+      return MetaClient.billed(err, { requestId: res.id, ...x.usage, costUsd: tokenCost(model, x.usage) + x.searchCalls * searchPrice });
     };
     if (res.status === "incomplete") {
       throw billed(new AppError("PROVIDER_ERROR", `Response incomplete: ${res.incomplete_details?.reason ?? "unknown"}`, { retryable: res.incomplete_details?.reason !== "max_output_tokens" }));
@@ -241,11 +242,11 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
     if (refusal && !out.text && !out.functionCalls.length) {
       throw billed(new AppError("PROVIDER_ERROR", `Model refused: ${refusal.slice(0, 300)}`, { retryable: false, userMessage: "The AI model declined this request. Try rephrasing it." }));
     }
-    const cost = tokenCost(model, out.usage) + out.searchCalls * PRICES.metaWebSearchPerQuery;
+    const cost = tokenCost(model, out.usage) + out.searchCalls * searchPrice;
     return {
       value: { ...out, model: res.model ?? model, costUsd: cost },
       usage: {
-        provider: "meta",
+        provider: client.provider,
         model,
         operation: "responses",
         requestId: res.id,

@@ -139,6 +139,7 @@ export function samBilledUnits(media: "image" | "video", usage: SamUsage | null 
  */
 export async function runSam(p: Platform, ctx: CallContext, req: SamRequest): Promise<SamResult> {
   const client = metaClient(p);
+  client.requireMeta("SAM 3.1 cut-outs");
   const model = client.models.sam;
   const mediaKind = req.media.kind;
   const frames = mediaKind === "video" ? Math.max(1, req.frameCount ?? 1) : 1;

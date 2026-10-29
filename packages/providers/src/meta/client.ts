@@ -103,6 +103,10 @@ export class MetaClient {
   readonly openai: OpenAI;
   readonly baseUrl: string;
   readonly models: { wonder: string; spark: string; sam: string; voice: string; image: string };
+  /** Who really answers: "openai" while OpenAI stands in for the Meta Model API (cfg.standIn). */
+  readonly provider: "meta" | "openai";
+  /** Provider name for errors and logs. */
+  readonly providerName: string;
 
   constructor(
     private readonly platform: Platform,
@@ -111,6 +115,8 @@ export class MetaClient {
     const { cfg } = platform;
     this.baseUrl = cfg.META_BASE_URL.replace(/\/$/, "");
     this.models = { wonder: cfg.META_MODEL_WONDER, spark: cfg.META_MODEL_SPARK, sam: cfg.META_MODEL_SAM, voice: cfg.META_MODEL_VOICE, image: cfg.META_MODEL_IMAGE };
+    this.provider = cfg.standIn ? "openai" : "meta";
+    this.providerName = cfg.standIn ? "OpenAI (stand-in for the Meta Model API)" : "Meta Model API";
     this.openai = new OpenAI({
       apiKey: opts.apiKey ?? cfg.META_API_KEY ?? "missing-meta-api-key",
       baseURL: this.baseUrl,
@@ -133,6 +139,19 @@ export class MetaClient {
 
   assertConfigured(): void {
     if (!this.apiKey) throw new AppError("PROVIDER_NOT_CONFIGURED", "META_API_KEY is not set", { userMessage: "Meta Model API isn't connected on this deployment yet." });
+  }
+
+  /**
+   * Features only Meta serves (SAM 3.1, Muse Voice Transcribe, Muse Image, Meta file uploads). While
+   * OpenAI stands in for text and agent calls, these stop here with a clear message instead of
+   * reaching OpenAI's API with Meta-only requests.
+   */
+  requireMeta(feature: string): void {
+    this.assertConfigured();
+    if (this.provider !== "meta")
+      throw new AppError("PROVIDER_NOT_CONFIGURED", `${feature} needs the Meta Model API key (OpenAI is only standing in for Muse Wonder and Muse Spark)`, {
+        userMessage: `${feature} turns on once the Meta Model API key is connected.`,
+      });
   }
 
   /** Raw JSON request with documented retry policy (429/500/503 + Retry-After, jittered backoff). */
@@ -190,7 +209,7 @@ export class MetaClient {
         await new Promise((r) => setTimeout(r, backoff));
       }
     }
-    throw mapProviderError(lastErr);
+    throw mapProviderError(lastErr, this.providerName);
   }
 
   /**
@@ -216,7 +235,7 @@ export class MetaClient {
         ctx.workspaceId,
         {
           ...usage,
-          provider: usage.provider ?? "meta",
+          provider: this.provider === "openai" ? "openai" : (usage.provider ?? "meta"),
           model: usage.model ?? meta.model,
           operation: usage.operation ?? meta.operation,
           task: ctx.task,
@@ -232,11 +251,11 @@ export class MetaClient {
       );
       return value;
     } catch (raw) {
-      const err = mapProviderError(raw);
+      const err = mapProviderError(raw, this.providerName);
       const billed = raw instanceof Error ? billedUsage.get(raw) : undefined;
       await this.platform.usage
         .record(ctx.workspaceId, {
-          provider: "meta",
+          provider: this.provider,
           model: meta.model,
           operation: meta.operation,
           task: ctx.task,

@@ -48,6 +48,7 @@ export async function transcribeFile(p: Platform, ctx: CallContext, input: Trans
     throw new AppError("BAD_REQUEST", `Audio is ${Math.round(input.durationSec)}s; Muse Voice Transcribe accepts up to ${VOICE_LIMITS.maxSeconds}s per request`);
   }
   const client = metaClient(p);
+  client.requireMeta("Muse Voice Transcribe");
   const model = client.models.voice;
   const request: Record<string, unknown> = { model, audioEncoding: "WAV", mode: input.mode };
   if (input.languageBias?.length) request.languageBias = input.languageBias;

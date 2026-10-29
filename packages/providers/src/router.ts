@@ -53,10 +53,15 @@ function openChoice(p: Platform, reason: string): TextModelChoice {
   return { engine: "muse-spark-open", provider: "baseten", model: sparkOpenClient(p).model, name: "Muse Spark Open", label: SPARK_OPEN_LABEL, reason };
 }
 
+/** Name and label of whatever answers Muse Spark's calls here (OpenAI while it stands in for Meta). */
+export function sparkName(p: Platform): { name: string; label: string } {
+  return p.cfg.standIn ? { name: `OpenAI ${p.cfg.standIn.spark}`, label: `OpenAI ${p.cfg.standIn.spark} · temporary stand-in for Muse Spark` } : { name: "Muse Spark", label: "Muse Spark" };
+}
+
 export function chooseTextModel(p: Platform, route: string): TextModelChoice {
   const open = sparkOpenAvailable(p);
   if (open && p.cfg.SPARK_OPEN_TASKS.includes(route)) return openChoice(p, `${route} is listed in SPARK_OPEN_TASKS`);
-  return { engine: "muse-spark", provider: "meta", model: p.cfg.META_MODEL_SPARK, name: "Muse Spark", label: "Muse Spark", reason: open ? `${route} is not listed in SPARK_OPEN_TASKS` : "BASETEN_API_KEY is not set" };
+  return { engine: "muse-spark", provider: "meta", model: p.cfg.META_MODEL_SPARK, ...sparkName(p), reason: open ? `${route} is not listed in SPARK_OPEN_TASKS` : "BASETEN_API_KEY is not set" };
 }
 
 /** For status/UI: which engine each route uses on this deployment. */
@@ -85,6 +90,8 @@ const WHY: Record<FallbackReason, string> = {
   timeout: "Muse Spark timed out",
   credits: "Meta Model API credits ran out",
 };
+/** WHY, naming the stand-in when OpenAI answers Muse Spark's calls. */
+const why = (p: Platform, reason: FallbackReason) => (p.cfg.standIn ? WHY[reason].replace("Muse Spark", sparkName(p).name).replace("Meta Model API credits", "OpenAI credits") : WHY[reason]);
 
 export interface FallbackEvent {
   route: string;
@@ -123,9 +130,9 @@ async function run<T extends LlmTextResult>(p: Platform, call: LlmCall, opts: Ro
       route: opts.route,
       task: call.ctx.task,
       reason,
-      title: `${WHY[reason]}; used Muse Spark Open (open weights) instead`,
+      title: `${why(p, reason)}; used Muse Spark Open (open weights) instead`,
       status: "succeeded",
-      from: { provider: "meta", model: p.cfg.META_MODEL_SPARK, name: "Muse Spark" },
+      from: { provider: "meta", model: p.cfg.META_MODEL_SPARK, name: sparkName(p).name },
       to: { provider: "baseten", model: to.model, name: to.name, label: to.label },
       error: { code: err.code, message: err.message.slice(0, 300), ...(typeof (err.opts.details as { status?: unknown } | undefined)?.status === "number" ? { status: (err.opts.details as { status: number }).status } : {}) },
     };
@@ -134,7 +141,7 @@ async function run<T extends LlmTextResult>(p: Platform, call: LlmCall, opts: Ro
       out = await onOpen();
     } catch (raw2) {
       const err2 = toAppError(raw2);
-      await Promise.resolve(opts.onFallback({ ...event, status: "failed", title: `${WHY[reason]}; the Muse Spark Open (open weights) fallback also failed`, fallbackError: { code: err2.code, message: err2.message.slice(0, 300) } })).catch(() => {});
+      await Promise.resolve(opts.onFallback({ ...event, status: "failed", title: `${why(p, reason)}; the Muse Spark Open (open weights) fallback also failed`, fallbackError: { code: err2.code, message: err2.message.slice(0, 300) } })).catch(() => {});
       // Keep Meta's error (and its retry semantics) for the job layer; name the fallback failure too.
       throw new AppError(err.code, `${err.message}; the Muse Spark Open fallback also failed (${err2.code}: ${err2.message.slice(0, 200)})`, {
         retryable: err.retryable,

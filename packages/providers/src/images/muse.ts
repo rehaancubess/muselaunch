@@ -58,6 +58,7 @@ export class MuseImageProvider implements ImageProvider {
 
   private async call(ctx: CallContext, operation: "image_generate" | "image_edit", n: number, path: string, body: Record<string, unknown>): Promise<ImageResult> {
     const client = metaClient(this.p);
+    client.requireMeta("Muse Image");
     let costUsd = 0;
     const images = await client.metered(ctx, { model: this.model, operation, estimatedUsd: n * PRICES.museImagePerImage }, async () => {
       const { data } = await client.fetchJson<{ data?: { b64_json?: string }[]; output_format?: string }>(path, { body, signal: ctx.signal });

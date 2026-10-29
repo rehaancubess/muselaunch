@@ -20,16 +20,25 @@ export function providerStatuses(p: Platform, endUserCountry?: string): Provider
   const meta = Boolean(cfg.META_API_KEY);
   const muse = museImageEligible(cfg, endUserCountry);
   const imageProvider = muse.eligible && cfg.IMAGE_PROVIDER === "muse" ? "muse" : cfg.OPENAI_API_KEY ? "openai" : "none";
+  // While OpenAI stands in (cfg.standIn), the Meta-only models are not connected and the two text
+  // roles say exactly which OpenAI model answers them.
+  const stand = cfg.standIn;
+  const realMeta = meta && !stand;
+  const waiting = "Needs the Meta Model API key (OpenAI is standing in for Muse Wonder and Muse Spark only)";
   return [
-    { id: "muse-wonder", label: "Muse Wonder", role: "Growth strategist & research orchestrator", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_WONDER },
-    { id: "muse-spark", label: "Muse Spark 1.3", role: "App analysis, campaigns, scripts, edits", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_SPARK },
-    { id: "sam", label: "SAM 3.1", role: "Subject masking & tracking", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_SAM },
-    { id: "muse-voice", label: "Muse Voice Transcribe", role: "Founder recordings & voice commands", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_VOICE },
+    stand
+      ? { id: "muse-wonder", label: `Muse Wonder → OpenAI ${stand.wonder}`, role: "Growth strategist & research orchestrator", state: "live", detail: `Temporary stand-in: OpenAI ${stand.wonder} answers Muse Wonder's calls until the Meta Model API key is connected` }
+      : { id: "muse-wonder", label: "Muse Wonder", role: "Growth strategist & research orchestrator", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_WONDER },
+    stand
+      ? { id: "muse-spark", label: `Muse Spark 1.3 → OpenAI ${stand.spark}`, role: "App analysis, campaigns, scripts, edits", state: "live", detail: `Temporary stand-in: OpenAI ${stand.spark} answers Muse Spark's calls until the Meta Model API key is connected` }
+      : { id: "muse-spark", label: "Muse Spark 1.3", role: "App analysis, campaigns, scripts, edits", state: meta ? "live" : "not_configured", detail: cfg.META_MODEL_SPARK },
+    { id: "sam", label: "SAM 3.1", role: "Subject masking & tracking", state: realMeta ? "live" : "not_configured", detail: stand ? waiting : cfg.META_MODEL_SAM },
+    { id: "muse-voice", label: "Muse Voice Transcribe", role: "Founder recordings & voice commands", state: realMeta ? "live" : "not_configured", detail: stand ? waiting : cfg.META_MODEL_VOICE },
     {
       id: "muse-image",
       label: "Muse Image",
       role: "Campaign imagery",
-      state: muse.eligible && meta ? "live" : "restricted",
+      state: muse.eligible && realMeta ? "live" : "restricted",
       detail: muse.eligible ? cfg.META_MODEL_IMAGE : `${muse.reason}. Images use a separately licensed provider.`,
     },
     {

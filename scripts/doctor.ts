@@ -39,11 +39,21 @@ console.log("\nProvider keys");
 const keys: [string, string][] = [
   ["META_API_KEY", "Meta Model API (Wonder, Spark, SAM, Voice)"],
   ["BASETEN_API_KEY", "Baseten Model APIs (Muse Spark Open, open weights)"],
-  ["OPENAI_API_KEY", "OpenAI Images / TTS"],
+  ["OPENAI_API_KEY", "OpenAI (images, TTS, and the Meta stand-in when META_STAND_IN=openai)"],
   ["GLIMMER_BASE_URL", "Muse Glimmer endpoint"],
   ["TOKEN_ENCRYPTION_KEY", "OAuth token encryption (required in production)"],
 ];
 for (const [k, label] of keys) (env[k] ? ok : warn)(`${label}: ${env[k] ? "set" : "not set"}`);
+
+console.log("\nMeta Model API stand-in");
+{
+  const standIn = env.META_STAND_IN?.trim() === "openai";
+  if (env.META_API_KEY) ok(standIn ? "META_API_KEY is set, so Meta is used and the OpenAI stand-in is off" : "Not needed: META_API_KEY is set");
+  else if (standIn && env.OPENAI_API_KEY)
+    warn(`ON: OpenAI ${env.STAND_IN_MODEL_WONDER || "gpt-6.1-sol"} / ${env.STAND_IN_MODEL_SPARK || "gpt-6.1-terra"} answer Muse Wonder / Muse Spark calls (labelled). SAM 3.1, Muse Voice Transcribe and Muse Image stay off until META_API_KEY is set.`);
+  else if (standIn) bad("META_STAND_IN=openai but OPENAI_API_KEY is not set: nothing answers Muse Wonder / Muse Spark");
+  else warn("Off (set META_STAND_IN=openai and OPENAI_API_KEY to run Wonder/Spark steps on OpenAI until a Meta key works)");
+}
 
 console.log("\nMuse Spark Open (Baseten)");
 {

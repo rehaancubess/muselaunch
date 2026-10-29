@@ -62,6 +62,16 @@ export const ConfigSchema = z.object({
   META_MODEL_VOICE: z.string().default("muse-voice-transcribe-1.0"),
   META_MODEL_IMAGE: z.string().default("muse-image-1.0"),
   META_TIMEOUT_MS: z.coerce.number().default(180_000),
+  /**
+   * Temporary stand-in while no Meta Model API key can be created (29 Oct 2026: Meta's console
+   * rejected key creation for many hackathon teams). With `openai`, no META_API_KEY and an
+   * OPENAI_API_KEY, Muse Wonder and Muse Spark calls go to OpenAI's Responses API (the same API
+   * shape) and are labelled OpenAI everywhere (usage rows, agent logs, a banner). SAM 3.1, Muse Voice
+   * Transcribe and Muse Image stay off. Setting META_API_KEY switches back to Meta automatically.
+   */
+  META_STAND_IN: z.enum(["off", "openai"]).default("off"),
+  STAND_IN_MODEL_WONDER: z.string().default("gpt-6.1-sol"),
+  STAND_IN_MODEL_SPARK: z.string().default("gpt-6.1-terra"),
 
   // Muse Spark Open: Meta's open-weights model on Baseten Model APIs (OpenAI-compatible Chat Completions)
   BASETEN_API_KEY: z.string().optional(),
@@ -115,21 +125,52 @@ export const ConfigSchema = z.object({
   SIGNUP_CREDITS: z.coerce.number().int().default(300),
 });
 
-export type Config = z.infer<typeof ConfigSchema>;
+/** Set when OpenAI is standing in for the Meta Model API (see META_STAND_IN). */
+export interface MetaStandIn {
+  provider: "openai";
+  /** OpenAI model answering Muse Wonder's calls. */
+  wonder: string;
+  /** OpenAI model answering Muse Spark's calls. */
+  spark: string;
+}
+
+export type Config = z.infer<typeof ConfigSchema> & { standIn?: MetaStandIn };
+
+/**
+ * Resolve META_STAND_IN once, at load time: the Meta client, model ids and every "is Meta configured"
+ * check then follow the stand-in without each knowing about it, and `standIn` tells the labels.
+ * A real META_API_KEY always wins.
+ */
+export function withMetaStandIn(cfg: z.infer<typeof ConfigSchema>): Config {
+  if (cfg.META_STAND_IN !== "openai" || cfg.META_API_KEY || !cfg.OPENAI_API_KEY) return cfg;
+  return {
+    ...cfg,
+    META_API_KEY: cfg.OPENAI_API_KEY,
+    META_BASE_URL: cfg.OPENAI_BASE_URL,
+    META_MODEL_WONDER: cfg.STAND_IN_MODEL_WONDER,
+    META_MODEL_SPARK: cfg.STAND_IN_MODEL_SPARK,
+    standIn: { provider: "openai", wonder: cfg.STAND_IN_MODEL_WONDER, spark: cfg.STAND_IN_MODEL_SPARK },
+  };
+}
 
 let cached: Config | undefined;
+
+/** Settings whose empty value means something (an empty list), so `KEY=` is kept rather than dropped. */
+// Not MUSE_IMAGE_RESTRICTED_COUNTRIES: a blank value there must not lift the India restriction.
+const EMPTY_IS_MEANINGFUL = new Set(["SPARK_OPEN_TASKS", "ADMIN_UIDS"]);
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { fresh?: boolean } = {}): Config {
   if (cached && !opts.fresh && env === process.env) return cached;
   // `KEY=` lines in .env (as copied from .env.example) mean "not set", not an empty secret: an empty
   // string would otherwise reach SDKs as a credential (or override a default) and fail at startup.
-  const cleaned = Object.fromEntries(Object.entries(env).filter(([, v]) => v === undefined || v.trim() !== ""));
+  // Exception: list settings where empty is a real choice (SPARK_OPEN_TASKS= means "fallback only").
+  const cleaned = Object.fromEntries(Object.entries(env).filter(([k, v]) => v === undefined || v.trim() !== "" || EMPTY_IS_MEANINGFUL.has(k)));
   const parsed = ConfigSchema.safeParse(cleaned);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid configuration:\n${msg}`);
   }
-  const cfg = parsed.data;
+  const cfg = withMetaStandIn(parsed.data);
   if (cfg.NODE_ENV === "production") assertProductionSafe(cfg);
   if (env === process.env) cached = cfg;
   return cfg;

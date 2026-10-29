@@ -24,6 +24,7 @@ export async function uploadMetaFile(
   input: { localPath: string; filename: string; mimeType: string; expiresAfterSec?: number },
 ): Promise<MetaFile> {
   const client = metaClient(p);
+  client.requireMeta("SAM 3.1 video uploads");
   const seconds = Math.min(2_592_000, Math.max(3600, Math.round(input.expiresAfterSec ?? 6 * 3600)));
   return client.metered(ctx, { model: "files", operation: "file_upload", estimatedUsd: 0 }, async () => {
     const blob = await openAsBlob(input.localPath, { type: input.mimeType });

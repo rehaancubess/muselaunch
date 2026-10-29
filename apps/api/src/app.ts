@@ -51,7 +51,10 @@ export function buildApp(platform: Platform) {
   app.onError((err, c) => errorResponse(err, c));
   app.notFound((c) => errorResponse(new AppError("NOT_FOUND", `Route ${c.req.method} ${c.req.path} not found`), c));
 
-  app.get("/health", (c) => c.json({ ok: true, service: "api", db: platform.db.driver, storage: platform.storage.driver, jobs: platform.jobs.dispatchMode }));
+  // `standIn` (only while OpenAI stands in for the Meta Model API) drives the web app's banner.
+  app.get("/health", (c) =>
+    c.json({ ok: true, service: "api", db: platform.db.driver, storage: platform.storage.driver, jobs: platform.jobs.dispatchMode, ...(platform.cfg.standIn ? { standIn: platform.cfg.standIn } : {}) }),
+  );
 
   // Public, unauthenticated surfaces (each validates its own signed tokens).
   app.route("/v1/storage/local", localStorageRoutes);

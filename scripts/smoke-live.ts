@@ -60,5 +60,7 @@ process.exit(failed ? 1 : 0);
 
 function configuredKeyChecks(): string[] {
   const set = (k: string) => Boolean(process.env[k]?.trim());
-  return [set("META_API_KEY") && "meta-text", set("BASETEN_API_KEY") && "baseten", set("GLIMMER_BASE_URL") && "glimmer"].filter((x): x is string => Boolean(x));
+  // META_STAND_IN=openai with an OpenAI key: the Meta checks run against the stand-in (labelled).
+  const meta = set("META_API_KEY") || (process.env.META_STAND_IN?.trim() === "openai" && set("OPENAI_API_KEY"));
+  return [meta && "meta-text", set("BASETEN_API_KEY") && "baseten", set("GLIMMER_BASE_URL") && "glimmer"].filter((x): x is string => Boolean(x));
 }

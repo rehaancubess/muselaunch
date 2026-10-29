@@ -23,8 +23,19 @@ export const PRICES = {
     // them toward your total usage and billing" (docs.baseten.co/inference/model-apis/reasoning).
     "meta-models/muse-spark-open-1026": { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
     "meta-models/muse-spark-open": { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
+    // OpenAI, only while it stands in for the Meta Model API (META_STAND_IN=openai). From third-party
+    // listings of OpenAI's price page (morphllm.com, benchlm.ai, Oct 2026), not verified against
+    // OpenAI directly: override with PROVIDER_PRICES_JSON if they differ.
+    "gpt-6.1-sol": { inputPerM: 2.0, outputPerM: 10.0, cachedInputPerM: 0.1 },
+    "gpt-6-sol": { inputPerM: 2.0, outputPerM: 10.0, cachedInputPerM: 0.1 },
+    "gpt-6.1-terra": { inputPerM: 1.0, outputPerM: 5.0, cachedInputPerM: 0.1 },
+    "gpt-6-luna": { inputPerM: 0.1, outputPerM: 0.5, cachedInputPerM: 0.01 },
+    "gpt-6-astra": { inputPerM: 10.0, outputPerM: 50.0, cachedInputPerM: 1.0 },
+    "gpt-5.5": { inputPerM: 5.0, outputPerM: 30.0, cachedInputPerM: 0.5 },
   } as Record<string, TokenPrice>,
   metaWebSearchPerQuery: 2.5 / 1000,
+  /** OpenAI web_search tool calls (stand-in only). Conservative estimate; override with PROVIDER_PRICES_JSON. */
+  openaiWebSearchPerQuery: 10 / 1000,
   museImagePerImage: 0.01,
   samPerImage: 2.5 / 1000,
   samPerVideoFrame: 0.2 / 1000,

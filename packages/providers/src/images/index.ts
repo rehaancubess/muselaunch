@@ -25,7 +25,7 @@ export interface ImageProviderChoice {
 export function chooseImageProvider(p: Platform, endUserCountry: string | undefined): ImageProviderChoice {
   const gate = museImageEligible(p.cfg, endUserCountry);
   if (p.cfg.IMAGE_PROVIDER === "none") throw new AppError("PROVIDER_NOT_CONFIGURED", "Image generation is disabled on this deployment", { userMessage: "Image generation is turned off on this deployment." });
-  if (p.cfg.IMAGE_PROVIDER === "muse" && gate.eligible && p.cfg.META_API_KEY) {
+  if (p.cfg.IMAGE_PROVIDER === "muse" && gate.eligible && p.cfg.META_API_KEY && !p.cfg.standIn) {
     return { id: "muse", label: "Muse Image (Meta)", model: p.cfg.META_MODEL_IMAGE, museImage: gate };
   }
   if (!p.cfg.OPENAI_API_KEY) {

@@ -12,6 +12,8 @@ export interface RuntimeInfo {
   db?: string;
   storage?: string;
   jobs?: string;
+  /** Set only while OpenAI stands in for the Meta Model API (no Meta key yet). */
+  standIn?: { provider: "openai"; wonder: string; spark: string };
 }
 
 /** Public `GET /health` (no auth). Drives the fixture-mode banner and provider labels. */
@@ -21,7 +23,7 @@ export function useRuntime() {
     queryFn: async () => {
       const res = await fetch(`${env.apiUrl}/health`, { cache: "no-store" });
       const j = (await res.json()) as Partial<RuntimeInfo>;
-      return { ok: Boolean(j.ok), fixtureMode: j.fixtureMode === true, sampleListing: j.sampleListing, db: j.db, storage: j.storage, jobs: j.jobs };
+      return { ok: Boolean(j.ok), fixtureMode: j.fixtureMode === true, sampleListing: j.sampleListing, db: j.db, storage: j.storage, jobs: j.jobs, standIn: j.standIn };
     },
     staleTime: 5 * 60_000,
     retry: 1,
@@ -35,7 +37,7 @@ export function useRuntime() {
  */
 export function FixtureBanner() {
   const rt = useRuntime();
-  const on = Boolean(rt.data?.fixtureMode);
+  const on = Boolean(rt.data?.fixtureMode || rt.data?.standIn);
   // Full-height screens (the Studio) size themselves from --ml-topbar-h; include the banner.
   useEffect(() => {
     if (!on) return;
@@ -45,6 +47,20 @@ export function FixtureBanner() {
     };
   }, [on]);
   if (!on) return null;
+  const standIn = rt.data?.standIn;
+  if (standIn && !rt.data?.fixtureMode) {
+    return (
+      <div role="status" className="relative z-50 flex h-7 items-center justify-center gap-2 overflow-hidden whitespace-nowrap bg-warning-soft px-4 text-center text-caption text-warning">
+        <FlaskConical className="size-3.5 shrink-0" aria-hidden />
+        <span>
+          <strong className="font-semibold">Temporary stand-in.</strong> <span className="sm:hidden">OpenAI runs Muse Wonder and Muse Spark steps.</span>
+          <span className="hidden sm:inline">
+            Until the Meta Model API key is connected, OpenAI {standIn.wonder} and {standIn.spark} answer Muse Wonder and Muse Spark&apos;s calls. Agent logs name the real model.
+          </span>
+        </span>
+      </div>
+    );
+  }
   return (
     <div role="status" className="relative z-50 flex h-7 items-center justify-center gap-2 overflow-hidden whitespace-nowrap bg-warning-soft px-4 text-center text-caption text-warning">
       <FlaskConical className="size-3.5 shrink-0" aria-hidden />

@@ -34,6 +34,8 @@ export function modelDisplayName(model?: string | null, opts: { short?: boolean 
   if (model.startsWith("muse-wonder")) return "Muse Wonder";
   if (model.startsWith("muse-spark")) return "Muse Spark";
   if (model.includes("glimmer")) return "Muse Glimmer";
+  // OpenAI text models only appear while OpenAI stands in for the Meta Model API: say so.
+  if (/^gpt-\d/.test(model)) return `OpenAI ${model}`;
   return model;
 }
 
