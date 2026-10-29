@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactLine, Ext, LegalPage, List, Section, legal } from "@/components/legal/legal-page";
 
-export const metadata: Metadata = { title: "Terms of Service · MuseLaunch", description: "The terms for using the MuseLaunch beta." };
+export const metadata: Metadata = { title: "Terms of Service", description: "The terms for using the MuseLaunch beta." };
 
 export default function TermsPage() {
   return (

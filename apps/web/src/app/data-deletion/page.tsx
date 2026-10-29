@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactLine, Ext, LegalPage, List, Section } from "@/components/legal/legal-page";
 
-export const metadata: Metadata = { title: "Data deletion · MuseLaunch", description: "How to disconnect accounts and delete your MuseLaunch data." };
+export const metadata: Metadata = { title: "Delete your data", description: "How to disconnect accounts and delete your MuseLaunch data." };
 
 export default function DataDeletionPage() {
   return (

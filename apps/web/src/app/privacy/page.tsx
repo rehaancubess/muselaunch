@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactLine, Ext, LegalPage, List, Section, legal } from "@/components/legal/legal-page";
 
-export const metadata: Metadata = { title: "Privacy Policy · MuseLaunch", description: "What MuseLaunch collects, why, who processes it, and how to delete it." };
+export const metadata: Metadata = { title: "Privacy Policy", description: "What MuseLaunch collects, why, who processes it, and how to delete it." };
 
 export default function PrivacyPage() {
   return (
