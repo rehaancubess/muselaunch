@@ -41,22 +41,25 @@ Only if they confirm an approved path in writing do we revisit this.
 
 ## 4. Muse Glimmer on your RTX 5090 — ~20 min (mostly download)
 
-Easiest path (Ollama, already installed on your PC):
+Easiest path: double-click **`setup-glimmer.cmd`** in the repo folder. It:
 
-```powershell
-ollama --version          # needs 0.32.7 or newer; update from https://ollama.com/download if older
-ollama pull muse-glimmer
-ollama run muse-glimmer "Reply with: ready"
-```
+1. pulls `muse-glimmer` with Ollama (Q4_K_M, about 18-19 GB, one time);
+2. creates `muse-glimmer-muselaunch` from `scripts/windows/glimmer.Modelfile` with a 32k context
+   window, because Ollama's default context is small and silently truncates long prompts;
+3. loads it on the GPU (`ollama ps` should say 100% GPU);
+4. sets these lines in `.env`:
 
-Then in `.env`:
+   ```
+   GLIMMER_BASE_URL=http://localhost:11434/v1
+   GLIMMER_API_KEY=ollama
+   GLIMMER_MODEL=muse-glimmer-muselaunch
+   GLIMMER_LABEL=RTX 5090 (self-hosted)
+   ```
 
-```
-GLIMMER_BASE_URL=http://localhost:11434/v1
-GLIMMER_API_KEY=ollama
-GLIMMER_MODEL=muse-glimmer
-GLIMMER_LABEL=RTX 5090 (self-hosted)
-```
+5. runs `pnpm smoke:live glimmer`, a real Brand Guardian-style review on your GPU.
+
+The smoke test costs nothing because it runs on your own GPU. Fixture mode (`start-demo.cmd`) still
+answers Glimmer from fixtures; the real Glimmer is used when the API runs in live mode.
 
 Alternative (more control, 128K context): llama.cpp `llama serve` with the 17 GB Q4_K_M GGUF —
 see https://dev.meta.ai/docs/muse-glimmer/deploy#llama-cpp.

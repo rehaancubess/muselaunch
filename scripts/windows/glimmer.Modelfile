@@ -1,0 +1,5 @@
+# Muse Glimmer for MuseLaunch: the Ollama library model with a 32k context window.
+# Ollama's default context is small and it silently truncates longer prompts, which would cut off
+# Brand Guardian's brand kit, verified claims and the composition under review.
+FROM muse-glimmer
+PARAMETER num_ctx 32768
