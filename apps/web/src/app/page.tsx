@@ -605,8 +605,19 @@ function Footer() {
             </ul>
           </nav>
         </div>
-        <div className="border-t border-line py-6">
+        <div className="flex flex-col gap-3 border-t border-line py-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-caption text-ink-2">Screenshots on this page come from MuseLaunch with sample data. No results shown here are customer results.</p>
+          <nav aria-label="Legal" className="flex gap-4 text-caption">
+            <a href="/privacy" className="text-ink-2 hover:text-ink">
+              Privacy
+            </a>
+            <a href="/terms" className="text-ink-2 hover:text-ink">
+              Terms
+            </a>
+            <a href="/data-deletion" className="text-ink-2 hover:text-ink">
+              Data deletion
+            </a>
+          </nav>
         </div>
       </div>
     </footer>

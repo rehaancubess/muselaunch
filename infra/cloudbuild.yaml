@@ -21,6 +21,10 @@ steps:
       - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${PROJECT_ID}
       - --build-arg
       - NEXT_PUBLIC_FIREBASE_APP_ID=${_FB_APP_ID}
+      - --build-arg
+      - NEXT_PUBLIC_CONTACT_EMAIL=${_CONTACT_EMAIL}
+      - --build-arg
+      - NEXT_PUBLIC_OPERATOR_NAME=${_OPERATOR_NAME}
       - -t
       - ${_REPO}/web:${_TAG}
       - -t
@@ -35,6 +39,9 @@ images:
   - ${_REPO}/worker:${_TAG}
   - ${_REPO}/render:${_TAG}
   - ${_REPO}/web:${_TAG}
+substitutions:
+  _CONTACT_EMAIL: ""
+  _OPERATOR_NAME: ""
 options:
   machineType: E2_HIGHCPU_8
 timeout: 3600s

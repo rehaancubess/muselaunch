@@ -11,9 +11,9 @@
  */
 import { execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
@@ -32,18 +32,34 @@ if (!PROJECT || !BUCKET) {
   process.exit(1);
 }
 
+// Every command and its output also goes to .data/logs/deploy.log (secrets are passed on stdin or as
+// Secret Manager references, never on a command line), so a failed run can be diagnosed afterwards.
+const LOG = join(root, ".data", "logs", "deploy.log");
+if (!DRY) {
+  mkdirSync(dirname(LOG), { recursive: true });
+  writeFileSync(LOG, `deploy started ${new Date().toISOString()}\n`);
+}
+const logLine = (s: string) => {
+  if (!DRY) appendFileSync(LOG, `${s}\n`);
+};
+
 function sh(cmd: string, opts: { input?: string; allowFail?: boolean; quiet?: boolean } = {}): string {
   if (DRY) {
     console.log(`$ ${cmd}`);
     return "";
   }
   if (!opts.quiet) console.log(`\n$ ${cmd}`);
+  logLine(`\n$ ${cmd}`);
   try {
-    return execSync(cmd, { cwd: root, input: opts.input, encoding: "utf8", stdio: opts.input !== undefined ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"], shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh" }).trim();
+    const out = execSync(cmd, { cwd: root, input: opts.input, encoding: "utf8", stdio: opts.input !== undefined ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"], shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh" }).trim();
+    logLine(out.slice(-4000));
+    return out;
   } catch (err) {
-    if (opts.allowFail) return "";
     const e = err as { stderr?: string; stdout?: string };
+    logLine(`FAILED${opts.allowFail ? " (allowed)" : ""}: ${String(e.stderr || e.stdout || err).slice(-4000)}`);
+    if (opts.allowFail) return "";
     console.error(e.stderr || e.stdout || err);
+    console.error(`\nThe full log is in ${LOG}`);
     process.exit(1);
   }
 }
@@ -85,6 +101,33 @@ sh(`gcloud storage buckets add-iam-policy-binding gs://${BUCKET} --member=servic
 sh(`gcloud iam service-accounts add-iam-policy-binding ${RUN_SA} --member=serviceAccount:${RUN_SA} --role=roles/iam.serviceAccountTokenCreator --project ${PROJECT} --quiet`, { quiet: true });
 sh(`gcloud iam service-accounts add-iam-policy-binding ${TASKS_SA} --member=serviceAccount:${RUN_SA} --role=roles/iam.serviceAccountUser --project ${PROJECT} --quiet`, { quiet: true });
 
+// ---- 1b. Firestore composite indexes (infra/firebase/firestore.indexes.json) via the Firestore Admin
+// API, with gcloud's access token: no firebase-tools login needed. Existing indexes are skipped (409).
+if (!args.has("--skip-indexes") && !DRY) {
+  const token = sh("gcloud auth print-access-token", { quiet: true });
+  const spec = JSON.parse(readFileSync(join(root, "infra", "firebase", "firestore.indexes.json"), "utf8")) as {
+    indexes: { collectionGroup: string; queryScope: string; fields: { fieldPath: string; order?: string; arrayConfig?: string }[] }[];
+  };
+  let created = 0;
+  let existing = 0;
+  const failed: string[] = [];
+  for (const ix of spec.indexes) {
+    const url = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/collectionGroups/${ix.collectionGroup}/indexes`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "x-goog-user-project": PROJECT },
+      body: JSON.stringify({ queryScope: ix.queryScope, fields: ix.fields }),
+    });
+    if (res.ok) created++;
+    else if (res.status === 409) existing++;
+    else failed.push(`${ix.collectionGroup} (${res.status} ${(await res.text()).slice(0, 200)})`);
+  }
+  const summary = `Firestore indexes: ${created} requested, ${existing} already there${failed.length ? `, ${failed.length} failed: ${failed.join("; ")}` : ""}`;
+  console.log(`\n${summary}`);
+  logLine(summary);
+  if (created) console.log("  New indexes take a few minutes to build; queries that need them fail until they're ready.");
+}
+
 // ---- 2. Secrets ----
 const SECRETS = ["META_API_KEY", "BASETEN_API_KEY", "OPENAI_API_KEY", "GLIMMER_API_KEY", "TOKEN_ENCRYPTION_KEY", "WORKER_SHARED_SECRET", "STORAGE_SIGNING_SECRET"].filter((k) => env[k]);
 for (const name of SECRETS) {
@@ -112,12 +155,16 @@ if (!args.has("--skip-build")) {
     `_FB_API_KEY=${env.NEXT_PUBLIC_FIREBASE_API_KEY ?? ""}`,
     `_FB_AUTH_DOMAIN=${env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? `${PROJECT}.firebaseapp.com`}`,
     `_FB_APP_ID=${env.NEXT_PUBLIC_FIREBASE_APP_ID ?? ""}`,
+    `_CONTACT_EMAIL=${env.NEXT_PUBLIC_CONTACT_EMAIL ?? ""}`,
+    `_OPERATOR_NAME=${(env.NEXT_PUBLIC_OPERATOR_NAME ?? "").replace(/[,"]/g, " ")}`,
   ].join(",");
-  sh(`gcloud builds submit --config infra/cloudbuild.yaml --substitutions=${subs} --project ${PROJECT} .`);
+  sh(`gcloud builds submit --config infra/cloudbuild.yaml "--substitutions=${subs}" --project ${PROJECT} .`);
 }
 const tag = args.has("--skip-build") ? "latest" : TAG;
 
 // ---- 5. Deploy services ----
+const glimmerProd = env.GLIMMER_BASE_URL_PROD && !/localhost|127\.0\.0\.1/.test(env.GLIMMER_BASE_URL_PROD) ? env.GLIMMER_BASE_URL_PROD : undefined;
+if (!glimmerProd && env.GLIMMER_BASE_URL) console.log("Note: Muse Glimmer runs on this PC only (GLIMMER_BASE_URL is local); the live site's Brand Guardian uses its rules until GLIMMER_BASE_URL_PROD is set.");
 const common = [
   "NODE_ENV=production",
   "APP_ENV=production",
@@ -137,7 +184,13 @@ const common = [
   `SIGNUP_CREDITS=${env.SIGNUP_CREDITS ?? "300"}`,
   "TRACE_MODEL_IO=true",
   ...(env.ADMIN_UIDS ? [`ADMIN_UIDS=${env.ADMIN_UIDS.replace(/,/g, ";")}`] : []),
-  ...(env.GLIMMER_BASE_URL_PROD ?? env.GLIMMER_BASE_URL ? [`GLIMMER_BASE_URL=${env.GLIMMER_BASE_URL_PROD ?? env.GLIMMER_BASE_URL}`, `GLIMMER_MODEL=${env.GLIMMER_MODEL ?? "muse-glimmer"}`, `GLIMMER_LABEL=${env.GLIMMER_LABEL_PROD ?? "self-hosted"}`] : []),
+  // Glimmer in production only via GLIMMER_BASE_URL_PROD: the local GLIMMER_BASE_URL (Ollama on this PC,
+  // http://localhost:11434) means nothing inside Cloud Run. Without it, Brand Guardian uses its rules.
+  ...(glimmerProd ? [`GLIMMER_BASE_URL=${glimmerProd}`, `GLIMMER_MODEL=${env.GLIMMER_MODEL_PROD ?? env.GLIMMER_MODEL ?? "muse-glimmer"}`, `GLIMMER_LABEL=${env.GLIMMER_LABEL_PROD ?? "self-hosted"}`] : []),
+  // Temporary OpenAI stand-in for the Meta Model API (only while no META_API_KEY is set; labelled in the app).
+  ...(env.META_STAND_IN === "openai" && !env.META_API_KEY && env.OPENAI_API_KEY
+    ? ["META_STAND_IN=openai", `STAND_IN_MODEL_WONDER=${env.STAND_IN_MODEL_WONDER || "gpt-6.1-sol"}`, `STAND_IN_MODEL_SPARK=${env.STAND_IN_MODEL_SPARK || "gpt-6.1-terra"}`]
+    : []),
   // Muse Spark Open (open weights on Baseten): key is a secret above; routing and fallback as in .env.
   ...(env.BASETEN_API_KEY
     ? [

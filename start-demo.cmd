@@ -23,9 +23,8 @@ echo Installing dependencies. The first run takes a few minutes...
 call %PNPM% install
 if errorlevel 1 goto installfail
 
-if exist apps\web\.env.local goto start
-> apps\web\.env.local echo NEXT_PUBLIC_API_URL=http://localhost:8080
->> apps\web\.env.local echo NEXT_PUBLIC_AUTH_MODE=dev
+rem The keyless demo always uses the local test sign-in.
+node scripts\windows\web-env.mjs dev >nul
 
 :start
 start "MuseLaunch API - fixture mode" cmd /k %PNPM% dev:fixture

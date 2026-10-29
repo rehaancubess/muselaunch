@@ -203,7 +203,17 @@ export default function LoginPage() {
           <Suspense fallback={<Spinner />}>
             <LoginInner />
           </Suspense>
-          <p className="mt-10 text-footnote text-ink-3">By continuing you agree that MuseLaunch processes your app’s public listing and the files you upload to create marketing material for you.</p>
+          <p className="mt-10 text-footnote text-ink-3">
+            By continuing you agree to the{" "}
+            <Link href="/terms" className="underline underline-offset-2 hover:text-ink">
+              Terms
+            </Link>{" "}
+            and that MuseLaunch processes your app’s public listing and the files you upload to create marketing material for you, as the{" "}
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-ink">
+              Privacy Policy
+            </Link>{" "}
+            describes.
+          </p>
         </div>
       </main>
     </div>

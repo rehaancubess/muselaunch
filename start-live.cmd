@@ -24,9 +24,10 @@ echo Checking dependencies...
 call %PNPM% install
 if errorlevel 1 goto installfail
 
-if exist apps\web\.env.local goto start
-> apps\web\.env.local echo NEXT_PUBLIC_API_URL=http://localhost:8080
->> apps\web\.env.local echo NEXT_PUBLIC_AUTH_MODE=dev
+rem Sign-in: real Google / email sign-in (Firebase) when its web config is in .env, otherwise the
+rem local test sign-in. "start-live.cmd dev" forces the test sign-in.
+set "SIGNIN=dev"
+for /f "delims=" %%m in ('node scripts\windows\web-env.mjs %1') do set "SIGNIN=%%m"
 
 :start
 rem Local single-machine settings. These override .env (dotenv never overrides what is already set).
@@ -35,7 +36,7 @@ set APP_ENV=local
 set DB_DRIVER=memory
 set JOB_DISPATCH=inline
 set STORAGE_DRIVER=local
-set AUTH_MODE=dev
+set AUTH_MODE=%SIGNIN%
 set AUTH_DEV_TOKENS=1
 set PUBLIC_WEB_URL=http://localhost:3000
 set API_PUBLIC_URL=http://localhost:8080
@@ -47,6 +48,7 @@ start "MuseLaunch API - LIVE" cmd /k %PNPM% --filter @muselaunch/api dev
 start "MuseLaunch web" cmd /k %PNPM% --filter @muselaunch/web dev
 echo.
 echo MuseLaunch (live) is starting. Open http://localhost:3000 in about a minute.
+if "%SIGNIN%"=="firebase" (echo Sign-in: real accounts ^(Google or email link^).) else (echo Sign-in: local test sign-in ^(any email, this PC only^).)
 echo Close the two server windows to stop it.
 timeout /t 10 >nul
 exit /b 0
