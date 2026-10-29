@@ -1,7 +1,7 @@
 import type { CreateExperimentRequest, Experiment, ExperimentResult, MetricName, MetricObservation } from "@muselaunch/contracts";
 import { MetricName as MetricNameSchema, UpdateExperimentRequest } from "@muselaunch/contracts";
 import { AppError, type JobContext, type JobHandler, type Platform } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { generateJson, roleNames, untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { computeMetric } from "./insights";
 import { memoryApi } from "./memory";
@@ -341,7 +341,7 @@ export async function analyzeExperiment(ctx: JobContext<"experiment.analyze">): 
       validation: { droppedMeasured: 0, movedToHypotheses: 0, confidenceCapped: false, notes: ["No model call was made because there was nothing to analyse."] },
     };
   } else {
-    await ctx.progress(35, "analysing with Muse Spark");
+    await ctx.progress(35, `analysing with ${roleNames(p).spark}`);
     const input = [
       `Experiment: ${exp.title}`,
       `Hypothesis: ${exp.hypothesis}`,

@@ -1,6 +1,6 @@
 import { CampaignGoal, Channel, Deliverable, ResearchKind, SpecialistRole, type AgentPlan, type AgentRun, type Job } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
-import { untrusted } from "@muselaunch/providers";
+import { roleNames, untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { dnaSummary, loadAppContext } from "./context";
 import { defineTool, runToolLoop, type LoopTool } from "./loop";
@@ -134,7 +134,7 @@ export async function strategyRunHandler(ctx: JobContext<"strategy.run">): Promi
     ]
       .filter(Boolean)
       .join("\n\n");
-    await ctx.progress(10, "Muse Wonder is building the plan");
+    await ctx.progress(10, `${roleNames(p).wonder} is building the plan`);
     const outcome = await runToolLoop(p, { recorder: rec, task: "strategy.wonder", instructions: INSTRUCTIONS(rec.budget), input, tools, throwIfCancelled: ctx.throwIfCancelled, onTurn: (t) => ctx.progress(Math.min(85, 15 + t * 10), "Muse Wonder is planning") });
     if (!state.plan) {
       throw new AppError("PROVIDER_ERROR", `Muse Wonder ended without a plan${outcome.stopReason ? ` (${outcome.stopReason})` : ""}`, { retryable: !outcome.stopReason, userMessage: "The strategist didn't produce a plan within its budget. Please retry with a more specific goal." });

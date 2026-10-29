@@ -5,7 +5,7 @@ import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
 import { AppError, toAppError } from "@muselaunch/platform";
-import { chooseTextModel, untrusted, type TextRoute } from "@muselaunch/providers";
+import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
 import { defaultGoal, dnaJobsInFlight } from "./defaults";
@@ -92,7 +92,7 @@ const understand: StageFn = async (env, step) => {
     const inflight = await dnaJobsInFlight(env.ws, env.appId);
     if (inflight.length) {
       const importing = inflight.some((j) => j.type === "app.import");
-      return { kind: "wait", jobIds: inflight.map((j) => j.id), tag: "understand:import", reason: importing ? "Reading your app’s listing and saving its screenshots" : "Muse Spark is learning your app (App DNA)" };
+      return { kind: "wait", jobIds: inflight.map((j) => j.id), tag: "understand:import", reason: importing ? "Reading your app’s listing and saving its screenshots" : `${roleNames(env.p).spark} is learning your app (App DNA)` };
     }
     if (step.phase === "resume" && step.tag === "understand:import") {
       const failed = (await env.jobs()).find((j) => j.status !== "succeeded");
@@ -104,7 +104,7 @@ const understand: StageFn = async (env, step) => {
     }
     const gate = await env.budgetGate(env.estimate("app.analyze"), "App DNA analysis", step.approved);
     if (gate) return gate;
-    const job = await env.delegate("app.analyze", { appId: env.appId, refresh: false }, { key: "understand:dna", label: "No App DNA yet: asked Muse Spark to analyse the real listing and screenshots.", credits: { operation: "app.analyze" } });
+    const job = await env.delegate("app.analyze", { appId: env.appId, refresh: false }, { key: "understand:dna", label: `No App DNA yet: asked ${roleNames(env.p).spark} to analyse the real listing and screenshots.`, credits: { operation: "app.analyze" } });
     return { kind: "wait", jobIds: [job.id], tag: "understand:dna", reason: "Building App DNA from your listing" };
   }
   if (env.ap.auto?.acceptDna && app.dna.status !== "confirmed") {
@@ -146,7 +146,7 @@ const research: StageFn = async (env, step) => {
     const job = await env.delegate("research.run", { appId: env.appId, researchRunId: rrId, kinds: [...RESEARCH_KINDS] }, { key: "research", label: "Delegated audience, trend, competitor and opportunity research to Muse Wonder (live web search; every finding cited).", credits: { operation: "research.run" } });
     await env.ws.collection("researchRuns").update(rrId, { jobId: job.id }, { actor: env.ctx.actor });
     env.set({ researchRunId: rrId });
-    return { kind: "wait", jobIds: [job.id], tag: "research", reason: "Muse Wonder is researching audiences, trends and competitors" };
+    return { kind: "wait", jobIds: [job.id], tag: "research", reason: `${roleNames(env.p).wonder} is researching audiences, trends and competitors` };
   }
   const rr = env.ap.researchRunId ? await env.ws.collection("researchRuns").get(env.ap.researchRunId) : null;
   const findings = await findingsFor(env, 12);

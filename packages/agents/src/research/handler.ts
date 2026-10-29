@@ -1,6 +1,6 @@
 import type { ResearchRun } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
-import { generateText, untrusted } from "@muselaunch/providers";
+import { generateText, roleNames, untrusted } from "@muselaunch/providers";
 import { dnaSummary, loadAppContext } from "../context";
 import { runToolLoop, type LoopTool } from "../loop";
 import { retrieveMemory } from "../memory";
@@ -73,7 +73,7 @@ export async function researchRunHandler(ctx: JobContext<"research.run">): Promi
   await runs.update(researchRunId, { status: "running", agentRunId: rec.id, jobId: ctx.job.id, startedAt: rr.startedAt ?? nowIso() }, { actor: ctx.actor });
   const out: ResearchOutputs = { findingIds: [], refs: [], counts: {} };
   try {
-    await ctx.progress(5, "Muse Wonder is planning the research");
+    await ctx.progress(5, `${roleNames(p).wonder} is planning the research`);
     const memory = await retrieveMemory(p, { workspaceId: ctx.workspaceId, appId, task: "research", query: `${kinds.join(" ")} ${rr.inputs.focus ?? ""}`, jobId: ctx.job.id, agentRunId: rec.id });
     if (memory.items.length) await rec.step({ kind: "message", title: `Brand memory (${memory.usedGlimmer ? "Muse Glimmer" : "deterministic ranking; Glimmer not connected"})`, output: memory.summary });
     const registry = new SourceRegistry();
@@ -108,10 +108,10 @@ export async function researchRunHandler(ctx: JobContext<"research.run">): Promi
       input: brief,
       tools,
       throwIfCancelled: ctx.throwIfCancelled,
-      onTurn: async (turn) => ctx.progress(Math.min(85, 10 + turn * 6), "Muse Wonder is researching", `${registry.size()} sources · ${out.findingIds.length} findings`),
+      onTurn: async (turn) => ctx.progress(Math.min(85, 10 + turn * 6), `${roleNames(p).wonder} is researching`, `${registry.size()} sources · ${out.findingIds.length} findings`),
     });
 
-    await ctx.progress(90, "Muse Spark is summarising findings");
+    await ctx.progress(90, `${roleNames(p).spark} is summarising findings`);
     let summary: string;
     if (out.findingIds.length) {
       const findings = await ctx.ws.collection("researchFindings").getMany(out.findingIds);

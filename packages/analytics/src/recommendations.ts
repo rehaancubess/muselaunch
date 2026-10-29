@@ -1,7 +1,7 @@
 import type { Experiment, ExperimentResult, GrowthRecommendation } from "@muselaunch/contracts";
 import { MetricName } from "@muselaunch/contracts";
 import { AppError, type JobHandler, type Platform } from "@muselaunch/platform";
-import { generateJson, untrusted } from "@muselaunch/providers";
+import { generateJson, roleNames, untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { createExperiment } from "./experiments";
 import { insightsOverview } from "./insights";
@@ -95,7 +95,7 @@ export const recommendationsHandler: JobHandler<"recommendations.generate"> = as
   };
   const compactResults = results.map((r) => ({ resultId: r.id, experiment: experiments.get(r.experimentId)?.title, confidence: r.confidence, measured: r.measured, hypotheses: r.hypotheses, limitations: r.limitations }));
 
-  await ctx.progress(25, "interpreting results with Muse Spark");
+  await ctx.progress(25, `interpreting results with ${roleNames(p).spark}`);
   const callCtx = { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, actor: ctx.actor, signal: ctx.signal };
   const interpretation = await generateJson(p, {
     ctx: { ...callCtx, task: "recommendations.interpret" },
@@ -114,7 +114,7 @@ export const recommendationsHandler: JobHandler<"recommendations.generate"> = as
   });
 
   ctx.throwIfCancelled();
-  await ctx.progress(55, "planning next experiment with Muse Wonder");
+  await ctx.progress(55, `planning next experiment with ${roleNames(p).wonder}`);
   const proposal = await generateJson(p, {
     ctx: { ...callCtx, task: "recommendations.propose" },
     model: "wonder",

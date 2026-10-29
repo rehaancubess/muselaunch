@@ -1,6 +1,6 @@
 import { ClaimContext, Monetization, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
 import { AppError, assertKeyInWorkspace, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
-import { generateJson, imagePart, untrusted, type InputPart } from "@muselaunch/providers";
+import { generateJson, imagePart, roleNames, untrusted, type InputPart } from "@muselaunch/providers";
 import sharp from "sharp";
 import { z } from "zod";
 import { initialClaimState } from "../claims";
@@ -174,7 +174,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
       .filter((x) => x !== undefined)
       .join("\n");
 
-    await ctx.progress(30, "Muse Spark is reading your listing and screenshots");
+    await ctx.progress(30, `${roleNames(p).spark} is reading your listing and screenshots`);
     const out = await generateJson(p, {
       ctx: run.callCtx("app_dna.extract"),
       model: "spark",

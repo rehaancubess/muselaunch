@@ -53,6 +53,11 @@ function openChoice(p: Platform, reason: string): TextModelChoice {
   return { engine: "muse-spark-open", provider: "baseten", model: sparkOpenClient(p).model, name: "Muse Spark Open", label: SPARK_OPEN_LABEL, reason };
 }
 
+/** Names for progress messages: "Muse Wonder" / "Muse Spark", or the OpenAI models standing in for them. */
+export function roleNames(p: Platform): { wonder: string; spark: string } {
+  return p.cfg.standIn ? { wonder: `OpenAI ${p.cfg.standIn.wonder}`, spark: `OpenAI ${p.cfg.standIn.spark}` } : { wonder: "Muse Wonder", spark: "Muse Spark" };
+}
+
 /** Name and label of whatever answers Muse Spark's calls here (OpenAI while it stands in for Meta). */
 export function sparkName(p: Platform): { name: string; label: string } {
   return p.cfg.standIn ? { name: `OpenAI ${p.cfg.standIn.spark}`, label: `OpenAI ${p.cfg.standIn.spark} · temporary stand-in for Muse Spark` } : { name: "Muse Spark", label: "Muse Spark" };
