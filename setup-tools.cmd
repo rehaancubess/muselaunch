@@ -18,7 +18,7 @@ call scripts\windows\ffmpeg-path.cmd
 if not errorlevel 1 goto ffmpegok
 echo Installing FFmpeg...
 winget install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements
-echo ffmpeg winget exit code %errorlevel%>> "%LOG%"
+>> "%LOG%" echo ffmpeg winget exit code %errorlevel%
 call scripts\windows\ffmpeg-path.cmd
 if errorlevel 1 goto ffmpegmissing
 :ffmpegok
@@ -35,7 +35,7 @@ if not errorlevel 1 goto gcloudok
 echo.
 echo Installing the Google Cloud CLI (a few minutes)...
 winget install --id Google.CloudSDK -e --silent --accept-source-agreements --accept-package-agreements
-echo gcloud winget exit code %errorlevel%>> "%LOG%"
+>> "%LOG%" echo gcloud winget exit code %errorlevel%
 call scripts\windows\gcloud-path.cmd
 if errorlevel 1 goto gcloudmissing
 :gcloudok
