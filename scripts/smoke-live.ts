@@ -8,7 +8,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
 loadDotenv({ path: fileURLToPath(new URL("../.env", import.meta.url)), quiet: true });
-process.env.DB_DRIVER ??= "memory";
+// Smoke calls only need somewhere to meter usage: always an in-memory DB, whatever .env says
+// (a .env copied from .env.example has DB_DRIVER=firestore, which needs a Google Cloud project).
+// Set SMOKE_KEEP_DB=1 to meter into the configured database instead.
+if (process.env.SMOKE_KEEP_DB !== "1") process.env.DB_DRIVER = "memory";
+if (process.env.SMOKE_KEEP_DB !== "1") process.env.AUTH_MODE = "dev";
 process.env.JOB_DISPATCH = "inline";
 process.env.STORAGE_DRIVER = "local";
 
