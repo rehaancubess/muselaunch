@@ -477,6 +477,20 @@
       ]
     },
     {
+      "collectionGroup": "videoReviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "appId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "campaignBriefs",
       "queryScope": "COLLECTION",
       "fields": [
@@ -878,6 +892,20 @@
       "fields": [
         {
           "fieldPath": "subject.id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "videoReviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "compositionId",
           "order": "ASCENDING"
         },
         {

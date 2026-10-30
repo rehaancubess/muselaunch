@@ -19,6 +19,7 @@ export function estimateAutopilot(p: Platform, input: { variants: number; maxIte
     { label: `Storyboards + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
     { label: `Brand Guardian reviews ×${v}`, credits: v * e("brand.review") },
     { label: `Final renders ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? 15 }) },
+    { label: `Spark video reviews ×${v}`, credits: v * e("video.review") },
     { label: `Post copy ×${v}`, credits: v * e("copy.generate") },
     { label: "Experiment analysis + recommendations", credits: e("experiment.analyze") + e("recommendations.generate") },
   ];

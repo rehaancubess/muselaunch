@@ -22,6 +22,7 @@ export const RUN_KIND_LABEL: Record<AgentRun["kind"], string> = {
   growth_autopilot: "Growth Autopilot",
   brand_review: "Brand Guardian review",
   effects_direction: "Effects direction",
+  video_review: "Spark video review",
 };
 
 /**

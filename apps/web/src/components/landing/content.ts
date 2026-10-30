@@ -96,6 +96,7 @@ export const AUTOPILOT_ROUND_CREDITS =
   V * (PRICE["storyboard.generate"] + PRICE["composition.build"] + PRICE["render.preview"]) +
   V * PRICE["brand.review"] +
   V * PRICE["render.final_per_15s"] +
+  V * PRICE["video.review"] +
   V * PRICE["copy.generate"] +
   PRICE["experiment.analyze"] +
   PRICE["recommendations.generate"];

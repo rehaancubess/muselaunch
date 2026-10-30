@@ -99,13 +99,22 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     for (const r of runs) expect(r.status).toBe("succeeded");
     const decisions = ap.log.filter((e) => e.kind === "decision" && e.agentRunId);
     expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative"]);
-    expect(ap.log.filter((e) => e.kind === "verification")).toHaveLength(2);
+    expect(ap.log.filter((e) => e.kind === "verification" && e.stage === "verify")).toHaveLength(2);
     expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/auto-approved/);
+    // Spark watched both final renders (no blockers) before the posts were drafted.
+    expect(h.watched.sort()).toEqual(ap.compositionIds.map((c) => `${c}@v1:pass`).sort());
+    const watchedLog = ap.log.filter((e) => e.stage === "render" && e.kind === "verification");
+    expect(watchedLog).toHaveLength(2);
+    for (const e of watchedLog) {
+      expect(e.summary).toMatch(/^Muse Spark watched “.+” v1 \(0 frames\): 8\/10 · no blockers/);
+      expect(e.refs.some((r) => r.entity === "videoReviews")).toBe(true);
+    }
+    expect(ap.log.some((e) => e.kind === "decision" && e.summary.startsWith("No blockers in Spark's review"))).toBe(true);
 
     // Detail view for the UI
     const detail = await autopilotDetail(h.p, h.wid, id);
     expect(detail.runs).toHaveLength(3);
-    expect(detail.jobs.map((j) => j.type)).toEqual(expect.arrayContaining(["research.run", "campaign.generate_concepts", "storyboard.generate", "brand.review", "render.final", "copy.generate", "experiment.analyze", "recommendations.generate"]));
+    expect(detail.jobs.map((j) => j.type)).toEqual(expect.arrayContaining(["research.run", "campaign.generate_concepts", "storyboard.generate", "brand.review", "render.final", "video.review", "copy.generate", "experiment.analyze", "recommendations.generate"]));
     expect(detail.checkpoint).toBeNull();
 
     // Tenancy: invisible from another workspace
@@ -285,7 +294,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const id2 = await start(offline);
     const ap2 = await get(offline, id2);
     expect(ap2.stage).toBe("measure");
-    expect(ap2.log.filter((e) => e.kind === "verification").every((e) => e.summary.includes("Brand Guardian unavailable"))).toBe(true);
+    expect(ap2.log.filter((e) => e.kind === "verification" && e.stage === "verify").every((e) => e.summary.includes("Brand Guardian unavailable"))).toBe(true);
   });
 
   it("pauses and resumes a single-variant loop; a Wonder decision that never validates fails the loop honestly", async () => {

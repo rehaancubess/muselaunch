@@ -141,6 +141,8 @@ export const DEFAULT_CREDIT_PRICES = {
   "memory.retrieve": 0,
   /** Glimmer runs locally; covers the rules pass and the Spark fallback when Glimmer is offline. */
   "brand.review": 1,
+  /** Muse Spark watches up to 16 frames of a rendered video (multimodal) and reviews them. */
+  "video.review": 6,
   /** Autopilot steps are free; the jobs they delegate reserve their own credits within the loop budget. */
   "autopilot.step": 0,
 } as const;

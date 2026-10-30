@@ -173,7 +173,7 @@ export class LoopEnv {
     if (from("plan_creative")) n += e("campaign.generate_concepts");
     if (from("produce")) n += v * (e("storyboard.generate") + e("composition.build") + e("render.preview"));
     if (from("verify")) n += v * e("brand.review");
-    if (from("render")) n += v * e("render.final", { durationSec: 15 });
+    if (from("render")) n += v * (e("render.final", { durationSec: 15 }) + e("video.review"));
     if (from("schedule")) n += v * e("copy.generate");
     if (from("learn")) n += e("experiment.analyze") + e("recommendations.generate");
     return n;
