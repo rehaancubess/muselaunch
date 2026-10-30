@@ -78,6 +78,8 @@ startLocalCrons(p, 10_000);
 // ---------------------------------------------------------------- fake public web (sample listing)
 const RENDER_FX = fileURLToPath(new URL("../../../fixtures/render/", import.meta.url));
 const today = readFileSync(`${RENDER_FX}screenshot-today.png`);
+// A designed store image (headline + drawn phone): Muse Spark sorts it as "marketing" and SAM cuts its screen out.
+const marketing = readFileSync(`${RENDER_FX}screenshot-marketing.png`);
 const stats = readFileSync(`${RENDER_FX}screenshot-stats.png`);
 const icon = readFileSync(`${RENDER_FX}app-icon.png`);
 agentsT.installFakeWeb(p, [
@@ -85,7 +87,7 @@ agentsT.installFakeWeb(p, [
   { match: /mzstatic\.com\/image\/thumb\/fixture\/icon/, contentType: "image/png", body: icon },
   { match: /mzstatic\.com\/image\/thumb\/fixture\/shot1/, contentType: "image/png", body: today },
   { match: /mzstatic\.com\/image\/thumb\/fixture\/shot2/, contentType: "image/png", body: stats },
-  { match: /mzstatic\.com\/image\/thumb\/fixture\/shot3/, contentType: "image/png", body: today },
+  { match: /mzstatic\.com\/image\/thumb\/fixture\/shot3/, contentType: "image/png", body: marketing },
   { match: "https://calmstudy.example.com/about", contentType: "text/html", body: "<html><body><h1>CalmStudy</h1><p>Daily study-with-me Pomodoro streams. Business inquiries: hello@calmstudy.example.com</p></body></html>" },
 ]);
 
@@ -245,6 +247,8 @@ const textRoutes = [
 
 const samFx = mediaT.loadFixture<{ rawOutput: string }>("sam-video-moving-box.json");
 const samImageFx = mediaT.loadFixture<{ rawOutput: string }>("sam-image-box.json");
+// Screen cut-outs (media.extract_ui): the phone screen of fixtures/render/screenshot-marketing.png.
+const samScreenFx = mediaT.loadFixture<{ rawOutput: string }>("sam-image-phone-screen.json");
 const voiceFx = mediaT.loadFixture<{ response: unknown }>("voice-transcribe-documented.json").response;
 // Clip analysis ("person" / "phone" prompts on a video) answers with the presenter clip's SAM
 // fixtures (fixtures/render/presenter/presenter.mp4 is the sample founder clip in fixture mode);
@@ -252,7 +256,7 @@ const voiceFx = mediaT.loadFixture<{ response: unknown }>("voice-transcribe-docu
 const samPresenter = { person: mediaT.loadFixture<{ rawOutput: string }>("sam-presenter-person.json"), phone: mediaT.loadFixture<{ rawOutput: string }>("sam-presenter-phone.json") };
 const media = mediaT.fakeMetaFetch({
   samOutput: (body) => {
-    if (JSON.stringify(body).includes('"input_image"')) return samImageFx.rawOutput;
+    if (JSON.stringify(body).includes('"input_image"')) return /\b(screen|display)\b/i.test(mediaT.samPromptOf(body)) ? samScreenFx.rawOutput : samImageFx.rawOutput;
     const prompt = mediaT.samPromptOf(body);
     if (/\b(person|people|presenter|founder)\b/i.test(prompt)) return samPresenter.person.rawOutput;
     if (/\b(phone|smartphone|iphone)\b/i.test(prompt)) return samPresenter.phone.rawOutput;

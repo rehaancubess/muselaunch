@@ -1,8 +1,9 @@
 import { AnalyzeClipRequest, ImageGenerateRequest, SegmentCorrectionRequest, SegmentRequest, StockImportRequest, StockSearchQuery, TranscribeRequest, TtsRequest, type ImageProviderInfo } from "@muselaunch/contracts";
-import { correctSegmentation, DEFAULT_CLIP_PROMPTS, estimateClipAnalysis, importStock, mediaDeps, requestClipAnalysis, requestSegmentation, requestTranscript, transcriptToCaptionCues, waitForTranscript } from "@muselaunch/media";
+import { correctSegmentation, DEFAULT_CLIP_PROMPTS, estimateClipAnalysis, estimateRecordingAnalysis, importStock, mediaDeps, recordingProblem, requestClipAnalysis, requestRecordingAnalysis, requestSegmentation, requestTranscript, requestUiExtraction, transcriptToCaptionCues, waitForTranscript } from "@muselaunch/media";
 import { AppError, assertKeyInWorkspace } from "@muselaunch/platform";
 import { assertBuiltinVoice, chooseImageProvider, guardImagePrompt, searchStock, stockProviderStates, TTS_DISCLOSURE } from "@muselaunch/providers";
 import { Hono } from "hono";
+import { z } from "zod";
 import { actorOf, body, idempotencyKey, query, requireCap, type AppEnv } from "../context";
 import { rateLimit } from "../middleware";
 
@@ -212,4 +213,74 @@ mediaRoutes.get("/clip-analyses/:id", async (c) => {
   const tracksUrls = Object.fromEntries(segmentations.filter((s) => s.tracksAssetId && assets[s.tracksAssetId]).map((s) => [s.id, assets[s.tracksAssetId!]!.url]));
   const transcript = analysis.transcriptId ? await ws.collection("transcripts").get(analysis.transcriptId) : null;
   return c.json({ analysis, segmentations, assets, tracksUrls, transcript });
+});
+
+// ---------------------------------------------------------------------------
+// Walkthrough breakdown (one long screen recording → labelled clips) and SAM screen cut-outs
+// ---------------------------------------------------------------------------
+
+const AnalyzeRecordingBody = z.object({
+  /** Transcribe the narration (only runs when consent for the voice is recorded, or given here). */
+  transcribe: z.boolean().default(true),
+  consent: z.object({ scope: z.string().min(1).max(300) }).optional(),
+});
+
+/** Cut an app recording into labelled clips (re-running replaces its earlier clips). 202 `{ job, estimate }`. */
+mediaRoutes.post("/apps/:appId/media/:assetId/analyze-recording", requireCap("content.write"), async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const appId = c.req.param("appId");
+  const input = await body(c, AnalyzeRecordingBody);
+  const ws = p.db.ws(wid);
+  await ws.collection("apps").getOrThrow(appId);
+  const asset = await ws.collection("mediaAssets").getOrThrow(c.req.param("assetId"));
+  const { job, estimate } = await requestRecordingAnalysis(p, wid, { asset, appId, actor: actorOf(c), transcribe: input.transcribe, consent: input.consent, idempotencyKey: idempotencyKey(c) });
+  return c.json({ job, estimate }, 202);
+});
+
+const SegmentsQuery = z.object({ assetId: z.string().max(128).optional() });
+
+/**
+ * Walkthrough clips of an app (or of one recording with `?assetId=`), in time order. With `assetId`
+ * also the latest breakdown job for it and the credit estimate for (re-)running it.
+ */
+mediaRoutes.get("/apps/:appId/recording-segments", async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const appId = c.req.param("appId");
+  const q = query(c, SegmentsQuery);
+  const ws = p.db.ws(wid);
+  await ws.collection("apps").getOrThrow(appId);
+  if (!q.assetId) {
+    const page = await ws.collection("recordingSegments").list({ where: [["appId", "==", appId]], orderBy: { field: "startSec", dir: "asc" }, limit: 500 });
+    return c.json({ items: page.items, nextCursor: null });
+  }
+  const asset = await ws.collection("mediaAssets").getOrThrow(q.assetId);
+  if (asset.appId !== appId) throw new AppError("NOT_FOUND", "Recording not found");
+  const page = await ws.collection("recordingSegments").list({ where: [["assetId", "==", asset.id]], orderBy: { field: "startSec", dir: "asc" }, limit: 500 });
+  const jobs = (await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 100 })).items;
+  const job = jobs.find((j) => j.type === "media.analyze_recording" && j.payload.assetId === asset.id) ?? null;
+  const problem = recordingProblem(asset, appId);
+  return c.json({
+    items: page.items.filter((s) => s.appId === appId),
+    nextCursor: null,
+    job,
+    estimate: estimateRecordingAnalysis(p, asset),
+    canAnalyze: !problem,
+    reason: problem?.opts.userMessage ?? null,
+  });
+});
+
+const ExtractUiBody = z.object({ assetIds: z.array(z.string().max(128)).max(50).optional() });
+
+/**
+ * Check the app's screenshots (raw UI vs designed store image, Muse Spark) and cut the app screen out of
+ * store images (SAM 3.1). 202 `{ job, pending, credits }`; 200 with `job: null` when nothing needs doing.
+ */
+mediaRoutes.post("/apps/:appId/media/extract-ui", requireCap("content.write"), async (c) => {
+  const p = c.get("platform");
+  const wid = c.get("workspaceId");
+  const input = await body(c, ExtractUiBody);
+  const res = await requestUiExtraction(p, wid, { appId: c.req.param("appId"), assetIds: input.assetIds, actor: actorOf(c), idempotencyKey: idempotencyKey(c) });
+  return c.json(res, res.job ? 202 : 200);
 });

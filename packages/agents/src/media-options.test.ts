@@ -23,14 +23,18 @@ describe("productMediaOptions", () => {
       { actor: "t" },
     );
     await ws.collection("recordingSegments").create({ appId: seed.appId, assetId: rec.id, startSec: 42, endSec: 51, label: "Starts a 25-minute focus session", action: "tap", featureIds: ["feat_timer"], quality: 0.9 }, { actor: "t" });
-    await ws.collection("recordingSegments").create({ appId: seed.appId, assetId: rec.id, startSec: 3, endSec: 9, label: "Opens weekly report", featureIds: ["feat_reports"], privacy: { flagged: true, regions: [] } }, { actor: "t" });
+    await ws.collection("recordingSegments").create({ appId: seed.appId, assetId: rec.id, startSec: 3, endSec: 9, label: "Opens weekly report", featureIds: ["feat_reports"], privacy: { flagged: true, regions: [{ x: 0, y: 0, w: 1, h: 0.1 }] } }, { actor: "t" });
+    // Left out: too low quality (lock screen), and personal info with nothing to blur.
+    await ws.collection("recordingSegments").create({ appId: seed.appId, assetId: rec.id, startSec: 0, endSec: 3, label: "Unlocks the phone", quality: 0.1 }, { actor: "t" });
+    await ws.collection("recordingSegments").create({ appId: seed.appId, assetId: rec.id, startSec: 60, endSec: 64, label: "Inbox with real emails", quality: 0.9, privacy: { flagged: true, notes: "Email addresses", regions: [] } }, { actor: "t" });
 
     const ctx = await loadAppContext(ws, seed.appId);
     const opts = await productMediaOptions(ws, seed.appId, ctx.dna);
-    expect(opts.slice(0, 2).map((o) => [o.kind, o.trim?.inSec])).toEqual([
+    expect(opts.filter((o) => o.kind === "recording_segment").map((o) => [o.kind, o.trim?.inSec])).toEqual([
       ["recording_segment", 3],
       ["recording_segment", 42],
     ]);
+    expect(opts.slice(0, 2).every((o) => o.kind === "recording_segment")).toBe(true);
     expect(opts[0]!.title).toContain("personal info");
     const byRef = new Map(opts.map((o) => [o.ref, o]));
     expect(byRef.get(shot!)).toMatchObject({ kind: "marketing_screenshot", deviceFrameOk: false });

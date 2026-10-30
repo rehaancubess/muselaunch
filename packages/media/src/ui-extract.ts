@@ -8,7 +8,7 @@ import { z } from "zod";
 import { ffmpeg, ffmpegWriter, probeMedia } from "./ffmpeg";
 import { downscaleImage, grayThumbnail } from "./frames";
 import { samFrameSize, type FrameSize } from "./masks";
-import { callCtx, derivedId, EXT_BY_MIME, withWorkdir } from "./util";
+import { callCtx, derivedId, EXT_BY_MIME, sha256, withWorkdir } from "./util";
 
 /**
  * Screen cut-outs (`media.extract_ui`). Store screenshots are often designed marketing images (headline,
@@ -72,7 +72,8 @@ export async function requestUiExtraction(
   const job = await p.jobs.create(wid, "media.extract_ui", { appId: input.appId, assetIds: input.assetIds }, {
     actor: input.actor,
     appId: input.appId,
-    idempotencyKey: input.idempotencyKey ?? `extract_ui:${input.appId}:${pending.map((a) => a.id).sort().join(",")}`.slice(0, 200),
+    // Same screenshots within the same minute → the same job (double clicks); later requests can retry.
+    idempotencyKey: input.idempotencyKey ?? `extract_ui:${input.appId}:${Math.floor(Date.now() / 60_000)}:${sha256(pending.map((a) => a.id).sort().join(","))}`,
     credits: { operation: "media.extract_ui", amount: credits },
   });
   return { job, pending: pending.length, credits };
@@ -206,17 +207,36 @@ export function pickPhoneScreen(dets: SamDetection[], image: FrameSize, sam?: Fr
   return best;
 }
 
-/** Corner radius (image px) estimated from where the mask's top row and left column begin. */
+/**
+ * Corner radius (image px) of the screen, from the mask: on a rounded corner of radius r the first set
+ * pixel of the outer row/column is k ≈ r − √r in, so r ≈ k + ½ + √k (mask pixels). The largest of the
+ * four corners' row and column estimates is used (an unrounded bezel sliver looks worse than a hair
+ * more rounding), capped at 15 % of the short side.
+ */
 export function cornerRadius(det: SamDetection, boxW: number, boxH: number): number {
   const raster = decodeMaskToRaster(det.mask);
   const mw = det.mask.width;
   const mh = det.mask.height;
   if (!mw || !mh) return 0;
-  let x0 = 0;
-  while (x0 < mw / 2 && !raster[x0]) x0++;
-  let y0 = 0;
-  while (y0 < mh / 2 && !raster[y0 * mw]) y0++;
-  const r = Math.max((x0 * boxW) / mw, (y0 * boxH) / mh);
+  const firstSet = (n: number, at: (i: number) => number) => {
+    let i = 0;
+    while (i < n / 2 && !at(i)) i++;
+    return i;
+  };
+  const est = (k: number) => (k > 0 ? k + 0.5 + Math.sqrt(k) : 0);
+  const rx = Math.max(
+    est(firstSet(mw, (i) => raster[i]!)),
+    est(firstSet(mw, (i) => raster[mw - 1 - i]!)),
+    est(firstSet(mw, (i) => raster[(mh - 1) * mw + i]!)),
+    est(firstSet(mw, (i) => raster[(mh - 1) * mw + mw - 1 - i]!)),
+  );
+  const ry = Math.max(
+    est(firstSet(mh, (i) => raster[i * mw]!)),
+    est(firstSet(mh, (i) => raster[i * mw + mw - 1]!)),
+    est(firstSet(mh, (i) => raster[(mh - 1 - i) * mw]!)),
+    est(firstSet(mh, (i) => raster[(mh - 1 - i) * mw + mw - 1]!)),
+  );
+  const r = Math.max((rx * boxW) / mw, (ry * boxH) / mh);
   return Math.min(r, 0.15 * Math.min(boxW, boxH));
 }
 

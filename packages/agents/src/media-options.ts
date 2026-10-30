@@ -21,7 +21,7 @@ export async function productMediaOptions(ws: WorkspaceDb, appId: string, dna?: 
   const segments = (await ws.collection("recordingSegments").list({ where: [["appId", "==", appId]], orderBy: { field: "startSec", dir: "asc" }, limit: 300 })).items as RecordingSegment[];
   for (const s of segments) {
     const rec = byId.get(s.assetId);
-    if (!rec) continue;
+    if (!rec || !usableSegment(s)) continue;
     out.push({
       ref: s.id,
       kind: "recording_segment",
@@ -49,6 +49,18 @@ export async function productMediaOptions(ws: WorkspaceDb, appId: string, dna?: 
     });
   }
   return out;
+}
+
+/** Below this a walkthrough segment is not offered (loading/lock screens, fumbling, unlabelled shots). */
+export const MIN_SEGMENT_QUALITY = 0.3;
+
+/**
+ * A segment storyboards may use: good enough, and if it shows personal information, only when there are
+ * regions to blur (a flag without regions can't be made safe, so the clip is left out).
+ */
+export function usableSegment(s: Pick<RecordingSegment, "quality" | "privacy">): boolean {
+  if (s.quality < MIN_SEGMENT_QUALITY) return false;
+  return !s.privacy.flagged || s.privacy.regions.length > 0;
 }
 
 function optionKind(a: MediaAsset): ProductMediaOption["kind"] | null {
