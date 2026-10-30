@@ -48,7 +48,7 @@ export const GUARDIAN_SYSTEM = `You are Muse Glimmer acting as MuseLaunch's Bran
 
 Check the asset against the brand kit, the verified claim library and the team's remembered preferences and decisions. Report only concrete problems you can point to:
 - tone drift: copy that contradicts the brand voice or uses off-brand vocabulary,
-- claims that are unsupported by, or inconsistent with, the verified claims (features, numbers, rankings, comparisons, outcomes),
+- claims that are unsupported by, or inconsistent with, the verified claims and the grounded features (features, numbers, rankings, comparisons, outcomes). Grounded features come from the app's real listing and screenshots: an everyday example taken from them (e.g. a booking, an address, a Wi-Fi password when a feature mentions them) is supported. Block invented specifics: speeds and times ("in 5 seconds"), numbers, rankings, results and features the app does not have,
 - contradictions with remembered preferences or past decisions (cite their ids),
 - prohibited phrases, CTA problems, privacy problems, platform fit.
 Deterministic checks already ran (palette, contrast, safe zones, figures/superlatives, prohibited phrases); their results are listed — do not repeat them.
@@ -84,7 +84,7 @@ export function buildPacket(s: LoadedSubject, b: BrandContext, memory: BrandPref
     if (d.preferredCtas.length) lines.push(`Preferred CTAs: ${d.preferredCtas.join(" | ")}`);
     if (d.guidelines) lines.push(`Guidelines: ${clip(d.guidelines, 1500)}`);
     if (d.prohibitedClaims.length) lines.push(`Prohibited claims: ${d.prohibitedClaims.join(" | ")}`);
-    if (d.features.length) lines.push(`Features: ${d.features.map((f) => f.name).join(", ")}`);
+    if (d.features.length) lines.push("Grounded features (from the real listing and screenshots; product facts the asset may use):", ...d.features.slice(0, 20).map((f) => `- ${f.name}: ${clip(f.description, 240)}`));
   } else lines.push("(No confirmed App DNA yet: judge claims strictly against the verified claims.)");
   lines.push("Verified claims (id: text) — the only product claims the asset may make:", ...(b.verifiedClaims.length ? b.verifiedClaims.slice(0, 60).map((c) => `- ${c.id}: ${clip(c.text, 300)}`) : ["- (none verified yet)"]));
   if (memory.length) lines.push("Team memory (id [kind] text):", ...memory.map((m) => `- ${m.id} [${m.kind}] ${clip(m.text, 400)}`));

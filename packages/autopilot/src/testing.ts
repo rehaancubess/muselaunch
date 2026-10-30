@@ -20,7 +20,7 @@ import {
   type MetaRoute,
 } from "@muselaunch/agents/testing";
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
-import { buildFromStoryboard } from "@muselaunch/compositions";
+import { attachAudio, buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
 import { AppError, createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
@@ -152,7 +152,13 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
       const app = await ctx.ws.collection("apps").getOrThrow(sb.appId);
       const brand = await ctx.ws.collection("brandProfiles").get(sb.appId);
       const assets = (await ctx.ws.collection("mediaAssets").list({ where: [["appId", "==", sb.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 100 })).items;
-      const doc = buildFromStoryboard({ storyboard: sb, app, brand, assets });
+      // Like the real build's sound pass: original music stored as a workspace asset (the shared sound
+      // library has no appId), so verification must load audio-track assets too.
+      const music = await ctx.ws.collection("mediaAssets").createIfAbsent(
+        { id: "ast_mus_harness", kind: "audio", role: "music", origin: "generated", storagePath: `workspaces/${ctx.workspaceId}/generated/music.m4a`, mimeType: "audio/mp4", status: "ready", durationSec: 60, sourceLabel: "original_music", license: { type: "owned", provider: "MuseLaunch" } },
+        { actor: ctx.actor },
+      );
+      const doc = attachAudio(buildFromStoryboard({ storyboard: sb, app, brand, assets }), { music: { assetId: music.entity.id, mood: "calm-pad", label: "Original music" } });
       await createComposition(ctx.ws, { id: ctx.payload.compositionId, appId: sb.appId, campaignId: sb.campaignId, variantId: sb.variantId, storyboardId: sb.id, title: sb.title, doc }, ctx.actor);
       return { refs: [{ entity: "compositions", id: ctx.payload.compositionId }], creditsUsed: 2 };
     },

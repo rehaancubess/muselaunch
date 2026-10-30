@@ -1,6 +1,6 @@
 import { applyFinding, brandGate, truncateWords, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
 import { createTrackedLink, gatherExperimentData } from "@muselaunch/analytics";
-import { lintDoc, totalDuration } from "@muselaunch/compositions";
+import { collectAssetRefs, lintDoc, totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
@@ -497,8 +497,9 @@ const verify: StageFn = async (env, step) => {
   for (const c of comps) {
     const v = await getVersion(env.ws, c.id, c.currentVersion);
     const doc = v.doc;
-    const assetIds = [...new Set(doc.scenes.flatMap((s) => s.layers.flatMap((l) => ("assetId" in l && l.assetId ? [l.assetId] : "screenAssetId" in l ? [l.screenAssetId] : []))))];
-    const assets = await env.ws.collection("mediaAssets").getMany(assetIds);
+    // Every asset the doc references (backgrounds, devices, effects and audio tracks too): the live
+    // pipeline run flagged its own music and sound effects as "missing" when only layers were loaded.
+    const assets = await env.ws.collection("mediaAssets").getMany(collectAssetRefs(doc).assetIds);
     const claimIds = [...new Set(doc.scenes.flatMap((s) => s.layers.flatMap((l) => (l.type === "text" ? l.claimIds : []))))];
     const claims = await env.ws.collection("claims").getMany(claimIds);
     const lint = lintDoc(doc, { assets: Object.fromEntries(assets.map((a) => [a.id, a])), claims: Object.fromEntries(claims.map((x) => [x.id, x])) });
@@ -606,7 +607,7 @@ export async function renderable(env: LoopEnv, comps: Composition[]): Promise<{ 
   const excluded: { compositionId: string; why: string }[] = [];
   for (const c of comps) {
     const v = await getVersion(env.ws, c.id, c.currentVersion);
-    const assets = await env.ws.collection("mediaAssets").getMany([...new Set(v.doc.scenes.flatMap((s) => s.layers.flatMap((l) => ("assetId" in l && l.assetId ? [l.assetId] : "screenAssetId" in l ? [l.screenAssetId] : []))))]);
+    const assets = await env.ws.collection("mediaAssets").getMany(collectAssetRefs(v.doc).assetIds);
     const lintErrors = lintDoc(v.doc, { assets: Object.fromEntries(assets.map((a) => [a.id, a])) }).filter((i) => i.level === "error" && /missing asset/.test(i.message));
     if (lintErrors.length) {
       excluded.push({ compositionId: c.id, why: `“${c.title}” v${v.version} has missing media (${clip(lintErrors[0]!.message, 120)})` });
