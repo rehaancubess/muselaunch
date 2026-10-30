@@ -1,5 +1,6 @@
-import { AngleType, Channel, type CampaignVariant, type Deliverable } from "@muselaunch/contracts";
-import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
+import { AngleType, AUTO_VIDEO_DURATION, Channel, type CampaignVariant, type Deliverable, type DeliverableKind } from "@muselaunch/contracts";
+import { createHash } from "node:crypto";
+import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
 import { dnaSummary, loadAppContext, requireDna } from "./context";
@@ -39,12 +40,47 @@ export const ConceptsOutput = z.object({
         hypothesis: z.string().min(1).max(600).describe("A testable hypothesis, e.g. 'A problem-first hook gets more saves than a demo-first hook among students'"),
         successMetric: Metric,
         memoryIdsUsed: z.array(z.string()).max(10).default([]),
+        targetDurationSec: z.number().min(5).max(120).optional().describe("Video length in seconds for this concept, 30-60; vary it across concepts (e.g. one ~30 s punchy cut, one 45-60 s walkthrough)"),
       }),
     )
     .min(3)
     .max(6),
 });
 type ConceptsOutput = z.infer<typeof ConceptsOutput>;
+
+const VIDEO_KINDS = new Set<DeliverableKind>(["short_video", "app_demo", "feature_promo", "launch_announcement", "app_trailer"]);
+
+/** Deterministic pseudo-random length in AUTO_VIDEO_DURATION, seeded by the concept id (fallback when Spark gives none). */
+export function seededDuration(id: string, min: number = AUTO_VIDEO_DURATION.min, max: number = AUTO_VIDEO_DURATION.max): number {
+  const n = createHash("sha256").update(`duration:${id}`).digest().readUInt32BE(0);
+  return min + (n % (max - min + 1));
+}
+
+/** The workspace plan's longest video (seconds); lengths are clamped to it. */
+export async function planMaxVideoSec(p: Platform, workspaceId: string): Promise<number> {
+  const ws = await p.db.top("workspaces").get(workspaceId);
+  const plans = p.credits.plans as Record<string, { limits: { maxVideoSec: number } } | undefined>;
+  return (plans[ws?.planId ?? "free"] ?? plans.free)?.limits.maxVideoSec ?? AUTO_VIDEO_DURATION.max;
+}
+
+/** The founder's video length for this campaign, if they chose one (else concepts pick their own). */
+export function founderDuration(deliverables: Deliverable[]): number | undefined {
+  return deliverables.find((d) => VIDEO_KINDS.has(d.kind) && d.durationSec)?.durationSec;
+}
+
+/**
+ * One length per concept: the founder's choice when given; else Spark's pick clamped to 30–60 s, or a
+ * seeded fallback. Concepts that all came out (nearly) the same length are spread out (one ≈30 s, one 45–60 s).
+ */
+export function conceptDurations(picks: (number | undefined)[], ids: string[], fixed?: number, planMax: number = AUTO_VIDEO_DURATION.max): number[] {
+  if (fixed) return picks.map(() => Math.min(fixed, planMax));
+  const max = Math.min(AUTO_VIDEO_DURATION.max, planMax);
+  const min = Math.min(AUTO_VIDEO_DURATION.min, max);
+  if (max - min < 10) return picks.map((v, i) => (v ? Math.max(min, Math.min(max, Math.round(v))) : seededDuration(ids[i]!, min, max)));
+  let d = picks.map((v, i) => (v ? Math.max(min, Math.min(max, Math.round(v))) : seededDuration(ids[i]!)));
+  if (d.length >= 2 && Math.max(...d) - Math.min(...d) < 10) d = d.map((_, i) => (i === 0 ? seededDuration(ids[i]!, min, min + 5) : i === 1 ? seededDuration(ids[i]!, Math.max(min, max - 15), max) : seededDuration(ids[i]!, min, max)));
+  return d;
+}
 
 /** Strategic distinctness: different angle types and clearly different hooks/messages. */
 export function distinctnessProblems(variants: ConceptsOutput["variants"], allowed: readonly string[]): string[] {
@@ -75,7 +111,8 @@ Rules:
 - brief.campaignName: a short, human campaign name (2-6 words) summarising the request.
 - Product claims in hooks/messages must come from the verified claims list (reference their ids in claimIds). Never invent numbers, testimonials, reviews, awards or user counts.
 - social_proof is only allowed when it appears in the allowed angle types (real proof exists).
-- scriptOutline: 3-8 beats for a short vertical video; demo beats must show the real app (screenshots/recordings), never generated UI.
+- scriptOutline: 3-8 beats following hook → problem → demo → features → (real) proof → CTA; demo beats must show the real app (screenshots/recordings), never generated UI.
+- targetDurationSec: unless the founder fixed a length, pick each concept's video length between 30 and 60 seconds to fit its story, and vary it across concepts (e.g. one ≈30 s punchy cut, one 45-60 s walkthrough).
 - hypothesis + successMetric must be measurable on the chosen channels (views, saves, clicks, installs, subscriptions); do not promise outcomes.`;
 
 export async function generateConceptsHandler(ctx: JobContext<"campaign.generate_concepts">): Promise<JobResult> {
@@ -107,12 +144,17 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
 
     const hasProof = evidencePage.items.some((e) => e.kind === "metric" && e.reviewState === "verified");
     const allowed = AngleType.options.filter((a) => a !== "other" && (a !== "social_proof" || hasProof));
-    const deliverables: Deliverable[] = campaign.deliverables.length ? campaign.deliverables : [{ kind: "short_video", channel: campaign.channels[0], aspectRatio: "9:16", durationSec: 15, count: 1 }];
+    // No length given = each concept picks its own (30–60 s).
+    const deliverables: Deliverable[] = campaign.deliverables.length ? campaign.deliverables : [{ kind: "short_video", channel: campaign.channels[0], aspectRatio: "9:16", count: 1 }];
     const channels = campaign.channels.length ? campaign.channels : (["instagram"] as const);
+    const planMax = await planMaxVideoSec(p, ctx.workspaceId);
+    const fixedDuration = founderDuration(deliverables);
+    const autoMax = Math.min(AUTO_VIDEO_DURATION.max, planMax);
 
     const input = [
       `Founder's request: ${clip(campaign.request ?? campaign.name, 4000)}`,
       `Goal: ${campaign.goal} · Channels: ${channels.join(", ")} · Deliverables: ${deliverables.map((d) => `${d.count}× ${d.kind} ${d.aspectRatio}${d.durationSec ? ` ${d.durationSec}s` : ""}`).join(", ")}`,
+      fixedDuration ? `Video length: ${Math.min(fixedDuration, planMax)} s for every concept (the founder's choice).` : `Video length: pick targetDurationSec per concept between ${Math.min(AUTO_VIDEO_DURATION.min, autoMax)} and ${autoMax} s, varied across concepts.`,
       `Produce exactly ${count} concepts. Allowed angle types: ${allowed.join(", ")}.`,
       memory.items.length ? `Team memory (id: kind — text):\n${memory.items.map((m) => `- ${m.id}: ${m.kind} — ${m.text}`).join("\n")}\nSummary: ${memory.summary}` : "Team memory: (none yet)",
       "",
@@ -150,6 +192,14 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
     const segmentIds = new Set(segmentsPage.items.map((s) => s.id));
     const priorBriefs = (await ws.collection("campaignBriefs").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 1 })).items;
     const b = out.data.brief;
+    const chosen = out.data.variants.slice(0, count);
+    const variantIds = chosen.map((_, i) => hashId("var", campaignId, runId, i));
+    const durations = conceptDurations(
+      chosen.map((v) => v.targetDurationSec),
+      variantIds,
+      fixedDuration,
+      planMax,
+    );
     const { entity: brief } = await ws.collection("campaignBriefs").createIfAbsent(
       {
         id: hashId("brf", campaignId, ctx.job.id),
@@ -164,7 +214,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
         approvedClaimIds: uniq([...b.approvedClaimIds, ...out.data.variants.flatMap((v) => v.claimIds)]).filter((c) => verifiedIds.has(c)),
         cta: b.cta,
         deliverables,
-        targetDurationsSec: uniq(deliverables.map((d) => d.durationSec ?? 15)),
+        targetDurationsSec: uniq(durations).sort((x, y) => x - y),
         brandStyle: b.brandStyle ?? (dna.visual.styleKeywords.join(", ") || undefined),
         visualDirection: b.visualDirection,
         budgetCapCredits: campaign.creditCap,
@@ -175,10 +225,11 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       { actor: ctx.actor },
     );
     const variants: CampaignVariant[] = [];
-    for (const [i, v] of out.data.variants.slice(0, count).entries()) {
+    for (const [i, v] of chosen.entries()) {
       const { entity } = await ws.collection("campaignVariants").createIfAbsent(
         {
-          id: hashId("var", campaignId, runId, i),
+          id: variantIds[i]!,
+          targetDurationSec: durations[i],
           appId,
           campaignId,
           title: v.title,
@@ -208,7 +259,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
     await ws.collection("campaigns").update(campaignId, { status: "concepts_ready", briefId: brief.id, ...rename }, { actor: ctx.actor });
     await rec.finish("succeeded", { outputRefs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id }))], memoryRefs: memory.items.map((m) => m.id) });
     await ctx.progress(100, "concepts ready");
-    return { refs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id })), { entity: "agentRuns", id: rec.id }], data: { usedGlimmer: memory.usedGlimmer, angleTypes: variants.map((v) => v.angleType) } };
+    return { refs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id })), { entity: "agentRuns", id: rec.id }], data: { usedGlimmer: memory.usedGlimmer, angleTypes: variants.map((v) => v.angleType), durationsSec: variants.map((v) => v.targetDurationSec) } };
   } catch (raw) {
     const err = toAppError(raw);
     await rec.finish(err.code === "CANCELLED" ? "cancelled" : "failed", { error: err.toInfo() }).catch(() => {});

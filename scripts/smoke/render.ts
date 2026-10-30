@@ -3,6 +3,7 @@
  * real MP4 via @hyperframes/producer, then extract frames for visual review.
  *
  *   RENDER_CHROME_PATH=/path/to/chrome-headless-shell npx tsx scripts/smoke/render.ts [--aspect 9:16] [--scenes 5] [--times 1,4,8]
+ *   … --long   ~40 s editor-style cut (kinetic type, icon reveal, phone tilt, focus zoom, tap, store CTA)
  *
  * Output: fixtures/render/out/<aspect>/{index.html,video.mp4,frame-<t>.png}
  */
@@ -14,7 +15,7 @@ import type { AspectRatio } from "@muselaunch/contracts";
 import { buildFromStoryboard, compileToHtml, lintDoc } from "../../packages/compositions/src/index";
 import { ensureNodeCompileRuntime } from "../../packages/compositions/src/node";
 import { ffmpegBin, renderProject } from "../../packages/render/src/producer";
-import { SAMPLE_FIXTURE_FILES, sampleApp, sampleAssets, sampleBrand, sampleStoryboard } from "../../packages/render/src/sample";
+import { SAMPLE_FIXTURE_FILES, sampleApp, sampleAssets, sampleBrand, sampleLongStoryboard, sampleStoryboard } from "../../packages/render/src/sample";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const arg = (name: string, d: string) => {
@@ -30,10 +31,12 @@ async function main() {
   ensureNodeCompileRuntime();
   const wid = "ws_smoke";
   const assets = sampleAssets(wid, undefined, (id, file) => `workspaces/${wid}/fixtures/${file}`);
-  const doc = buildFromStoryboard({ storyboard: sampleStoryboard(wid, { scenes }), app: sampleApp(wid), brand: sampleBrand(wid), assets, aspectRatio: aspect });
+  const long = process.argv.includes("--long");
+  const storyboard = long ? sampleLongStoryboard(wid) : sampleStoryboard(wid, { scenes });
+  const doc = buildFromStoryboard({ storyboard, app: sampleApp(wid), brand: sampleBrand(wid), assets, aspectRatio: aspect });
   const issues = lintDoc(doc, { assets: Object.fromEntries(assets.map((a) => [a.id, a])) });
   for (const i of issues) console.log(`lint ${i.level}: ${i.sceneId ?? ""} ${i.layerId ?? ""} ${i.message}`);
-  const out = join(root, "fixtures/render/out", aspect.replace(":", "x"));
+  const out = join(root, "fixtures/render/out", `${aspect.replace(":", "x")}${long ? "-long" : ""}`);
   mkdirSync(join(out, "assets"), { recursive: true });
   for (const [id, f] of Object.entries(SAMPLE_FIXTURE_FILES)) copyFileSync(join(root, "fixtures/render", f.file), join(out, "assets", `${id}.png`));
   const { html, durationSec, scenes: times } = compileToHtml(doc, { assetUrl: (id) => `assets/${id}.png`, mode: "render", gsapSource: "inline", scale });

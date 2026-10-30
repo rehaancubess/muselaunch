@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime } from "./common";
+import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime, Percent01 } from "./common";
 
 /**
  * Canonical, versioned composition document (spec 4.6).
@@ -31,6 +31,14 @@ export const TEMPLATE_IDS = [
   "presenter-depth", // presenter cutout in FRONT, app demo + motion graphics BEHIND them (depth sandwich)
   "object-spotlight", // tracked real object (e.g. the phone) highlighted; callouts anchored to it follow it
   "product-in-hand", // real app recording placed onto the tracked phone in the presenter's hand
+  // Editor-style shot variety (on REAL product media or plain type):
+  "focus-zoom", // device demo that pushes in on a region of the real screen, with a soft highlight ring
+  "tap-demo", // device demo with a finger dot + tap ripple at a point of the real screen
+  "phone-tilt", // device in a 3D tilt/turn over a parallax background
+  "kinetic-type", // punchy word-by-word typography at a readable pace
+  "icon-reveal", // app icon scale-in with glow and the app name
+  "store-cta", // end card with plain-text store pills ("Download on the App Store"; no third-party logos)
+  "fullscreen-showcase", // a designed marketing screenshot full-bleed with a slow push (never inside a device frame)
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -61,7 +69,8 @@ export const LayerTiming = z.object({
   end: z.number().min(0).max(180).optional(),
 });
 
-export const EnterPreset = z.enum(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-in", "pop", "blur-in", "typewriter", "mask-reveal"]);
+/** `words`: text appears word by word at a readable pace (about 3 words per second). */
+export const EnterPreset = z.enum(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-in", "pop", "blur-in", "typewriter", "mask-reveal", "words"]);
 export const ExitPreset = z.enum(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-out", "blur-out"]);
 export const LoopPreset = z.enum(["none", "float", "pulse", "ken-burns", "slow-zoom", "tilt"]);
 export const Easing = z.enum(["smooth", "snappy", "spring", "linear"]);
@@ -189,6 +198,10 @@ export const MaskUse = z.object({
 });
 export type MaskUse = z.infer<typeof MaskUse>;
 
+/** A normalised region (fractions 0..1 of the media or screen it belongs to). */
+export const Region01 = z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 });
+export type Region01 = z.infer<typeof Region01>;
+
 export const VideoLayer = LayerBase.extend({
   type: z.literal("video"),
   assetId: Id,
@@ -200,7 +213,29 @@ export const VideoLayer = LayerBase.extend({
   volume: z.number().min(0).max(1).default(1),
   radiusPx: z.number().min(0).max(400).default(0),
   mask: MaskUse.optional(),
+  /** Regions of the frame (fractions of the layer box) blurred for privacy, e.g. personal info in a recording. */
+  blurRegions: z.array(Region01).max(8).optional(),
 });
+
+/**
+ * Push-in on a region of the device SCREEN (fractions of the visible screen), with a soft highlight
+ * ring around it. `zoom` omitted = fitted so the region fills a comfortable part of the frame.
+ */
+export const DeviceFocus = Region01.extend({
+  zoom: z.number().min(1).max(4).optional(),
+  /** When the push-in starts (seconds into the layer). */
+  atSec: z.number().min(0).max(60).default(0.6),
+  ring: z.boolean().default(true),
+});
+export type DeviceFocus = z.infer<typeof DeviceFocus>;
+
+/** A finger tap (dot + ripple) at a point of the device SCREEN (fractions of the visible screen). */
+export const DeviceTap = z.object({ x: Percent01, y: Percent01, atSec: z.number().min(0).max(60).default(1) });
+export type DeviceTap = z.infer<typeof DeviceTap>;
+
+/** 3D orientation in degrees: x tips the top away (pitch), y turns the device (yaw). `swing` eases toward a calmer angle over the layer's life. */
+export const DeviceTilt = z.object({ x: z.number().min(-45).max(45).default(8), y: z.number().min(-60).max(60).default(-20), swing: z.boolean().default(true) });
+export type DeviceTilt = z.infer<typeof DeviceTilt>;
 
 /** Real app media shown inside an allowlisted device frame. */
 export const DeviceLayer = LayerBase.extend({
@@ -209,8 +244,17 @@ export const DeviceLayer = LayerBase.extend({
   screenAssetId: Id,
   screenKind: z.enum(["image", "video"]).default("image"),
   trimInSec: z.number().min(0).default(0),
+  /** Video screens: end of the trimmed range (e.g. a walkthrough segment). Informational; scene length × rate decides what plays. */
+  trimOutSec: z.number().min(0).optional(),
+  /** Video screens: playback speed (the builder speeds long walkthrough segments up to 1.5×). */
+  playbackRate: z.number().min(0.25).max(4).optional(),
   frameColor: z.enum(["black", "silver", "natural", "white"]).default("black"),
   shadow: z.boolean().default(true),
+  focus: DeviceFocus.optional(),
+  tap: DeviceTap.optional(),
+  tilt: DeviceTilt.optional(),
+  /** Regions of the SCREEN (fractions of the visible screen) blurred for privacy. */
+  blurRegions: z.array(Region01).max(8).optional(),
 });
 
 export const ShapeLayer = LayerBase.extend({

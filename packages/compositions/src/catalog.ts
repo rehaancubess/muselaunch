@@ -100,4 +100,82 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
     purposes: ["demo", "founder"],
     needs: ["video", "app_recording"],
   },
+  "focus-zoom": {
+    label: "Focus zoom",
+    description: "Close-up: the real screen in a device frame, then a smooth push-in on one region (a button, a list, a result) with a soft highlight ring. Give `focus` {x,y,w,h} as fractions of the image you see (or a short `focusQuery`).",
+    purposes: ["demo", "feature"],
+    needs: ["screenshot", "app_recording"],
+  },
+  "tap-demo": {
+    label: "Tap demo",
+    description: "The real screen in a device frame with a finger dot and tap ripple on the control being used (the centre of `focus`). Shows the action, not just the screen.",
+    purposes: ["demo", "feature"],
+    needs: ["app_recording", "screenshot"],
+  },
+  "phone-tilt": {
+    label: "Phone tilt",
+    description: "Wide hero shot: the real screen in a device that turns in 3D over a parallax brand background, with a short headline. Good after the hook or to introduce a feature.",
+    purposes: ["demo", "feature", "hook", "transition"],
+    needs: ["screenshot", "app_recording"],
+  },
+  "kinetic-type": {
+    label: "Kinetic type",
+    description: "Punchy typography only: 2–8 words appear word by word at a readable pace, big and bold. For the problem, a turn in the story or a short benefit line.",
+    purposes: ["hook", "problem", "transition", "feature", "other"],
+    needs: ["none"],
+  },
+  "icon-reveal": {
+    label: "Icon reveal",
+    description: "The real app icon scales in with a soft glow and the app name. A brand beat (introduce the app after the problem, or before the CTA).",
+    purposes: ["transition", "cta", "other"],
+    needs: ["logo"],
+  },
+  "store-cta": {
+    label: "Store CTA",
+    description: "End card: app icon, name, the call to action and plain-text pills \"Download on the App Store\" / \"Get it on Google Play\" (no store logos).",
+    purposes: ["cta"],
+    needs: ["logo"],
+  },
+  "fullscreen-showcase": {
+    label: "Full-screen showcase",
+    description: "A designed marketing screenshot (it already has its own frame and headline) shown full screen with a slow push. The ONLY template for marketing screenshots; never inside a device.",
+    purposes: ["demo", "feature", "proof", "other"],
+    needs: ["screenshot"],
+  },
 };
+
+/** Shot size, used to vary pacing like an editor (wide device shots, close-ups, type, full-bleed). */
+export type ShotSize = "wide" | "close" | "text" | "full" | "presenter";
+
+export const TEMPLATE_SHOT: Record<TemplateId, ShotSize> = {
+  "hook-title": "text",
+  "device-demo": "wide",
+  "feature-callout": "wide",
+  "founder-cutout": "presenter",
+  "before-after": "wide",
+  "text-over-media": "full",
+  "split-screen": "wide",
+  "quote-proof": "text",
+  "stat-card": "text",
+  "cta-endcard": "text",
+  "carousel-slide": "wide",
+  "presenter-depth": "presenter",
+  "object-spotlight": "presenter",
+  "product-in-hand": "presenter",
+  "focus-zoom": "close",
+  "tap-demo": "close",
+  "phone-tilt": "wide",
+  "kinetic-type": "text",
+  "icon-reveal": "text",
+  "store-cta": "text",
+  "fullscreen-showcase": "full",
+};
+
+/** Templates that put product media inside a device frame (raw screenshots, SAM cut-outs, recordings only). */
+export const DEVICE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "split-screen", "carousel-slide", "focus-zoom", "tap-demo", "phone-tilt", "founder-cutout", "presenter-depth"]);
+
+/** Templates that show the real app (need a screenshot, cut-out, recording segment or marketing screenshot). */
+export const PRODUCT_SCENE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-showcase"]);
+
+/** End cards. */
+export const CTA_TEMPLATES = new Set<TemplateId>(["cta-endcard", "store-cta"]);

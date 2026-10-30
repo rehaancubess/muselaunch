@@ -129,7 +129,8 @@ campaignRoutes.post("/campaigns/:id/variants/:variantId/produce", requireCap("co
   const job = await p.jobs.create(
     c.get("workspaceId"),
     "storyboard.generate",
-    { appId: campaign.appId, campaignId: campaign.id, variantId: variant.id, aspectRatio: input.aspectRatio, targetDurationSec: input.targetDurationSec },
+    // Omitted length = the concept's own (30–60 s); the storyboard job falls back the same way.
+    { appId: campaign.appId, campaignId: campaign.id, variantId: variant.id, aspectRatio: input.aspectRatio, targetDurationSec: input.targetDurationSec ?? variant.targetDurationSec },
     { actor: actorOf(c), appId: campaign.appId, idempotencyKey: idempotencyKey(c), credits: { operation: "storyboard.generate" } },
   );
   return c.json({ job }, 202);

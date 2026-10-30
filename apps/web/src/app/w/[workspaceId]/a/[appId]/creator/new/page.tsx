@@ -30,14 +30,15 @@ function DeliverableEditor({ rows, onChange }: { rows: Row[]; onChange: (r: Row[
         {rows.map((r, i) => (
           <li key={i} className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:flex-nowrap">
             <div className="min-w-40 flex-1">
-              <Select aria-label="Deliverable type" selectSize="sm" value={r.kind} onChange={(e) => set(i, { kind: e.target.value as DeliverableKind, durationSec: VIDEO_KINDS.has(e.target.value as DeliverableKind) ? (r.durationSec ?? 15) : undefined })} options={KINDS.map((k) => ({ value: k, label: DELIVERABLE_LABEL[k] }))} />
+              <Select aria-label="Deliverable type" selectSize="sm" value={r.kind} onChange={(e) => set(i, { kind: e.target.value as DeliverableKind, durationSec: VIDEO_KINDS.has(e.target.value as DeliverableKind) ? r.durationSec : undefined })} options={KINDS.map((k) => ({ value: k, label: DELIVERABLE_LABEL[k] }))} />
             </div>
             <div className="w-24">
               <Select aria-label="Aspect ratio" selectSize="sm" value={r.aspectRatio} onChange={(e) => set(i, { aspectRatio: e.target.value as AspectRatio })} options={ASPECTS.map((a) => ({ value: a, label: a }))} />
             </div>
             {VIDEO_KINDS.has(r.kind) ? (
-              <div className="w-24">
-                <Select aria-label="Length" selectSize="sm" value={String(r.durationSec ?? 15)} onChange={(e) => set(i, { durationSec: Number(e.target.value) })} options={[6, 10, 15, 20, 30, 45, 60].map((s) => ({ value: String(s), label: `${s}s` }))} />
+              <div className="w-28">
+                {/* Auto: each concept gets its own length (30–60 s); a fixed length applies to every concept. */}
+                <Select aria-label="Length" selectSize="sm" value={r.durationSec ? String(r.durationSec) : "auto"} onChange={(e) => set(i, { durationSec: e.target.value === "auto" ? undefined : Number(e.target.value) })} options={[{ value: "auto", label: "30–60s" }, ...[6, 10, 15, 20, 30, 45, 60].map((s) => ({ value: String(s), label: `${s}s` }))]} />
               </div>
             ) : null}
             <div className="flex items-center gap-1 rounded-full bg-mist px-1" role="group" aria-label="Quantity">
@@ -76,7 +77,7 @@ function NewCampaignInner() {
   const [request, setRequest] = useState(params.get("request") ?? "");
   const [goal, setGoal] = useState<CampaignGoal>("awareness");
   const [channels, setChannels] = useState<Channel[]>(["instagram", "tiktok"]);
-  const [rows, setRows] = useState<Row[]>([{ kind: "short_video", aspectRatio: "9:16", count: 3, durationSec: 15 }]);
+  const [rows, setRows] = useState<Row[]>([{ kind: "short_video", aspectRatio: "9:16", count: 3 }]);
   const [conceptCount, setConceptCount] = useState<"3" | "4" | "5" | "6">("3");
   const [cap, setCap] = useState("");
   const [error, setError] = useState<string | null>(null);

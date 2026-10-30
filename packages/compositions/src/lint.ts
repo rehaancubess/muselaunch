@@ -20,7 +20,9 @@ export interface LintContext {
 }
 
 const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
-const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after"]);
+const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt"]);
+/** Comfortable on-screen reading pace (words per second) before we warn. */
+const MAX_WORDS_PER_SEC = 3.5;
 const READY = new Set(["ready", "uploaded"]);
 
 /** Average glyph advance as a fraction of font size (Inter, mixed case). */
@@ -138,6 +140,8 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
           const a = checkAsset(layer.screenAssetId, [layer.screenKind], where, "Device screen");
           if (a && !a.isProductTruth) out.push({ level: "error", ...where, message: "Device frames may only show real screenshots or recordings of the product" });
           if (a && a.origin === "generated") out.push({ level: "error", ...where, message: "Generated media cannot be shown as the app's UI" });
+          if (a && a.screenshotKind === "marketing" && a.sourceLabel !== "sam_ui_crop")
+            out.push({ level: "error", ...where, message: "This is a designed store screenshot with its own frame and headline: show it full screen (Full-screen showcase) or use its app-screen cut-out inside the device" });
           break;
         }
         case "effect": {
@@ -172,7 +176,7 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
       }
     }
     const wps = words / Math.max(0.5, scene.durationSec);
-    if (doc.kind === "video" && wps > 4) out.push({ level: "warning", sceneId: sid, message: `${words} words in ${scene.durationSec}s is hard to read; shorten the text or lengthen the scene` });
+    if (doc.kind === "video" && wps > MAX_WORDS_PER_SEC) out.push({ level: "warning", sceneId: sid, message: `${words} words in ${scene.durationSec}s is hard to read (aim for about 3 words a second); shorten the text or lengthen the scene` });
   });
 
   for (const tr of doc.audio) {

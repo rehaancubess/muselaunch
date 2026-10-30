@@ -21,11 +21,24 @@ export function loadPlans(cfg: Pick<Config, "PLANS_JSON">): Record<PlanId, Plan>
   return { ...DEFAULT_PLANS, ...(JSON.parse(cfg.PLANS_JSON) as Partial<Record<PlanId, Plan>>) };
 }
 
+/** SAM focus lookups a storyboard may make (reserved up front, charged per use). */
+export const STORYBOARD_MAX_FOCUS_LOOKUPS = 3;
+
 /** Pure credit estimate for an operation. Shown to users before costly work (spec 4.12). */
 export function estimateCredits(prices: CreditPrices, operation: string, params: Record<string, unknown> = {}): { credits: number; breakdown: { label: string; credits: number }[] } {
   const num = (k: string, d: number) => (typeof params[k] === "number" ? (params[k] as number) : d);
   const line = (label: string, credits: number) => ({ credits, breakdown: [{ label, credits }] });
   switch (operation) {
+    case "storyboard.generate": {
+      // Length unknown until the concept's own (30–60 s) is read: reserve for the longest.
+      const sec = num("targetDurationSec", 60);
+      const extra = Math.max(0, Math.ceil((sec - 30) / 15));
+      const lookups = STORYBOARD_MAX_FOCUS_LOOKUPS * (prices["storyboard.focus_lookup"] ?? 1);
+      const breakdown = [{ label: "Storyboard", credits: prices["storyboard.generate"] ?? 8 }];
+      if (extra) breakdown.push({ label: `Longer video (${extra}×15s over 30s)`, credits: extra * (prices["storyboard.generate_per_extra_15s"] ?? 2) });
+      if (lookups) breakdown.push({ label: `Up to ${STORYBOARD_MAX_FOCUS_LOOKUPS} SAM 3.1 focus lookups (charged when used)`, credits: lookups });
+      return { credits: breakdown.reduce((n, b) => n + b.credits, 0), breakdown };
+    }
     case "render.final": {
       const blocks = Math.max(1, Math.ceil(num("durationSec", 15) / 15));
       return line(`Final render (${blocks}×15s)`, blocks * (prices["render.final_per_15s"] ?? 8));

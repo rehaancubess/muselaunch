@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, Autopilot, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost, StartAutopilotRequest } from "@muselaunch/contracts";
+import { AUTO_VIDEO_DURATION, type AgentRun, type Approval, type Autopilot, type BrandReview, type Composition, type Experiment, type Job, type ResearchFinding, type ScheduledPost, type StartAutopilotRequest } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import { chooseTextModel } from "@muselaunch/providers";
 import type { z } from "zod";
@@ -18,7 +18,7 @@ export function estimateAutopilot(p: Platform, input: { variants: number; maxIte
     { label: `Campaign concepts (${chooseTextModel(p, "concepts.generate").name})`, credits: e("campaign.generate_concepts") },
     { label: `Storyboards + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
     { label: `Brand Guardian reviews ×${v}`, credits: v * e("brand.review") },
-    { label: `Final renders ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? 15 }) },
+    { label: `Final renders ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? AUTO_VIDEO_DURATION.max }) },
     { label: `Spark video reviews ×${v}`, credits: v * e("video.review") },
     { label: `Post copy ×${v}`, credits: v * e("copy.generate") },
     { label: "Experiment analysis + recommendations", credits: e("experiment.analyze") + e("recommendations.generate") },

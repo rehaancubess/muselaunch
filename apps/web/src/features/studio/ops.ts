@@ -17,6 +17,16 @@ export const TEMPLATE_LABELS: Record<string, string> = {
   "stat-card": "Stat card",
   "cta-endcard": "CTA end card",
   "carousel-slide": "Carousel slide",
+  "presenter-depth": "Presenter in front of the app",
+  "object-spotlight": "Spotlight a real object",
+  "product-in-hand": "App on the phone in hand",
+  "focus-zoom": "Focus zoom",
+  "tap-demo": "Tap demo",
+  "phone-tilt": "Phone tilt",
+  "kinetic-type": "Kinetic type",
+  "icon-reveal": "Icon reveal",
+  "store-cta": "Store CTA",
+  "fullscreen-showcase": "Full-screen showcase",
 };
 
 const rand = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "").slice(0, 12) : Math.random().toString(36).slice(2, 14));

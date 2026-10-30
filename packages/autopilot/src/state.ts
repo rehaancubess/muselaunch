@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { TERMINAL_JOB_STATUSES, type Approval, type Autopilot, type AutopilotStage, type EntityRef, type Job, type JobPayloads, type JobType } from "@muselaunch/contracts";
+import { AUTO_VIDEO_DURATION, TERMINAL_JOB_STATUSES, type Approval, type Autopilot, type AutopilotStage, type EntityRef, type Job, type JobPayloads, type JobType } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import { AppError, type JobContext, type Platform } from "@muselaunch/platform";
 import type { z } from "zod";
@@ -173,7 +173,7 @@ export class LoopEnv {
     if (from("plan_creative")) n += e("campaign.generate_concepts");
     if (from("produce")) n += v * (e("storyboard.generate") + e("composition.build") + e("render.preview"));
     if (from("verify")) n += v * e("brand.review");
-    if (from("render")) n += v * (e("render.final", { durationSec: 15 }) + e("video.review"));
+    if (from("render")) n += v * (e("render.final", { durationSec: AUTO_VIDEO_DURATION.max }) + e("video.review"));
     if (from("schedule")) n += v * e("copy.generate");
     if (from("learn")) n += e("experiment.analyze") + e("recommendations.generate");
     return n;

@@ -4,7 +4,7 @@
  * the workspace's credits, and final renders pre-approved inside that budget. Posts, outreach and
  * spending past the budget still always wait for a person (see needs-you.ts).
  */
-import { can, type Autopilot, type AutopilotAutoPlan, type AutopilotAutoStart, type Job, type WorkspaceMember } from "@muselaunch/contracts";
+import { AUTO_VIDEO_DURATION, can, type Autopilot, type AutopilotAutoPlan, type AutopilotAutoStart, type Job, type WorkspaceMember } from "@muselaunch/contracts";
 import { AppError, toAppError, type Platform } from "@muselaunch/platform";
 import { autopilotSettings, defaultGoal, dnaJobsInFlight } from "./defaults";
 import { estimateAutopilot, startAutopilot } from "./service";
@@ -12,8 +12,8 @@ import { MAX_FIX_ROUNDS } from "./stages";
 
 /** Variants an automatic run compares by default (an A/B test). */
 export const AUTO_VARIANTS = 2;
-/** Renders are budgeted at up to 30 s each: the loop targets 15 s, and a few seconds over doubles the price. */
-const BUDGET_RENDER_SEC = 30;
+/** Renders are budgeted at the longest automatic length (concepts pick 30–60 s each). */
+const BUDGET_RENDER_SEC = AUTO_VIDEO_DURATION.max;
 /** StartAutopilotRequest's ceiling for pre-approved render spend. */
 const MAX_AUTO_APPROVE = 200;
 

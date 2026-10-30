@@ -309,7 +309,8 @@ const planCreative: StageFn = async (env, step) => {
           4000,
         ),
         channels: channels.length ? channels : ["instagram", "tiktok"],
-        deliverables: [{ kind: "short_video", aspectRatio: "9:16", durationSec: 15, count: n }],
+        // No length: each concept picks its own (30–60 s).
+        deliverables: [{ kind: "short_video", aspectRatio: "9:16", count: n }],
         experimentId: h?.experimentId,
         status: "planning",
       },
@@ -388,7 +389,8 @@ const produce: StageFn = async (env, step) => {
     const jobs: Job[] = [];
     for (const variantId of env.ap.variantIds) {
       jobs.push(
-        await env.delegate("storyboard.generate", { appId: env.appId, campaignId, variantId, aspectRatio: "9:16", targetDurationSec: 15 }, { key: `storyboard:${variantId}`, label: `Delegated a storyboard to ${engine(env, "storyboard.generate")} (real screenshots for demo scenes); it builds an editable HyperFrames composition.`, credits: { operation: "storyboard.generate" } }),
+        // Length: the concept's own (30–60 s, chosen with the concept).
+        await env.delegate("storyboard.generate", { appId: env.appId, campaignId, variantId, aspectRatio: "9:16" }, { key: `storyboard:${variantId}`, label: `Delegated a storyboard to ${engine(env, "storyboard.generate")} (real screenshots for demo scenes); it builds an editable HyperFrames composition.`, credits: { operation: "storyboard.generate" } }),
       );
     }
     return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "produce:storyboards", reason: `Writing ${jobs.length} storyboard(s)` };

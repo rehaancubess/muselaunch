@@ -134,6 +134,40 @@ const DEVICES: Record<string, DeviceSpec> = {
   browser: { aspect: null, bezel: 0, outerRadius: 0.018, screenRadius: 0 },
   macbook: { aspect: 1.56, bezel: 0.025, outerRadius: 0.03, screenRadius: 0.012 },
 };
+export interface DeviceGeometry {
+  /** Device size and offset inside the layer box (px). */
+  dw: number;
+  dh: number;
+  ox: number;
+  oy: number;
+  /** The visible screen inside the layer box (px). Focus/tap/blur fractions are relative to this rect. */
+  screen: { left: number; top: number; width: number; height: number };
+}
+
+/** Where the device and its screen sit inside a w×h layer box (same maths as the frame drawing). */
+export function deviceGeometry(device: string, w: number, h: number): DeviceGeometry {
+  const spec = DEVICES[device] ?? DEVICES.iphone!;
+  let dw = w;
+  let dh = h;
+  if (spec.aspect) {
+    if (w / h > spec.aspect) dw = h * spec.aspect;
+    else dh = w / spec.aspect;
+  }
+  const ox = (w - dw) / 2;
+  const oy = (h - dh) / 2;
+  if (device === "browser") {
+    const bar = Math.max(28, dh * 0.055);
+    return { dw, dh, ox, oy, screen: { left: ox, top: oy + bar, width: dw, height: dh - bar } };
+  }
+  if (device === "macbook") {
+    const bz = dw * spec.bezel;
+    const border = Math.max(1, dw * 0.003);
+    return { dw, dh, ox, oy, screen: { left: ox + dw * 0.06 + border + bz, top: oy + border + bz, width: dw * 0.88 - bz * 2, height: dh * 0.9 - bz * 2.2 } };
+  }
+  const bz = dw * spec.bezel;
+  return { dw, dh, ox, oy, screen: { left: ox + bz, top: oy + bz, width: dw - bz * 2, height: dh - bz * 2 } };
+}
+
 const FRAME_COLORS: Record<string, { edge: string; body: string; hi: string }> = {
   black: { edge: "#2a2a2c", body: "#111113", hi: "#4a4a4e" },
   silver: { edge: "#c9cbcf", body: "#e3e4e6", hi: "#ffffff" },
@@ -373,10 +407,13 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
         volume: layer.volume,
         video: true,
       });
+      // Privacy: frosted, blurred patches over personal information (fractions of the layer box).
+      for (const r of layer.blurRegions ?? [])
+        inner += `<div class="pv" style="position:absolute;left:${px(r.x * w)};top:${px(r.y * h)};width:${px(r.w * w)};height:${px(r.h * h)};backdrop-filter:blur(${px(w * 0.03)});-webkit-backdrop-filter:blur(${px(w * 0.03)});background:rgba(232,232,237,.78);border-radius:${px(Math.min(r.w * w, r.h * h) * 0.22)}"></div>`;
       break;
     }
     case "device":
-      inner = deviceHtml(ctx, layer, w, h, win);
+      inner = deviceHtml(ctx, layer, w, h, win, left, top);
       break;
     case "shape":
       inner = shapeHtml(ctx, layer, w, h);
@@ -563,7 +600,7 @@ function textHtml(ctx: Ctx, layer: Extract<Layer, { type: "text" }>, w: number, 
   const hlWords = new Set((s.highlight?.words ?? []).map((x) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")));
   const enter = layer.animation.enter?.preset;
   const perChar = !ctx.still && enter === "typewriter";
-  const perWord = !ctx.still && enter === "mask-reveal";
+  const perWord = !ctx.still && (enter === "mask-reveal" || enter === "words");
   const tokens = splitWords(layer.text);
   const body = tokens
     .map((t) => {
@@ -599,24 +636,113 @@ function textHtml(ctx: Ctx, layer: Extract<Layer, { type: "text" }>, w: number, 
 
 // --- device -------------------------------------------------------------------------------------
 
-function deviceHtml(ctx: Ctx, layer: Extract<Layer, { type: "device" }>, w: number, h: number, win: Window): string {
-  const spec = DEVICES[layer.device] ?? DEVICES.iphone!;
-  let dw = w;
-  let dh = h;
-  if (spec.aspect) {
-    if (w / h > spec.aspect) dw = h * spec.aspect;
-    else dh = w / spec.aspect;
+type DeviceL = Extract<Layer, { type: "device" }>;
+
+/** Push-in scale + translation that brings the focus region to a comfortable size near the device's centre. */
+function focusMove(ctx: Ctx, layer: DeviceL, g: DeviceGeometry, left: number, top: number, w: number, h: number) {
+  const f = layer.focus!;
+  const { W, H } = ctx;
+  const landscape = W > H * 1.1;
+  const portrait = H > W * 1.1;
+  const rw = Math.max(4, f.w * g.screen.width);
+  const rh = Math.max(4, f.h * g.screen.height);
+  const ox = g.screen.left + (f.x + f.w / 2) * g.screen.width;
+  const oy = g.screen.top + (f.y + f.h / 2) * g.screen.height;
+  const auto = Math.min(((landscape ? 0.5 : 0.78) * W) / rw, ((portrait ? 0.42 : 0.6) * H) / rh);
+  const S = f.zoom ?? Math.max(1.2, Math.min(3.2, auto));
+  const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+  const tx = clamp(left + w / 2, W * 0.3, W * 0.7);
+  const ty = clamp(top + h / 2, H * 0.35, H * 0.65);
+  // A gentle push-in (≈1.3×) only drifts toward the centre; a real close-up brings the region to it.
+  const k = clamp((S - 1) / 0.8, 0.3, 1);
+  return { S, ox, oy, dx: (tx - (left + ox)) * k, dy: (ty - (top + oy)) * k };
+}
+
+/** Blur regions, focus ring and tap marks drawn inside the device screen (fractions of the screen). */
+function screenOverlays(ctx: Ctx, layer: DeviceL, id: string, sw: number, sh: number, S: number): string {
+  const th = ctx.doc.theme;
+  const accent = th.accent.slice(0, 7);
+  const out: string[] = [];
+  for (const r of layer.blurRegions ?? []) {
+    out.push(
+      `<div class="pv" style="position:absolute;left:${px(r.x * sw)};top:${px(r.y * sh)};width:${px(r.w * sw)};height:${px(r.h * sh)};backdrop-filter:blur(${px(sw * 0.035)});-webkit-backdrop-filter:blur(${px(sw * 0.035)});background:rgba(232,232,237,.78);border-radius:${px(Math.min(r.w * sw, r.h * sh) * 0.22)};z-index:4"></div>`,
+    );
   }
-  const ox = (w - dw) / 2;
-  const oy = (h - dh) / 2;
+  const f = layer.focus;
+  if (f && f.ring) {
+    const pad = Math.max(sw, sh) * 0.012;
+    const rw = f.w * sw + pad * 2;
+    const rh = f.h * sh + pad * 2;
+    const bw = Math.max(1.2, (ctx.W * 0.0045) / S);
+    out.push(
+      `<div id="${id}-ring" style="position:absolute;left:${px(f.x * sw - pad)};top:${px(f.y * sh - pad)};width:${px(rw)};height:${px(rh)};border:${px(bw)} solid ${withAlpha(accent, 0.95)};border-radius:${px(Math.min(rw, rh) * 0.2)};box-shadow:0 0 0 ${px(Math.max(sw, sh) * 2)} rgba(10,10,14,.28),0 0 ${px((ctx.W * 0.02) / S)} ${withAlpha(accent, 0.6)};z-index:5${ctx.still ? "" : ";opacity:0"}"></div>`,
+    );
+  }
+  const t = layer.tap;
+  if (t) {
+    const d = (sw * 0.17) / S;
+    const cx = t.x * sw;
+    const cy = t.y * sh;
+    out.push(
+      `<div id="${id}-tapr" style="position:absolute;left:${px(cx - d / 2)};top:${px(cy - d / 2)};width:${px(d)};height:${px(d)};border-radius:50%;border:${px(d * 0.07)} solid rgba(255,255,255,.95);box-shadow:0 0 ${px(d * 0.25)} rgba(0,0,0,.25);opacity:0;z-index:6"></div>`,
+      `<div id="${id}-tapd" style="position:absolute;left:${px(cx - d * 0.36)};top:${px(cy - d * 0.36)};width:${px(d * 0.72)};height:${px(d * 0.72)};border-radius:50%;background:rgba(255,255,255,.6);border:${px(Math.max(1, d * 0.045))} solid rgba(255,255,255,.92);box-shadow:0 ${px(d * 0.08)} ${px(d * 0.3)} rgba(0,0,0,.35);z-index:6${ctx.still ? "" : ";opacity:0"}"></div>`,
+    );
+  }
+  return out.join("");
+}
+
+/** Timeline for focus push-in, ring, tap and 3D tilt (numbers + our own ids only). */
+function deviceMotion(ctx: Ctx, layer: DeviceL, id: string, win: Window, move: ReturnType<typeof focusMove> | null) {
+  const tl = ctx.tl;
+  const life = win.end - win.start;
+  if (move) {
+    const t0 = Math.min(win.start + layer.focus!.atSec, win.end - 0.2);
+    const dur = Math.max(0.3, Math.min(1.15, win.end - t0 - 0.1));
+    tl.push(`tl.fromTo(q("${id}-z"), {x:0, y:0, scale:1}, {x:${n(move.dx, 1)}, y:${n(move.dy, 1)}, scale:${n(move.S)}, duration:${n(dur)}, ease:"power3.inOut"}, ${n(t0)});`);
+    if (layer.focus!.ring) tl.push(`tl.fromTo(q("${id}-ring"), {opacity:0, scale:1.08}, {opacity:1, scale:1, duration:0.45, ease:"power2.out"}, ${n(t0 + dur * 0.8)});`);
+  }
+  const t = layer.tap;
+  if (t) {
+    const at = Math.max(win.start + 0.45, Math.min(win.start + t.atSec, win.end - 0.5));
+    const travel = ctx.W * 0.06;
+    tl.push(`tl.fromTo(q("${id}-tapd"), {opacity:0, x:${n(travel, 1)}, y:${n(travel * 1.5, 1)}, scale:1.15}, {opacity:1, x:0, y:0, scale:1, duration:0.42, ease:"power2.out"}, ${n(at - 0.42)});`);
+    tl.push(`tl.fromTo(q("${id}-tapd"), {scale:1}, {scale:0.78, duration:0.12, ease:"power1.in", immediateRender:false}, ${n(at)});`);
+    tl.push(`tl.fromTo(q("${id}-tapd"), {scale:0.78}, {scale:1, duration:0.2, ease:"power1.out", immediateRender:false}, ${n(at + 0.12)});`);
+    tl.push(`tl.fromTo(q("${id}-tapr"), {opacity:0.95, scale:0.45}, {opacity:0, scale:2.3, duration:0.75, ease:"power2.out"}, ${n(at)});`);
+    tl.push(`tl.fromTo(q("${id}-tapd"), {opacity:1}, {opacity:0, duration:0.35, ease:"power1.in", immediateRender:false}, ${n(Math.min(at + 0.9, win.end - 0.36))});`);
+  }
+  const tilt = layer.tilt;
+  if (tilt) {
+    const toX = tilt.swing ? tilt.x * 0.35 : tilt.x;
+    const toY = tilt.swing ? -tilt.y * 0.3 : tilt.y;
+    tl.push(`tl.fromTo(q("${id}-t"), {rotationX:${n(tilt.x, 2)}, rotationY:${n(tilt.y, 2)}, transformPerspective:1600}, {rotationX:${n(toX, 2)}, rotationY:${n(toY, 2)}, transformPerspective:1600, duration:${n(life)}, ease:"sine.inOut"}, ${n(win.start)});`);
+  }
+}
+
+function deviceHtml(ctx: Ctx, layer: DeviceL, w: number, h: number, win: Window, left = 0, top = 0): string {
+  const spec = DEVICES[layer.device] ?? DEVICES.iphone!;
+  const g = deviceGeometry(layer.device, w, h);
+  const { dw, dh, ox, oy } = g;
   const fc = FRAME_COLORS[layer.frameColor] ?? FRAME_COLORS.black!;
   const media = mediaElement(ctx, layer.screenAssetId, layer.screenKind === "video" ? `v-${layer.id}` : `i-${layer.id}`, win, {
     cls: "media",
     trimIn: layer.trimInSec,
-    rate: 1,
+    rate: layer.screenKind === "video" ? (layer.playbackRate ?? 1) : 1,
     muted: true,
     video: layer.screenKind === "video",
   });
+  const id = `l-${layer.id}`;
+  const move = layer.focus ? focusMove(ctx, layer, g, left, top, w, h) : null;
+  const overlays = screenOverlays(ctx, layer, id, g.screen.width, g.screen.height, move?.S ?? 1);
+  if (!ctx.still) deviceMotion(ctx, layer, id, win, move);
+  // Wrappers: tilt (3D) → zoom (push-in about the focus point) → the device itself.
+  const wrap = (frame: string) => {
+    const zStyle = move ? `transform-origin:${px(move.ox)} ${px(move.oy)};${ctx.still ? `transform:translate(${px(move.dx)},${px(move.dy)}) scale(${n(move.S)});` : ""}` : "";
+    let out = move || overlays ? `<div class="dz" id="${id}-z" style="position:absolute;inset:0;${zStyle}">${frame}</div>` : frame;
+    if (layer.tilt) out = `<div class="dt" id="${id}-t" style="position:absolute;inset:0;transform:perspective(1600px) rotateX(${n(layer.tilt.x, 2)}deg) rotateY(${n(layer.tilt.y, 2)}deg)">${out}</div>`;
+    return out;
+  };
+  const screenExtra = overlays;
   const shadow = layer.shadow
     ? `box-shadow:0 ${px(dh * 0.045)} ${px(dh * 0.09)} rgba(15,20,35,.26),0 ${px(dh * 0.012)} ${px(dh * 0.025)} rgba(15,20,35,.18);`
     : "";
@@ -625,18 +751,18 @@ function deviceHtml(ctx: Ctx, layer: Extract<Layer, { type: "device" }>, w: numb
     const dot = bar * 0.28;
     const r = dw * spec.outerRadius;
     const dots = ["#ff5f57", "#febc2e", "#28c840"].map((c, i) => `<span style="position:absolute;left:${px(bar * 0.45 + i * dot * 1.7)};top:${px((bar - dot) / 2)};width:${px(dot)};height:${px(dot)};border-radius:50%;background:${c}"></span>`).join("");
-    return `<div class="dev dev-browser" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)};border-radius:${px(r)};${shadow}overflow:hidden;background:#fff">
+    return wrap(`<div class="dev dev-browser" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)};border-radius:${px(r)};${shadow}overflow:hidden;background:#fff">
 <div style="position:absolute;left:0;top:0;width:100%;height:${px(bar)};background:linear-gradient(#f6f6f7,#ececee);border-bottom:1px solid rgba(0,0,0,.08)">${dots}<span style="position:absolute;left:30%;width:40%;top:${px(bar * 0.22)};height:${px(bar * 0.56)};border-radius:${px(bar * 0.28)};background:rgba(0,0,0,.06)"></span></div>
-<div class="dev-screen" style="left:0;top:${px(bar)};width:100%;height:${px(dh - bar)};background:#fff">${media}</div></div>`;
+<div class="dev-screen" style="left:0;top:${px(bar)};width:100%;height:${px(dh - bar)};background:#fff">${media}${screenExtra}</div></div>`);
   }
   if (layer.device === "macbook") {
     const lidH = dh * 0.9;
     const bz = dw * spec.bezel;
     const r = dw * spec.outerRadius;
-    return `<div class="dev dev-macbook" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)}">
+    return wrap(`<div class="dev dev-macbook" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)}">
 <div style="position:absolute;left:${px(dw * 0.06)};top:0;width:${px(dw * 0.88)};height:${px(lidH)};border-radius:${px(r)} ${px(r)} ${px(r * 0.3)} ${px(r * 0.3)};background:#0d0d0f;border:${px(Math.max(1, dw * 0.003))} solid ${fc.edge};${shadow}">
-<div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(dw * 0.88 - bz * 2)};height:${px(lidH - bz * 2.2)};border-radius:${px(dw * spec.screenRadius)}">${media}</div></div>
-<div style="position:absolute;left:0;top:${px(lidH)};width:100%;height:${px(dh - lidH)};border-radius:0 0 ${px(dh * 0.08)} ${px(dh * 0.08)};background:linear-gradient(${fc.hi},${fc.body} 45%,${fc.edge})"></div></div>`;
+<div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(dw * 0.88 - bz * 2)};height:${px(lidH - bz * 2.2)};border-radius:${px(dw * spec.screenRadius)}">${media}${screenExtra}</div></div>
+<div style="position:absolute;left:0;top:${px(lidH)};width:100%;height:${px(dh - lidH)};border-radius:0 0 ${px(dh * 0.08)} ${px(dh * 0.08)};background:linear-gradient(${fc.hi},${fc.body} 45%,${fc.edge})"></div></div>`);
   }
   const bz = dw * spec.bezel;
   const R = dw * spec.outerRadius;
@@ -652,11 +778,11 @@ function deviceHtml(ctx: Ctx, layer: Extract<Layer, { type: "device" }>, w: numb
     layer.device === "iphone" || layer.device === "android"
       ? `<span style="position:absolute;left:${px(-rim * 0.9)};top:${px(dh * 0.2)};width:${px(rim * 1.2)};height:${px(dh * 0.06)};border-radius:${px(rim)};background:${fc.edge}"></span><span style="position:absolute;left:${px(-rim * 0.9)};top:${px(dh * 0.29)};width:${px(rim * 1.2)};height:${px(dh * 0.06)};border-radius:${px(rim)};background:${fc.edge}"></span><span style="position:absolute;right:${px(-rim * 0.9)};top:${px(dh * 0.25)};width:${px(rim * 1.2)};height:${px(dh * 0.1)};border-radius:${px(rim)};background:${fc.edge}"></span>`
       : "";
-  return `<div class="dev dev-${layer.device}" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)}">${buttons}
+  return wrap(`<div class="dev dev-${layer.device}" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)}">${buttons}
 <div class="dev-body" style="border-radius:${px(R)};background:linear-gradient(145deg,${fc.hi},${fc.edge} 18%,${fc.body} 50%,${fc.edge} 82%,${fc.hi});${shadow}">
 <div style="position:absolute;left:${px(rim)};top:${px(rim)};right:${px(rim)};bottom:${px(rim)};border-radius:${px(R - rim)};background:#050505"></div>
-<div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(dw - bz * 2)};height:${px(dh - bz * 2)};border-radius:${px(r)}">${media}${island}<div style="position:absolute;inset:0;border-radius:${px(r)};background:linear-gradient(115deg,rgba(255,255,255,.10),rgba(255,255,255,0) 38%);pointer-events:none;z-index:2"></div></div>
-</div></div>`;
+<div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(dw - bz * 2)};height:${px(dh - bz * 2)};border-radius:${px(r)}">${media}${island}<div style="position:absolute;inset:0;border-radius:${px(r)};background:linear-gradient(115deg,rgba(255,255,255,.10),rgba(255,255,255,0) 38%);pointer-events:none;z-index:2"></div>${screenExtra}</div>
+</div></div>`);
 }
 
 // --- shapes & blocks ----------------------------------------------------------------------------
@@ -700,19 +826,23 @@ function blockHtml(ctx: Ctx, layer: Extract<Layer, { type: "block" }>, w: number
     }
     case "store-badges": {
       const p = BLOCK_PARAMS["store-badges"].parse(layer.params);
-      const pills: string[] = [];
-      if (p.ios ?? true) pills.push("App Store");
-      if (p.android) pills.push("Google Play");
-      if (p.web) pills.push("Web");
-      const pillH = Math.min(h * (p.label ? 0.6 : 1), w / Math.max(1, pills.length) / 2.6);
+      const pills: { small?: string; big: string }[] = [];
+      if (p.ios ?? true) pills.push(p.full ? { small: "Download on the", big: "App Store" } : { big: "App Store" });
+      if (p.android) pills.push(p.full ? { small: "Get it on", big: "Google Play" } : { big: "Google Play" });
+      if (p.web) pills.push(p.full ? { small: "Try it on the", big: "Web" } : { big: "Web" });
+      const rows = p.stack ? Math.max(1, pills.length) : 1;
+      const perRow = p.stack ? 1 : Math.max(1, pills.length);
+      const avail = h * (p.label ? 0.75 : 1);
+      const pillH = Math.min(avail / rows / (p.stack ? 1.3 : 1), w / perRow / (p.full ? 3.6 : 2.6));
       const dark = luminance(th.background) > 0.4;
       const fg = dark ? "#FFFFFF" : "#000000";
       const bgc = dark ? "#000000" : "#FFFFFF";
       const label = p.label ? `<div style="font-family:${fontStack(th, "body")};font-size:${px(pillH * 0.34)};font-weight:600;letter-spacing:.02em;color:${th.textMuted};margin-bottom:${px(pillH * 0.22)};text-transform:uppercase">${esc(p.label)}</div>` : "";
-      return `<div class="media" style="display:flex;flex-direction:column;align-items:center;justify-content:center">${label}<div style="display:flex;gap:${px(pillH * 0.3)}">${pills
+      const pillW = p.full ? pillH * 3.3 : undefined;
+      return `<div class="media" style="display:flex;flex-direction:column;align-items:center;justify-content:center">${label}<div style="display:flex;flex-direction:${p.stack ? "column" : "row"};gap:${px(pillH * 0.3)}">${pills
         .map(
           (t) =>
-            `<div style="height:${px(pillH)};padding:0 ${px(pillH * 0.5)};border-radius:${px(pillH * 0.26)};background:${bgc};color:${fg};display:flex;align-items:center;font-family:${fontStack(th, "body")};font-size:${px(pillH * 0.4)};font-weight:600;letter-spacing:-0.01em;white-space:nowrap">${esc(t)}</div>`,
+            `<div style="height:${px(pillH)};${pillW ? `width:${px(pillW)};justify-content:center;` : ""}padding:0 ${px(pillH * 0.5)};border-radius:${px(pillH * 0.26)};background:${bgc};color:${fg};display:flex;flex-direction:column;align-items:${pillW ? "center" : "flex-start"};justify-content:center;font-family:${fontStack(th, "body")};white-space:nowrap">${t.small ? `<span style="font-size:${px(pillH * 0.2)};font-weight:500;letter-spacing:.01em;line-height:1.1;opacity:.9">${esc(t.small)}</span>` : ""}<span style="font-size:${px(pillH * (t.small ? 0.36 : 0.4))};font-weight:600;letter-spacing:-0.01em;line-height:1.1">${esc(t.big)}</span></div>`,
         )
         .join("")}</div></div>`;
     }
@@ -770,6 +900,14 @@ function animateLayer(ctx: Ctx, layer: Layer, id: string, win: Window, sceneStar
         if (layer.type === "text") {
           const chars = layer.text.replace(/\s+/g, "").length || 1;
           tl.push(`tl.fromTo(qa("${id}", ".ch"), {opacity:0}, {opacity:1, duration:0.01, stagger:${n(Math.min(0.06, a.enter.durationSec / chars), 4)}, ease:"none"}, ${t});`);
+        } else tl.push(`tl.fromTo(${sel}, {opacity:0}, {opacity:1, duration:${dur}, ease:${ease}}, ${t});`);
+        break;
+      case "words":
+        if (layer.type === "text") {
+          // Word by word at a readable pace: ~3 words per second, each word pops up into place.
+          const words = layer.text.split(/\s+/).filter(Boolean).length || 1;
+          const stagger = n(Math.max(0.16, Math.min(0.42, a.enter.durationSec / words)), 4);
+          tl.push(`tl.fromTo(qa("${id}", ".wi"), {yPercent:70, opacity:0, scale:0.92}, {yPercent:0, opacity:1, scale:1, duration:0.34, stagger:${stagger}, ease:"back.out(1.7)"}, ${t});`);
         } else tl.push(`tl.fromTo(${sel}, {opacity:0}, {opacity:1, duration:${dur}, ease:${ease}}, ${t});`);
         break;
       case "mask-reveal":

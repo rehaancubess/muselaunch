@@ -138,8 +138,10 @@ const textRoutes = [
   // Same scene plan for every concept, but titled and hooked from the concept in the request so
   // storyboards for different concepts are distinguishable.
   jsonRoute("Storyboard", (req) => {
-    const sb = resolvePlaceholders(fixtureJson<{ title: string; scenes: { purpose: string; onScreenText: string }[] }>("spark-storyboard-repaired.json"), req);
     const text = requestText(req);
+    // 30–60 s videos (the default) get the long, editor-style scene plan.
+    const long = Number(text.match(/target (\d+) seconds total/)?.[1] ?? 0) >= 30;
+    const sb = resolvePlaceholders(fixtureJson<{ title: string; scenes: { purpose: string; onScreenText: string }[] }>(long ? "spark-storyboard-long.json" : "spark-storyboard-repaired.json"), req);
     const concept = text.match(/^Concept: (.+?) \([\w-]+\)$/m)?.[1];
     const hook = text.match(/^Hook: (.+)$/m)?.[1]?.replace(/^["“]|["”]$/g, "");
     if (concept) sb.title = concept.slice(0, 80);

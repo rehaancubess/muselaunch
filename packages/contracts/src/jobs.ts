@@ -14,7 +14,8 @@ export const JobPayloads = {
   "research.run": z.object({ appId: Id, researchRunId: Id, kinds: z.array(ResearchKind).min(1) }),
   "strategy.run": z.object({ appId: Id, agentRunId: Id, goal: z.string().max(4000), campaignId: Id.optional() }),
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
-  "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).default(15) }),
+  /** targetDurationSec omitted = the concept's length (CampaignVariant.targetDurationSec), else 30–60 s. */
+  "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).optional() }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
   /** Lifestyle b-roll: turn the storyboard's stock/generated hints into licensed assets, then enqueue composition.build. */
   "storyboard.resolve_media": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),

@@ -171,4 +171,28 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     await p.storage.downloadToFile(poster.storagePath, posterFile);
     expect(statSync(posterFile).size).toBeGreaterThan(20_000);
   });
+
+  it("renders a ~40 s editor-style cut (kinetic type, icon reveal, phone tilt, focus zoom, tap, full screen, store CTA)", async () => {
+    const { sampleLongStoryboard } = await import("./sample");
+    const ws = p.db.ws(wid);
+    const sb = sampleLongStoryboard(wid);
+    const { id: sbId, workspaceId: _w, createdAt: _c, updatedAt: _u, createdBy: _b, ...sbInput } = sb;
+    await ws.collection("storyboards").createIfAbsent({ id: sbId, ...sbInput }, { actor: "fixture" });
+    await p.jobs.create(wid, "composition.build", { appId: sb.appId, storyboardId: sbId, compositionId: "cmp_long" }, { actor: "u1", idempotencyKey: "bl" });
+    await p.inline!.drain();
+    const comp = await ws.collection("compositions").getOrThrow("cmp_long");
+    expect(comp.lastRender?.quality).toBe("preview");
+    const v1 = await getVersion(ws, "cmp_long", 1);
+    expect(new Set(v1.doc.scenes.map((s) => s.template)).size).toBeGreaterThanOrEqual(8);
+    const asset = await ws.collection("mediaAssets").getOrThrow(comp.lastRender!.assetId!);
+    const file = join(tmp, "long-preview.mp4");
+    await p.storage.downloadToFile(asset.storagePath, file);
+    const info = await probe(file);
+    expect(Math.abs(info.durationSec! - sb.targetDurationSec)).toBeLessThan(0.25);
+    // Kinetic hook, phone tilt, focus zoom (ring), tap demo, second focus zoom.
+    const times = [1.6, 10.5, 15.2, 18.4, 26];
+    const frames = times.map((t) => join(FIXTURES_DIR, "samples", `long-cut-${t}.png`));
+    for (const [i, t] of times.entries()) await extractFrame(file, t, frames[i]!);
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...frames.flatMap((f) => ["-i", f]), "-filter_complex", `${frames.map((_, i) => `[${i}]scale=270:-1[f${i}]`).join(";")};${frames.map((_, i) => `[f${i}]`).join("")}hstack=${frames.length}`, "-frames:v", "1", "-update", "1", join(FIXTURES_DIR, "samples", "long-cut-sheet.png")]);
+  });
 });
