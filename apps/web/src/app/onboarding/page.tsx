@@ -1,11 +1,13 @@
 "use client";
 import { ErrorState, Select, Spinner } from "@muselaunch/ui";
+import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { LogoMark } from "@/components/logo";
 import { AddAppForm, ImportProgress, type AutopilotChoice, type CreatedApp } from "@/components/onboarding/add-app";
 import { RequireAuth } from "@/components/require-auth";
+import { WalkthroughExplainer, WalkthroughPrompt } from "@/features/media/walkthrough";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { CreateWorkspaceResponse } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -118,6 +120,7 @@ function OnboardingInner() {
           onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).creator)}
           onReview={() => void finish(routes.app(created.workspaceId, created.app.id).brand)}
         />
+        <WalkthroughPrompt workspaceId={created.workspaceId} appId={created.app.id} variant="inline" />
       </div>
     );
   }
@@ -139,6 +142,16 @@ function OnboardingInner() {
         }}
         footer={<CountryLine country={country} onChange={setCountry} workspaceName={existing ? null : name} />}
       />
+      <details className="group rounded-2xl bg-mist/60 px-4 py-3 [&_summary::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-body-sm font-medium text-ink">
+          <span>
+            Optional next: record one walkthrough of your app
+            <span className="block text-footnote font-normal text-ink-2">Makes every video show your real app moving. You can add it after Go, on your app’s Home.</span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-ink-3 transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <WalkthroughExplainer className="pt-4" />
+      </details>
     </div>
   );
 }
