@@ -24,3 +24,4 @@ apps/web/public/vendor/
 
 # Local agent worktrees and tool state
 .claude/
+fixtures/live/pipeline/
