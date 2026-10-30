@@ -49,8 +49,22 @@ export interface ItunesResult {
   supportedDevices?: string[];
 }
 
+/**
+ * The Lookup API's screenshot URLs are small renditions (`.../392x696bb.png`, 160 px wide once the phone
+ * screen is cut out of a store image). mzstatic serves any size from the name, so ask for one whose long
+ * edge is 2400 px (same aspect ratio); the original is the upper bound.
+ */
+export function upscaleAppStoreImage(url: string, longEdge = 2400): string {
+  const m = url.match(/\/(\d+)x(\d+)([a-z]{0,3})\.(png|jpe?g|webp)$/i);
+  if (!m || !/mzstatic\.com\//.test(url)) return url;
+  const [w, h] = [Number(m[1]), Number(m[2])];
+  const scale = longEdge / Math.max(w, h);
+  if (!(scale > 1)) return url;
+  return url.replace(m[0], `/${Math.round(w * scale)}x${Math.round(h * scale)}${m[3] || "bb"}.${m[4]}`);
+}
+
 export function listingFromItunes(r: ItunesResult, requestedUrl: string, fetchedAt: string): StoreListing {
-  const shots = (r.screenshotUrls?.length ? r.screenshotUrls : (r.ipadScreenshotUrls ?? [])).filter(isHttpUrl).slice(0, 10);
+  const shots = (r.screenshotUrls?.length ? r.screenshotUrls : (r.ipadScreenshotUrls ?? [])).filter(isHttpUrl).slice(0, 10).map((u) => upscaleAppStoreImage(u));
   const icon = [r.artworkUrl512, r.artworkUrl100].find(isHttpUrl);
   const price = r.formattedPrice ?? (r.price === 0 ? "Free" : r.price !== undefined ? `${r.price} ${r.currency ?? ""}`.trim() : undefined);
   const url = isHttpUrl(r.trackViewUrl) ? r.trackViewUrl : requestedUrl;

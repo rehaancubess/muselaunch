@@ -185,3 +185,13 @@ describe("app.import → app.analyze → App DNA", () => {
     expect(imp.status).toBe("failed");
   });
 });
+
+describe("App Store screenshot size", () => {
+  it("asks mzstatic for a 2400 px rendition (same aspect ratio); other URLs are unchanged", async () => {
+    const { upscaleAppStoreImage } = await import("./import/parsers");
+    expect(upscaleAppStoreImage("https://is1-ssl.mzstatic.com/image/thumb/Purple/v4/ab/shot.png/392x696bb.png")).toBe("https://is1-ssl.mzstatic.com/image/thumb/Purple/v4/ab/shot.png/1352x2400bb.png");
+    expect(upscaleAppStoreImage("https://is1-ssl.mzstatic.com/image/thumb/x/shot.jpg/696x392bb.jpg")).toBe("https://is1-ssl.mzstatic.com/image/thumb/x/shot.jpg/2400x1352bb.jpg");
+    expect(upscaleAppStoreImage("https://is1-ssl.mzstatic.com/image/thumb/x/shot.png/2400x5000bb.png")).toBe("https://is1-ssl.mzstatic.com/image/thumb/x/shot.png/2400x5000bb.png");
+    expect(upscaleAppStoreImage("https://example.com/shot/392x696bb.png")).toBe("https://example.com/shot/392x696bb.png");
+  });
+});
