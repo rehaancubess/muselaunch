@@ -363,6 +363,9 @@ importers:
 
   packages/media:
     dependencies:
+      '@muselaunch/compositions':
+        specifier: workspace:*
+        version: link:../compositions
       '@muselaunch/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -448,6 +451,9 @@ importers:
       '@muselaunch/db':
         specifier: workspace:*
         version: link:../db
+      '@muselaunch/media':
+        specifier: workspace:*
+        version: link:../media
       '@muselaunch/platform':
         specifier: workspace:*
         version: link:../platform

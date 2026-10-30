@@ -8,6 +8,7 @@
  * Every visual is produced by the allowlisted components below.
  */
 import type { CompositionDoc, Layer, MaskUse, Scene, Theme, TracksFile } from "@muselaunch/contracts";
+import { compileAudioTags } from "./audio";
 import { BLOCK_PARAMS, isBlockId } from "./blocks";
 import { estimateTextHeight } from "./lint";
 import { anchorPoint, clipMapping, holdGaps, sampleTrack, trackTweens, trackUsable, type SegmentationInfo } from "./objects";
@@ -924,19 +925,10 @@ function compileCaptions(ctx: Ctx, total: number): string {
   return out.join("\n");
 }
 
+/** Music, voiceover and effects (Track 3, ./audio.ts): music is ducked under speech by an automation lane. */
 function compileAudio(ctx: Ctx, total: number): string {
-  const { doc } = ctx;
   if (ctx.still) return "";
-  const hasVoice = doc.audio.some((a) => a.kind === "voiceover");
-  return doc.audio
-    .filter((a) => a.startSec < total)
-    .map((a) => {
-      ctx.assetIds.add(a.assetId);
-      const end = Math.min(a.endSec ?? total, total);
-      const vol = a.kind === "music" && hasVoice && a.duckUnderVoice ? a.volume * 0.35 : a.volume;
-      return `<audio id="a-${a.id}" src="${esc(ctx.opts.assetUrl(a.assetId))}" data-start="${n(a.startSec)}" data-duration="${n(end - a.startSec)}" data-media-start="${n(a.trimInSec)}" data-volume="${n(vol)}" data-fade-in="${n(a.fadeInSec)}" data-fade-out="${n(a.fadeOutSec)}" data-track-index="${100 + doc.audio.indexOf(a)}" preload="auto"></audio>`;
-    })
-    .join("\n");
+  return compileAudioTags(ctx.doc, total, ctx.opts.assetUrl, ctx.assetIds);
 }
 
 /** Every asset id a doc can reference (before mask resolution); used to fetch media for renders. */

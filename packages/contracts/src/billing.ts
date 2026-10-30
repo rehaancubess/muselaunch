@@ -143,6 +143,12 @@ export const DEFAULT_CREDIT_PRICES = {
   "brand.review": 1,
   /** Autopilot steps are free; the jobs they delegate reserve their own credits within the loop budget. */
   "autopilot.step": 0,
+  /** Original music and sound effects run on our own synthesizer: no provider cost. */
+  "media.music": 0,
+  /** AI voiceover: external TTS per started 100 characters (per generation; one regeneration may run). */
+  "media.voiceover_per_100_chars": 1,
+  /** Muse Voice Transcribe check / caption timing of a voiceover, per started minute (per pass). */
+  "media.voiceover_check_per_min": 1,
 } as const;
 export type CreditOperation = keyof typeof DEFAULT_CREDIT_PRICES;
 

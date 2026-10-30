@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BaseEntity, Id, IsoDateTime } from "./common";
+import { DEFAULT_SOUND_SETTINGS, WorkspaceSoundSettings } from "./sound";
 
 export const Role = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof Role>;
@@ -52,8 +53,10 @@ export const Workspace = BaseEntity.extend({
       metaDataMode: z.enum(["standard"]).default("standard"),
       /** Growth Autopilot is the default for everything; "I'll do it myself" turns it off. */
       autopilot: WorkspaceAutopilotSettings.default({ ...DEFAULT_AUTOPILOT_SETTINGS }),
+      /** Video sound defaults: original music + effects on, AI voiceover (external TTS) off. Additive. */
+      sound: WorkspaceSoundSettings.default({ ...DEFAULT_SOUND_SETTINGS }),
     })
-    .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } }),
+    .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS }, sound: { ...DEFAULT_SOUND_SETTINGS } }),
 });
 export type Workspace = z.infer<typeof Workspace>;
 

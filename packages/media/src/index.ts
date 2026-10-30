@@ -3,6 +3,7 @@ import { analyzeClipHandler } from "./clip";
 import { imageGenerateHandler } from "./images";
 import { probeHandler } from "./probe";
 import { segmentHandler } from "./segment";
+import { musicHandler, voiceoverHandler } from "./sound";
 import { transcribeHandler } from "./transcribe";
 import { ttsHandler } from "./tts";
 
@@ -14,7 +15,13 @@ export const handlers: HandlerRegistry = {
   "media.image_generate": imageGenerateHandler,
   "media.tts": ttsHandler,
   "media.analyze_clip": analyzeClipHandler,
+  "media.music": musicHandler,
+  "media.voiceover": voiceoverHandler,
 };
+
+// Sound (Track 3): original music + SFX synthesized by our own code, verified AI voiceover.
+export { renderMusic, planArrangement, renderSfx, encodeM4a, wavBytes, integratedLoudness, ensureMusicAsset, ensureSfxLibrary, moodFromText, musicAssetId, sfxAssetId, MUSIC_ENGINE_VERSION, SFX_ENGINE_VERSION, type MusicRender, type MusicPlan } from "./music";
+export { prepareSoundtrack, soundSettings, narrationScript, setSfx, removeMusic, removeVoiceover, normalizeWords, wordErrorRate, scriptTurns, voiceoverCredits, type SoundtrackResult, type VoiceoverResult } from "./sound";
 
 export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "./captions";
 export { ffmpeg, ffmpegPath, ffprobePath, ffmpegWriter, probeMedia, countVideoFrames, type MediaProbe } from "./ffmpeg";

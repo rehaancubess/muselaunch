@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AspectRatio, BaseEntity, EntityRef, ErrorInfo, Id, IsoDateTime } from "./common";
 import { YouTubeChannelRelation } from "./analytics";
 import { ResearchKind } from "./research";
+import { MusicMood } from "./sound";
 
 /**
  * Every asynchronous unit of work. Payload schemas below are the contract between
@@ -54,6 +55,22 @@ export const JobPayloads = {
   "brand.review": z.object({ appId: Id, reviewId: Id }),
   /** Advance the Growth Autopilot loop by one stage. */
   "autopilot.step": z.object({ autopilotId: Id }),
+  /** Original music (our own synthesizer) for a composition: render, store, commit a version with it. */
+  "media.music": z.object({ appId: Id, compositionId: Id, baseVersion: z.number().int().min(1), mood: MusicMood, seed: z.string().min(1).max(120), volume: z.number().min(0).max(1).optional() }),
+  /**
+   * Voiceover for a composition. `tts`: OpenAI TTS (external, labelled) verified with Muse Voice
+   * Transcribe (regenerated once when the word error rate is high). `recording`: the founder's own
+   * audio, transcribed for caption timing. Commits a version with the voice, captions and ducking.
+   */
+  "media.voiceover": z.object({
+    appId: Id,
+    compositionId: Id,
+    baseVersion: z.number().int().min(1),
+    source: z.enum(["tts", "recording"]),
+    text: z.string().min(1).max(4000).optional(),
+    voice: z.string().max(40).optional(),
+    assetId: Id.optional(),
+  }),
 } as const;
 
 export type JobType = keyof typeof JobPayloads;
@@ -98,6 +115,8 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "media.analyze_clip": "media",
   "brand.review": "agents",
   "autopilot.step": "agents",
+  "media.music": "media",
+  "media.voiceover": "media",
 };
 
 export const JobProgress = z.object({
