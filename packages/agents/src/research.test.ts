@@ -5,14 +5,14 @@ import { fixtureJson, installFakeMeta, installFakeWeb, type MetaRoute, searchRou
 
 type Turns = { turns: { name: string; args: unknown }[][] };
 
-async function setup(budget?: Record<string, number>, turns = fixtureJson<Turns>("wonder-research-turns.json").turns, search: MetaRoute = searchRoute()) {
+async function setup(budget?: Record<string, number>, turns = fixtureJson<Turns>("wonder-research-turns.json").turns, search: MetaRoute = searchRoute(), first?: MetaRoute) {
   const p = createTestPlatform({ META_API_KEY: "test-key" }, handlers);
   const wid = "ws_research";
   await p.credits.ensureAccount(wid, { grant: 500, reason: "test" });
   const seed = await seedApp(p, wid);
   const ws = p.db.ws(wid);
   const wonder = wonderRoute(turns);
-  const meta = installFakeMeta(p, [wonder, search, textRoute("Summarise these research findings", "Sources report that study-with-me timer videos recur on short-form platforms. This may mean Tidy Timer's timer screen is a natural hook.")]);
+  const meta = installFakeMeta(p, [...(first ? [first] : []), wonder, search, textRoute("Summarise these research findings", "Sources report that study-with-me timer videos recur on short-form platforms. This may mean Tidy Timer's timer screen is a natural hook.")]);
   installFakeWeb(p, [{ match: "https://calmstudy.example.com/about", contentType: "text/html", body: "<html><head><title>CalmStudy</title></head><body><h1>CalmStudy</h1><p>Daily Pomodoro study-with-me streams. Business inquiries: hello@calmstudy.example.com</p><script>steal()</script></body></html>" }]);
   const rr = await ws.collection("researchRuns").create({ appId: seed.appId, kinds: ["trends", "competitors", "creators", "opportunities"], status: "queued", inputs: { countries: ["US"], languages: ["en"], channels: [], competitorIds: [] } }, { actor: "u1" });
   if (budget) {
@@ -114,6 +114,34 @@ describe("research.run (Muse Wonder tool loop + Spark search grounding)", () => 
     expect((await s.ws.collection("researchRuns").getOrThrow(s.rrId)).status).toBe("succeeded");
     const run = await s.ws.collection("agentRuns").getOrThrow((await s.ws.collection("researchRuns").getOrThrow(s.rrId)).agentRunId!);
     expect(run.usage.searchCalls).toBe(1);
+  });
+
+  it("when Meta has dropped the stored response, resends the full conversation and carries on", async () => {
+    // Live 30 Oct: "400 referenced response not found or expired" in the fourth turn of a research loop.
+    let refused = 0;
+    const expired: MetaRoute = (req) => {
+      if (String(req.model).startsWith("muse-wonder") && req.previous_response_id && refused === 0) {
+        refused++;
+        return new Response(JSON.stringify({ error: { message: "referenced response not found or expired", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
+      }
+      return undefined;
+    };
+    const s = await setup(undefined, undefined, undefined, expired);
+    expect(refused).toBe(1);
+    const rr = await s.ws.collection("researchRuns").getOrThrow(s.rrId);
+    expect(rr.status).toBe("succeeded");
+    expect(rr.findingCount).toBe(1);
+    const wonderReqs = s.meta.requests.filter((r) => r.model === "muse-wonder-1.0");
+    // turn 1, refused turn 2, resent turn 2 (full history, no previous_response_id), turn 3 also in full
+    expect(wonderReqs).toHaveLength(4);
+    expect(wonderReqs[2]!.previous_response_id).toBeUndefined();
+    expect(wonderReqs[2]!.input[0].role).toBe("user");
+    expect(wonderReqs[2]!.input.some((x: { type?: string }) => x.type === "function_call")).toBe(true);
+    expect(wonderReqs[2]!.input.some((x: { type?: string }) => x.type === "function_call_output")).toBe(true);
+    expect(wonderReqs[3]!.previous_response_id).toBeUndefined();
+    expect(wonderReqs[3]!.input.length).toBeGreaterThan(wonderReqs[2]!.input.length);
+    const steps = (await s.ws.collection("agentSteps").list({ where: [["runId", "==", rr.agentRunId!]], orderBy: { field: "index", dir: "asc" }, limit: 100 })).items;
+    expect(steps.some((x) => x.title === "Conversation resent in full")).toBe(true);
   });
 
   it("tenancy: another workspace cannot read the run's outputs", async () => {

@@ -1,6 +1,6 @@
 import type { SourceRef } from "@muselaunch/contracts";
 import { AppError, toAppError, type Platform } from "@muselaunch/platform";
-import { parseToolArgs, respond, toolParameters, type FunctionTool, type ResponseInputItem } from "@muselaunch/providers";
+import { isExpiredResponseRef, parseToolArgs, respond, toolParameters, type FunctionTool, type ResponseInputItem } from "@muselaunch/providers";
 import type { z } from "zod";
 import type { RunRecorder } from "./runs";
 import { brief, clip } from "./util";
@@ -33,7 +33,8 @@ export interface LoopOutcome {
 }
 
 /**
- * Bounded Muse Wonder tool loop over the Responses API (function tools + previous_response_id).
+ * Bounded Muse Wonder tool loop over the Responses API (function tools + previous_response_id, falling
+ * back to resending the full conversation if the server has dropped the stored response).
  * - Tool arguments are validated with Zod; invalid args return an error to the model (never executed).
  * - The AgentBudget is checked before every turn and every tool call; exhaustion records a
  *   `budget_stop` step and ends the loop gracefully (no crash, saved work is kept).
@@ -58,6 +59,13 @@ export async function runToolLoop(
   const byName = new Map(opts.tools.map((t) => [t.name, t]));
   const maxTurns = opts.maxTurns ?? rec.budget.maxToolCalls + 2;
   let input: ResponseInputItem[] = [{ role: "user", content: [{ type: "input_text", text: opts.input }] }];
+  /**
+   * The whole conversation (user brief, Wonder's tool calls, tool outputs), kept so it can be resent in
+   * full if the server forgets a stored response (see isExpiredResponseRef). After that the loop stays
+   * stateless: each turn sends the full history.
+   */
+  const history: ResponseInputItem[] = [...input];
+  let stateless = false;
   let previousResponseId: string | undefined;
   let finalText = "";
   /** Set after a search-budget hit: the loop gets one wrap-up turn, and then reports that stop. */
@@ -75,18 +83,28 @@ export async function runToolLoop(
       return { finished: false, stopReason: stop, finalText, turns: turn };
     }
     await opts.onTurn?.(turn);
-    const res = await respond(p, {
-      ctx: rec.callCtx(opts.task),
-      model: "wonder",
-      instructions: opts.instructions,
-      input,
-      tools: decls,
-      previousResponseId,
-      maxOutputTokens: opts.maxOutputTokens ?? 6000,
-      reasoningEffort: "medium",
-      parallelToolCalls: true,
-      cacheKey: `agents.${opts.task}`,
-    });
+    const call = (items: ResponseInputItem[], prev: string | undefined) =>
+      respond(p, {
+        ctx: rec.callCtx(opts.task),
+        model: "wonder",
+        instructions: opts.instructions,
+        input: items,
+        tools: decls,
+        previousResponseId: prev,
+        maxOutputTokens: opts.maxOutputTokens ?? 6000,
+        reasoningEffort: "medium",
+        parallelToolCalls: true,
+        cacheKey: `agents.${opts.task}`,
+      });
+    let res: Awaited<ReturnType<typeof respond>>;
+    try {
+      res = stateless ? await call(history, undefined) : await call(input, previousResponseId);
+    } catch (raw) {
+      if (stateless || !previousResponseId || !isExpiredResponseRef(raw)) throw raw;
+      stateless = true;
+      await rec.step({ kind: "message", title: "Conversation resent in full", output: "The model service no longer had the earlier turns of this conversation, so the whole conversation (brief, tool calls and results) was sent again. Nothing is lost." });
+      res = await call(history, undefined);
+    }
     rec.addModelUsage(res);
     await rec.step({
       kind: "model_call",
@@ -140,6 +158,7 @@ export async function runToolLoop(
         reply({ error: err.opts.userMessage ?? err.message });
       }
     }
+    history.push(...res.functionCalls.map((fc): ResponseInputItem => ({ type: "function_call", call_id: fc.callId, name: fc.name, arguments: fc.arguments })), ...outputs);
     await rec.save({});
     if (finish) return ended(turn + 1);
     if (budgetHit) {

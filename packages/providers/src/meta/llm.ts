@@ -31,7 +31,19 @@ export interface FunctionTool {
 /** Items accepted in `input` for multi-turn tool loops. */
 export type ResponseInputItem =
   | { role: "user"; content: InputPart[] }
-  | { type: "function_call_output"; call_id: string; output: string };
+  | { type: "function_call_output"; call_id: string; output: string }
+  /** A model's earlier tool call, replayed when the conversation is sent in full (no previous_response_id). */
+  | { type: "function_call"; call_id: string; name: string; arguments: string };
+
+/**
+ * The server no longer has the response a `previous_response_id` points to. Seen live on 30 Oct (Meta:
+ * "400 referenced response not found or expired") in the fourth turn of a research loop; the caller
+ * should resend the whole conversation instead.
+ */
+export function isExpiredResponseRef(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; opts?: { details?: { status?: number } } };
+  return /referenced response not found|response .*expired|previous_response_id/i.test(e?.message ?? "") && (e.opts?.details?.status === 400 || e.opts?.details?.status === 404 || /\b40[04]\b/.test(e?.message ?? ""));
+}
 
 export interface FunctionCall {
   callId: string;
@@ -212,7 +224,7 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
         if (part.type === "input_text") inputText += `${part.text}\n`;
         else imageCount++;
       }
-    } else inputText += `${it.output}\n`;
+    } else inputText += `${it.type === "function_call" ? it.arguments : it.output}\n`;
   }
   const ws = call.webSearch ? (typeof call.webSearch === "object" ? call.webSearch : {}) : undefined;
   const tools: Record<string, unknown>[] = [
