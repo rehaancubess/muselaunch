@@ -31,6 +31,17 @@ export const VoiceTranscribeResponse = z.object({
 });
 export type VoiceTranscribeResponse = z.infer<typeof VoiceTranscribeResponse>;
 
+/**
+ * Live check (30 Oct): on audio with no speech, Muse Voice can return a zero-length turn ("Yeah."
+ * with startMs === endMs). Real speech always has a duration, so such turns are dropped, and the
+ * transcript is rebuilt from the turns that remain.
+ */
+export function dropEmptyTurns(r: VoiceTranscribeResponse): VoiceTranscribeResponse {
+  const turns = r.turns.filter((t) => t.endMs > t.startMs);
+  if (turns.length === r.turns.length) return r;
+  return { ...r, turns, transcript: turns.map((t) => t.transcript.trim()).filter(Boolean).join(" ") };
+}
+
 export interface TranscribeFileInput {
   /** Local WAV path (mono s16le 16/24 kHz) or bytes. */
   wav: { path: string } | { data: Uint8Array };
@@ -66,7 +77,7 @@ export async function transcribeFile(p: Platform, ctx: CallContext, input: Trans
     if (!parsed.success) throw new AppError("PROVIDER_ERROR", "Muse Voice Transcribe returned an unexpected response shape");
     const seconds = Math.floor(parsed.data.audioDurationMs / 1000);
     return {
-      value: parsed.data,
+      value: dropEmptyTurns(parsed.data),
       usage: { provider: "meta", model, operation: "asr", audioSeconds: seconds, costUsdEstimate: voiceCost(seconds), requestId: parsed.data.sessionId || undefined, dataMode: "standard" },
       trace: { request: { path, request, audioBytes: audio.size }, response: { ...parsed.data, transcript: parsed.data.transcript.slice(0, 2000), turns: parsed.data.turns.slice(0, 50) } },
     };

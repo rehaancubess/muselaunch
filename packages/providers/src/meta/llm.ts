@@ -326,9 +326,17 @@ function parseJson<S extends z.ZodTypeAny>(text: string, schema: S): { ok: true;
   } catch (e) {
     return { ok: false, error: `Invalid JSON: ${(e as Error).message}` };
   }
-  const r = schema.safeParse(raw);
+  const r = schema.safeParse(trimStrings(raw));
   if (r.success) return { ok: true, data: r.data };
   return { ok: false, error: r.error.issues.slice(0, 12).map((i: z.core.$ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("\n") };
+}
+
+/** Muse Spark sometimes pads string values in JSON output ("Todoist ", "https://todoist.com "): trim them all. */
+export function trimStrings(v: unknown): unknown {
+  if (typeof v === "string") return v.trim();
+  if (Array.isArray(v)) return v.map(trimStrings);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, trimStrings(x)]));
+  return v;
 }
 
 /** Build an input_image part from a signed/public URL or raw bytes. */
