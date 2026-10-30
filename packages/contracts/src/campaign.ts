@@ -146,6 +146,8 @@ export const ScenePurpose = z.enum(["hook", "problem", "demo", "feature", "proof
 export const AssetHint = z.object({
   kind: z.enum(["screenshot", "app_recording", "founder_clip", "generated_image", "stock_video", "stock_image", "logo", "none"]),
   assetId: Id.optional(),
+  /** A walkthrough RecordingSegment to play (assetId is then its recording). */
+  segmentId: Id.optional(),
   /** For generated/stock: the prompt or query. Generated media must never depict the app UI. */
   query: z.string().max(500).optional(),
   featureId: Id.optional(),

@@ -6,7 +6,7 @@ import { CreditLedgerEntry, CreditReservation, Subscription } from "./billing";
 import { Campaign, CampaignBrief, CampaignVariant, CopyPack, Storyboard } from "./campaign";
 import { Composition, CompositionPatch, CompositionVersion } from "./composition";
 import { Job, JobEvent } from "./jobs";
-import { ClipAnalysis, MediaAsset, Segmentation, Transcript } from "./media";
+import { ClipAnalysis, MediaAsset, RecordingSegment, Segmentation, Transcript } from "./media";
 import { BrandReview } from "./guardian";
 import { Autopilot } from "./autopilot";
 import { Approval, ConnectedAccount, OutreachDraft, OutreachProspect, Publication, ScheduledPost } from "./publishing";
@@ -67,6 +67,7 @@ export const ENTITY_SCHEMAS = {
   subscriptions: Subscription,
   modelUsage: ModelUsageEvent,
   clipAnalyses: ClipAnalysis,
+  recordingSegments: RecordingSegment,
   brandReviews: BrandReview,
   autopilots: Autopilot,
   youtubeAnalyses: YouTubeChannelAnalysis,
@@ -125,6 +126,7 @@ export const ID_PREFIX: Record<EntityName, string> = {
   subscriptions: "sub",
   modelUsage: "use",
   clipAnalyses: "cla",
+  recordingSegments: "rsg",
   brandReviews: "brv",
   autopilots: "apl",
   youtubeAnalyses: "yta",

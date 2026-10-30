@@ -24,6 +24,7 @@ export { RunRecorder } from "./runs";
 export { runToolLoop, defineTool, type LoopTool, type LoopOutcome } from "./loop";
 export { searchTool, SourceRegistry, type ResearchOutputs } from "./research/tools";
 export { loadAppContext, dnaSummary, productAssets, requireDna, type AppContextData } from "./context";
+export { productMediaOptions } from "./media-options";
 export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";
 export { paletteFromImages, dominantColors } from "./dna/palette";
 export * from "./guardian";

@@ -51,6 +51,7 @@ const APP_SCOPED: EntityName[] = [
   "recommendations",
   "modelUsage",
   "clipAnalyses",
+  "recordingSegments",
   "brandReviews",
   "autopilots",
 ];
@@ -89,6 +90,8 @@ export const INDEXES: IndexDef[] = [
   { collection: "metricObservations", fields: [{ field: "appId" }, { field: "windowStart", dir: "desc" }] },
   { collection: "metricObservations", fields: [{ field: "appId" }, { field: "metric" }, { field: "windowStart", dir: "desc" }] },
   { collection: "metricObservations", fields: [{ field: "campaignId" }, { field: "windowStart", dir: "desc" }] },
+  { collection: "recordingSegments", fields: [{ field: "appId" }, { field: "startSec", dir: "asc" }] },
+  { collection: "recordingSegments", fields: [{ field: "assetId" }, { field: "startSec", dir: "asc" }] },
 ];
 
 const RANGE_OPS = new Set(["<", "<=", ">", ">=", "!=", "not-in"]);

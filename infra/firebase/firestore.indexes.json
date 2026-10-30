@@ -435,6 +435,20 @@
       ]
     },
     {
+      "collectionGroup": "recordingSegments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "appId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "brandReviews",
       "queryScope": "COLLECTION",
       "fields": [
@@ -1031,6 +1045,34 @@
         {
           "fieldPath": "windowStart",
           "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recordingSegments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "appId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startSec",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recordingSegments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "assetId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startSec",
+          "order": "ASCENDING"
         }
       ]
     }

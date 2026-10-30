@@ -83,6 +83,12 @@ export const MediaAsset = BaseEntity.extend({
     })
     .optional(),
   derivedFromAssetId: Id.optional(),
+  /**
+   * For screenshots: `raw_ui` = the app's screen as-is; `marketing` = a designed store image (headline,
+   * its own device frame, background). Marketing images are never placed inside another device frame;
+   * their app screen is cut out by SAM 3.1 into a derived asset with `sourceLabel: "sam_ui_crop"`.
+   */
+  screenshotKind: z.enum(["raw_ui", "marketing"]).optional(),
   /** Thumbnail/poster for video and documents. */
   posterAssetId: Id.optional(),
   /** Render outputs: which composition version produced this asset. */
@@ -353,3 +359,61 @@ export const AnalyzeClipRequest = z.object({
   consent: ConsentInput.optional(),
 });
 export type AnalyzeClipRequest = z.infer<typeof AnalyzeClipRequest>;
+
+/**
+ * One shot of an app walkthrough recording (a long screen recording of the app), found by shot
+ * detection and labelled by Muse Spark from sampled frames. Storyboards pick segments by feature and
+ * play them in device frames (trimmed with startSec/endSec). Product truth: real footage of the app.
+ */
+export const RecordingSegment = BaseEntity.extend({
+  appId: Id,
+  /** The app_recording MediaAsset this segment is cut from. */
+  assetId: Id,
+  startSec: z.number().nonnegative(),
+  endSec: z.number().positive(),
+  /** Short description of what happens, e.g. "Saves a hotel booking from Photos via the share sheet". */
+  label: z.string().max(300),
+  /** Screen or area shown, e.g. "Pinned items". */
+  screen: z.string().max(120).optional(),
+  action: z.enum(["navigate", "tap", "type", "scroll", "swipe", "speak", "wait", "other"]).default("other"),
+  /** App DNA feature ids this segment demonstrates. */
+  featureIds: z.array(Id).max(10).default([]),
+  /** 0–1: how useful the shot is for marketing (loading screens, lock screen, fumbling score low). */
+  quality: Percent01.default(0.5),
+  /** Personal information visible (notifications, names, emails, numbers): blur or skip. */
+  privacy: z
+    .object({
+      flagged: z.boolean().default(false),
+      notes: z.string().max(300).optional(),
+      /** Normalized regions (0–1) to blur when the segment is used. */
+      regions: z.array(z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 })).max(8).default([]),
+    })
+    .default({ flagged: false, regions: [] }),
+  /** Founder narration spoken during this segment (Muse Voice Transcribe, turn-level). */
+  narration: z.string().max(2000).optional(),
+  /** A representative still (for thumbnails and Spark/SAM work). */
+  keyframeAssetId: Id.optional(),
+  /** Model that labelled the segment, e.g. muse-spark-1.3. */
+  labelledBy: z.string().max(80).optional(),
+});
+export type RecordingSegment = z.infer<typeof RecordingSegment>;
+
+/**
+ * What a storyboard can show of the real product, unified across screenshots, SAM screen cut-outs
+ * and walkthrough segments. `ref` is a MediaAsset id, or a RecordingSegment id when kind is
+ * `recording_segment` (scene hints then carry `segmentId`).
+ */
+export const ProductMediaOption = z.object({
+  ref: Id,
+  kind: z.enum(["raw_screenshot", "ui_crop", "marketing_screenshot", "recording_segment", "app_recording", "founder_clip", "logo", "icon"]),
+  /** The MediaAsset holding the bytes (for segments: the recording). */
+  assetId: Id,
+  title: z.string().max(300),
+  featureIds: z.array(Id).default([]),
+  /** For segments: trim range inside the recording. */
+  trim: z.object({ inSec: z.number().nonnegative(), outSec: z.number().positive() }).optional(),
+  /** May be shown inside a device frame (false for marketing screenshots). */
+  deviceFrameOk: z.boolean(),
+  quality: Percent01.optional(),
+});
+export type ProductMediaOption = z.infer<typeof ProductMediaOption>;
