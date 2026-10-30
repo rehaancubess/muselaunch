@@ -73,4 +73,30 @@ const LABEL = "SYNTHETIC fixture in the documented SAM 3.1 output format (masks 
   });
   writeFileSync(join(here, "sam-clip-phone.json"), JSON.stringify({ fixture: true, label: LABEL, media: "video", width: W, height: H, fps: 10, frames: 30, prompt: "phone", rawOutput: `${phone.join("\n")}\n` }, null, 2));
 }
+// Store screenshot (designed marketing image), 393x852 frame (iPhone points; the dev fixture image is 3x):
+// headline area on top, a phone whose screen is 243x552 at (75,259) with rounded corners (radius ≈30 px).
+// "phone screen": object 0 = the headline block (landscape, high confidence: must NOT be chosen),
+// object 1 = the phone screen. "headline only": just the headline block (no plausible screen → fallback).
+{
+  const W = 393, H = 852;
+  /** Low-res raster (≈1/4 of the box) of a rounded rectangle. */
+  const rounded = (w: number, h: number, r: number) => {
+    const m = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const dx = x < r ? r - x - 0.5 : x >= w - r ? x + 0.5 - (w - r) : 0;
+        const dy = y < r ? r - y - 0.5 : y >= h - r ? y + 0.5 - (h - r) : 0;
+        m[y * w + x] = dx && dy && Math.hypot(dx, dy) > r ? 0 : 1;
+      }
+    return m;
+  };
+  const rec = (id: number, x1: number, y1: number, bw: number, bh: number, raster: Uint8Array, rw: number, rh: number, c: number) => {
+    const { payload } = encodeSegmentationMask(raster, rw, rh);
+    return `${id}<|box;x1=${x1};y1=${y1};x2=${x1 + bw - 1};y2=${y1 + bh - 1};w=${W};h=${H};c=${c}|><|mask;x=0;y=0;c=${c};data=${rh},${rw},${payload}|>`;
+  };
+  const headline = rec(0, 40, 70, 313, 110, rectMask(40, 14), 40, 14, 0.97);
+  const screen = rec(1, 75, 259, 243, 552, rounded(61, 138, 8), 61, 138, 0.88);
+  writeFileSync(join(here, "sam-image-phone-screen.json"), JSON.stringify({ fixture: true, label: LABEL, media: "image", width: W, height: H, prompt: "phone screen", rawOutput: `<0f>${headline},${screen}\n` }, null, 2));
+  writeFileSync(join(here, "sam-image-headline-only.json"), JSON.stringify({ fixture: true, label: LABEL, media: "image", width: W, height: H, prompt: "phone screen", rawOutput: `<0f>${headline}\n` }, null, 2));
+}
 console.log("wrote SAM fixtures");

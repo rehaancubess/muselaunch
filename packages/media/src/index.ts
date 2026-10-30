@@ -2,9 +2,11 @@ import type { HandlerRegistry } from "@muselaunch/platform";
 import { analyzeClipHandler } from "./clip";
 import { imageGenerateHandler } from "./images";
 import { probeHandler } from "./probe";
+import { analyzeRecordingHandler } from "./recording";
 import { segmentHandler } from "./segment";
 import { transcribeHandler } from "./transcribe";
 import { ttsHandler } from "./tts";
+import { extractUiHandler } from "./ui-extract";
 
 /** Job handlers owned by this module. Registered by apps/worker. */
 export const handlers: HandlerRegistry = {
@@ -14,6 +16,8 @@ export const handlers: HandlerRegistry = {
   "media.image_generate": imageGenerateHandler,
   "media.tts": ttsHandler,
   "media.analyze_clip": analyzeClipHandler,
+  "media.analyze_recording": analyzeRecordingHandler,
+  "media.extract_ui": extractUiHandler,
 };
 
 export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "./captions";
@@ -28,3 +32,6 @@ export { loadTracks, buildTracks, presenceRanges, meanBbox, trackQuality } from 
 export { requestClipAnalysis, estimateClipAnalysis, DEFAULT_CLIP_PROMPTS } from "./clip";
 export { findOrCreateSegmentation, findOrCreateTranscript, lookupSegmentation, lookupTranscript } from "./service";
 export { MAX_OBJECT_OUTPUTS } from "./segment";
+export { detectShots, keyframeTimes, sampleFrameChanges, SHOT_RULES, type Shot, type FrameChanges } from "./frames";
+export { requestRecordingAnalysis, estimateRecordingAnalysis, recordingProblem, autoAnalyzeRecording, MAX_RECORDING_SEC } from "./recording";
+export { requestUiExtraction, estimateUiExtraction, appScreenshots, pendingScreens, isUiCrop, isOriginalScreenshot, pickPhoneScreen, UI_SCREEN_PROMPTS } from "./ui-extract";

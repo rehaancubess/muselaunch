@@ -143,6 +143,13 @@ export const DEFAULT_CREDIT_PRICES = {
   "brand.review": 1,
   /** Autopilot steps are free; the jobs they delegate reserve their own credits within the loop budget. */
   "autopilot.step": 0,
+  /**
+   * Per started minute of walkthrough recording (max 10): shot detection, Muse Spark labels on
+   * sampled frames (≤ 8 per call) and the narration transcript.
+   */
+  "media.analyze_recording_per_min": 6,
+  /** Per screenshot checked: Muse Spark raw-UI vs store-image check, plus a SAM 3.1 screen cut-out for store images. */
+  "media.extract_ui_per_image": 2,
 } as const;
 export type CreditOperation = keyof typeof DEFAULT_CREDIT_PRICES;
 
