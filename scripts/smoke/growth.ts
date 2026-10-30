@@ -21,7 +21,7 @@ export async function run(p: Platform): Promise<string> {
     maxOutputTokens: 2000,
   });
   saveLive("growth-tracker-research", { data: res.data, citations: res.citations, searchCalls: res.searchCalls });
-  const grounded = groundObservations(res.data, res.citations, new Map(), new Date().toISOString());
+  const grounded = groundObservations(res.data, [...res.citations, ...res.searchResults], new Map(), new Date().toISOString());
   const providers = providerCatalog(p)
     .map((x) => `${x.provider}:${x.state}`)
     .join(" ");

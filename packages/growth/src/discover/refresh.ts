@@ -49,12 +49,13 @@ function trackerPrompt(t: TrackedCreator, app: App, claims: Claim[], oneLiner?: 
 }
 
 /**
- * Keep only observations whose sourceUrl is one of the search citations the API returned
- * (search grounding), and comparison rows whose "us" side is verified claims. Anything else is
- * dropped, never stored as research.
+ * Keep only observations whose sourceUrl the model retrieved in this call, and comparison rows whose
+ * "us" side is verified claims. Anything else is dropped, never stored as research. `sources` =
+ * url_citation annotations plus web_search_call results: Muse Spark's JSON output carries no
+ * annotations (live run, 30 Oct), so the search results are what proves a URL was retrieved.
  */
-export function groundObservations(out: TrackerResearch, citations: SourceRef[], verified: Map<string, string>, observedAt: string) {
-  const byUrl = new Map(citations.filter((c) => c.url).map((c) => [normUrl(c.url!), c]));
+export function groundObservations(out: TrackerResearch, sources: SourceRef[], verified: Map<string, string>, observedAt: string) {
+  const byUrl = new Map(sources.filter((c) => c.url).map((c) => [normUrl(c.url!), c]));
   const dropped: string[] = [];
   const seen = new Set<string>();
   const observations: TrackedCreator["observations"] = [];
@@ -117,7 +118,7 @@ export async function discoverRefreshHandler(ctx: JobContext<"discover.refresh">
         maxOutputTokens: 3000,
       });
       const observedAt = nowIso();
-      const grounded = groundObservations(res.data, res.citations, verified, observedAt);
+      const grounded = groundObservations(res.data, [...res.citations, ...res.searchResults], verified, observedAt);
       // Merge: newest first, dedupe by text, keep the latest 50 (older observations stay with their own sources/times).
       const seen = new Set(grounded.observations.map((o) => normText(o.text)));
       const merged = [...grounded.observations, ...t.observations.filter((o) => !seen.has(normText(o.text)))].slice(0, 50);

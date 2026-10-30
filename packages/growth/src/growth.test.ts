@@ -141,6 +141,17 @@ describe("discover.refresh grounding", () => {
     expect(out.comparison).toEqual([expect.objectContaining({ topic: "Offline", us: "Works fully offline", usClaimIds: ["clm_ok"] })]);
     expect(out.dropped).toHaveLength(2);
   });
+
+  it("accepts a URL from the call's web search results when the JSON answer carries no citations (live Muse Spark)", () => {
+    const out = groundObservations(
+      { found: true, observations: [{ kind: "format", text: "Short tutorials", sourceUrl: "https://www.youtube.com/watch?v=--GOwV4Z3UQ", confidence: 0.7 }], comparison: [] },
+      [{ ...src("https://www.youtube.com/watch?v=--GOwV4Z3UQ"), kind: "search_result" }],
+      new Map(),
+      daysAgo(0),
+    );
+    expect(out.observations).toHaveLength(1);
+    expect(out.observations[0]!.source.url).toBe("https://www.youtube.com/watch?v=--GOwV4Z3UQ");
+  });
 });
 
 describe("OAuth state", () => {
