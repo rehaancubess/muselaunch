@@ -29,6 +29,7 @@ interface SoundAsset {
 
 export interface SoundState {
   version: number;
+  stale: { music: boolean; sfx: boolean };
   tracks: AudioTrack[];
   assets: Record<string, SoundAsset>;
   captions: { enabled: boolean; source: string; cues: number };
@@ -133,6 +134,21 @@ export function AudioPanel({
   const effects = s.tracks.filter((t) => t.kind === "sfx");
   const autoFx = effects.filter((t) => t.auto);
   const locked = disabled || busy !== null;
+  /** Effects re-placed for the current scenes, then the same music take re-composed to the new length. */
+  const refit = () =>
+    call("refit", async () => {
+      let v = version;
+      if (s.stale.sfx) {
+        const r = await api.post<CommitResponse>(`${base}/sound/sfx`, { baseVersion: v, enabled: true });
+        onCommitted(r);
+        v = r.version.version;
+      }
+      if (s.stale.music && music) {
+        const r = await api.post<{ job: Job }>(`${base}/sound/music`, { baseVersion: v, mood: music.mood, volume: music.volume });
+        musicJob.start(r.job.id);
+      }
+      void sound.refetch();
+    });
 
   const call = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -168,6 +184,20 @@ export function AudioPanel({
       {error ? (
         <Notice tone="danger" icon={<TriangleAlert className="size-4" aria-hidden />}>
           {error}
+        </Notice>
+      ) : null}
+      {s.stale.music || s.stale.sfx ? (
+        <Notice
+          tone="warning"
+          action={
+            <Button size="sm" variant="secondary" icon={<RefreshCw className="size-3.5" aria-hidden />} loading={busy === "refit"} disabled={locked} onClick={() => void refit()}>
+              Re-fit
+            </Button>
+          }
+        >
+          The scenes changed since the sound was made: {s.stale.music ? "the music ends at the old length" : ""}
+          {s.stale.music && s.stale.sfx ? " and " : ""}
+          {s.stale.sfx ? "effects sit at the old transitions" : ""}.
         </Notice>
       ) : null}
 

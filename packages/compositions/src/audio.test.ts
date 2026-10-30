@@ -1,6 +1,6 @@
 import type { CompositionDoc, Layer } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
-import { attachAudio, compileAudioTags, duckingLane, musicAccents, placeSfx, speechRanges } from "./audio";
+import { attachAudio, compileAudioTags, duckingLane, musicAccents, placeSfx, soundStale, speechRanges } from "./audio";
 import { compileToHtml } from "./compile";
 import { ensureNodeCompileRuntime } from "./node";
 import { sampleDoc } from "./test-fixtures";
@@ -84,6 +84,15 @@ describe("attachAudio", () => {
     const noVoice = attachAudio(withVoice, { voiceover: null });
     expect(noVoice.audio.some((a) => a.kind === "voiceover")).toBe(false);
     expect(noVoice.captions).toMatchObject({ enabled: false, source: "script", cues: [] });
+  });
+
+  it("notices when scene edits leave the automatic sound behind", () => {
+    const d = attachAudio(doc(), { music: { assetId: "ast_mus_1", mood: "bright-pluck" }, sfx: { enabled: true, assets: SFX } });
+    expect(soundStale(d)).toEqual({ music: false, sfx: false });
+    const trimmed = { ...d, scenes: d.scenes.map((s) => (s.id === "sc_hook" ? { ...s, durationSec: 2 } : s)) };
+    expect(soundStale(trimmed)).toEqual({ music: true, sfx: true });
+    const refit = attachAudio(trimmed, { music: { assetId: "ast_mus_2", mood: "bright-pluck" }, sfx: { enabled: true, assets: SFX } });
+    expect(soundStale(refit)).toEqual({ music: false, sfx: false });
   });
 
   it("stays within the 48-track limit with many effects", () => {

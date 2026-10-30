@@ -75,6 +75,24 @@ export function placeSfx(doc: CompositionDoc): SfxCue[] {
   return out;
 }
 
+/**
+ * Whether automatic sound no longer fits the scenes (after trims, AI edits or hook variants): the
+ * original music was fitted to another length, or the effects sit at old transition/tap times.
+ */
+export function soundStale(doc: CompositionDoc): { music: boolean; sfx: boolean } {
+  if (doc.kind !== "video") return { music: false, sfx: false };
+  const total = totalDuration(doc);
+  const music = doc.audio.some((a) => a.kind === "music" && a.auto && Math.abs((a.endSec ?? total) - total) > 0.05);
+  const auto = doc.audio.filter((a) => a.kind === "sfx" && a.auto);
+  if (!auto.length) return { music, sfx: false };
+  const want = placeSfx(doc)
+    .filter((c) => auto.some((a) => a.sfx === c.kind))
+    .map((c) => `${c.kind}@${round3(Math.max(0, c.at - SFX_SPECS[c.kind].peakSec))}`);
+  const have = auto.map((a) => `${a.sfx}@${round3(a.startSec)}`);
+  const sfx = want.length !== have.length || want.some((w, i) => w !== have[i]);
+  return { music, sfx };
+}
+
 /** Music accents (riser into a soft hit) for a doc: the end card's entrance. */
 export function musicAccents(doc: CompositionDoc): number[] {
   const starts = sceneStarts(doc);

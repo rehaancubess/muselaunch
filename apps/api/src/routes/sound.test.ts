@@ -65,7 +65,7 @@ describe("sound routes (Studio sound panel + workspace defaults)", () => {
   it("shows the sound state with honest provider status", async () => {
     const r = await alice.get(S());
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ version: 1, tracks: [], settings: { music: true, sfx: true, aiVoiceover: false }, tts: { configured: false, ttsConfigured: false, transcribeConfigured: false, provider: "OpenAI TTS (external)" } });
+    expect(r.body).toMatchObject({ version: 1, stale: { music: false, sfx: false }, tracks: [], settings: { music: true, sfx: true, aiVoiceover: false }, tts: { configured: false, ttsConfigured: false, transcribeConfigured: false, provider: "OpenAI TTS (external)" } });
     expect(r.body.moods.map((m: J) => m.id)).toEqual(["bright-pluck", "calm-pad", "tech-pulse", "warm-keys", "cinematic-build", "lofi-chill"]);
   });
 

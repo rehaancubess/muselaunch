@@ -13,6 +13,7 @@ import {
   type Composition,
   type MediaAsset,
 } from "@muselaunch/contracts";
+import { soundStale } from "@muselaunch/compositions";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { ensureConsent, narrationScript, removeMusic, removeVoiceover, setSfx, soundSettings } from "@muselaunch/media";
 import { AppError } from "@muselaunch/platform";
@@ -56,6 +57,8 @@ soundRoutes.get("/compositions/:id/sound", async (c) => {
   const transcribeConfigured = Boolean(p.cfg.META_API_KEY);
   return c.json({
     version: comp.currentVersion,
+    /** Auto music/effects fitted to other scene timing (after trims or AI edits): offer a re-fit. */
+    stale: soundStale(ver.doc),
     tracks: ver.doc.audio,
     assets,
     captions: { enabled: ver.doc.captions.enabled, source: ver.doc.captions.source, cues: ver.doc.captions.cues.length },
