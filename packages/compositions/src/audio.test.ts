@@ -11,7 +11,7 @@ const SFX = { whoosh: "ast_sfx_whoosh_v1", "swoosh-up": "ast_sfx_swooshup_v1", t
 /** Hook (3 s) → zoom → demo with a tap block (5 s) → slide-up → tap-demo (4 s) → fade → CTA (3 s). */
 function doc(): CompositionDoc {
   const d = sampleDoc();
-  const tapBlock = { id: "sc_demo_tap", type: "block", blockId: "tap-indicator", params: { atSec: 1.4 }, box: { x: 0.4, y: 0.5, w: 0.1, h: 0.06 }, timing: { start: 0.2 }, animation: { loop: "none" }, locked: false, hidden: false } as Layer;
+  const tapBlock = { id: "sc_demo_tap", type: "block", blockId: "tap-indicator", params: { atSec: 1.4 }, box: { x: 0.4, y: 0.5, w: 0.1, h: 0.06 }, timing: { start: 0.2 }, animation: { loop: "none" }, locked: false, hidden: false } as unknown as Layer;
   const scenes = [
     d.scenes[0]!,
     { ...d.scenes[1]!, transitionIn: { kind: "zoom" as const, durationSec: 0.5 }, layers: [...d.scenes[1]!.layers, tapBlock] },

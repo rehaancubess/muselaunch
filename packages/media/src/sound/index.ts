@@ -17,7 +17,9 @@ import {
 import { attachAudio, musicAccents, totalDuration, validateDoc, type AttachVoiceover } from "@muselaunch/compositions";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { AppError, toAppError, type JobContext, type Platform } from "@muselaunch/platform";
+import { transcriptToCaptionCues } from "../captions";
 import { ensureMusicAsset, ensureSfxLibrary, moodFromText } from "../music";
+import { lookupTranscript } from "../service";
 import { prepareRecordingVoiceover, produceAiVoiceover, voiceoverCredits, type VoiceoverResult } from "./voiceover";
 
 export { normalizeWords, wordErrorRate, scriptTurns, normalizeVoice, produceAiVoiceover, prepareRecordingVoiceover, voiceoverCredits, VOICE_TARGET_LUFS, type VoiceoverResult } from "./voiceover";
@@ -122,6 +124,25 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
       } finally {
         if (reservation) await p.credits.release(ctx.workspaceId, reservation.reservationId, { actor: ctx.actor, reason: "Voiceover not produced" }).catch(() => {});
       }
+    }
+  }
+
+  // A founder recording the storyboard chose: if Muse Voice Transcribe already transcribed it,
+  // its turns time the captions and the music ducking (no new provider call, no cost).
+  const founder = doc.audio.find((a) => a.kind === "voiceover" && a.sourceLabel === "founder_recording" && !a.speech?.length);
+  if (founder) {
+    try {
+      const asset = await ctx.ws.collection("mediaAssets").get(founder.assetId);
+      const { exact, prior } = asset ? await lookupTranscript(p, ctx.workspaceId, asset, "captions") : {};
+      const t = [exact, prior].find((x) => x?.status === "succeeded" && x.turns.length);
+      if (t && asset) {
+        const captions = transcriptToCaptionCues(t, { idPrefix: `vo-${t.id}`.slice(0, 60), maxChars: 64 });
+        const dur = (founder.endSec ?? totalDuration(doc)) - founder.startSec + founder.trimInSec;
+        doc = attachAudio(doc, { voiceover: { assetId: founder.assetId, durationSec: Math.min(asset.durationSec ?? dur, dur), sourceLabel: "founder_recording", startSec: founder.startSec, trimInSec: founder.trimInSec, speech: t.turns.map((u) => ({ startSec: u.startSec, endSec: u.endSec })), captions: captions.map((c) => ({ ...c, startSec: c.startSec - founder.trimInSec, endSec: c.endSec - founder.trimInSec })).filter((c) => c.endSec > 0), transcriptId: t.id } });
+        notes.push("Captions and music ducking follow your recording (existing Muse Voice Transcribe transcript).");
+      }
+    } catch (raw) {
+      warnings.push(`Couldn't time captions to the founder recording: ${toAppError(raw).message}`);
     }
   }
 

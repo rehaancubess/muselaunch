@@ -4,13 +4,13 @@
  * voiceover — an AI voice (external TTS, labelled, checked with Muse Voice Transcribe) or your own
  * recording. Every change is a new composition version (undoable); slow work runs as a job.
  */
-import type { AudioTrack, Job, MusicMood } from "@muselaunch/contracts";
+import type { AudioTrack, Job, MediaAsset, MusicMood } from "@muselaunch/contracts";
 import { Badge, Button, Checkbox, ErrorState, JobProgress, Notice, ProgressBar, SegmentedControl, Select, Skeleton, Switch, Textarea, cn } from "@muselaunch/ui";
 import { AudioLines, Check, Mic, Music, RefreshCw, Sparkles, Square, Trash2, TriangleAlert, Upload, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { baseMime, waitForJob } from "@/features/media/lib";
 import { api, errorMessage, uploadToSignedUrl, wsPath } from "@/lib/api";
-import type { CompleteUploadResponse, UploadResponse } from "@/lib/api-types";
+import type { CompleteUploadResponse, Page, UploadResponse } from "@/lib/api-types";
 import { WorkspaceCostEstimate } from "@/lib/estimate";
 import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
@@ -428,6 +428,10 @@ function OwnVoice({ workspaceId, appId, disabled, transcribeConfigured, onUse }:
   const [err, setErr] = useState<string | null>(null);
   const rec = useRef<{ mr: MediaRecorder; stream: MediaStream; timer: ReturnType<typeof setInterval> } | null>(null);
   const url = useObjectUrl(blob);
+  // Recordings already in the app (founder clips, earlier voice uploads): same query as the media drawer.
+  const assets = useApiQuery<Page<MediaAsset>>(appId ? wsPath(workspaceId, "/assets") : null, { query: { appId: appId ?? undefined, limit: 120 } });
+  const existing = (assets.data?.items ?? []).filter((a) => (a.role === "founder_clip" || a.role === "voiceover") && (a.kind === "audio" || a.kind === "video") && a.hasAudio !== false && a.status === "ready" && a.origin !== "derived");
+  const [pick, setPick] = useState("");
 
   useEffect(
     () => () => {
@@ -535,6 +539,16 @@ function OwnVoice({ workspaceId, appId, disabled, transcribeConfigured, onUse }:
       <Button size="sm" icon={<Check className="size-3.5" aria-hidden />} disabled={!blob || !consent || disabled || phase !== "idle" || !transcribeConfigured} loading={phase !== "idle"} onClick={() => void use()}>
         Use as voiceover
       </Button>
+      {existing.length ? (
+        <div className="space-y-2 border-t border-line pt-3">
+          <span className="block text-footnote font-medium text-ink">Or use a recording you already added</span>
+          <Select selectSize="sm" value={pick} placeholder="Choose a recording" onChange={(e) => setPick(e.target.value)} options={existing.map((a) => ({ value: a.id, label: `${a.title ?? a.originalFilename ?? "Recording"}${a.durationSec ? ` · ${Math.round(a.durationSec)}s` : ""}` }))} disabled={disabled} />
+          {pick ? <Checkbox checked={consent} onCheckedChange={setConsent} label="This is my voice, or I have the speaker's permission to use it." /> : null}
+          <Button size="sm" variant="secondary" disabled={!pick || !consent || disabled || !transcribeConfigured} onClick={() => void onUse(pick, { scope: "My own voice (or the speaker's permission) to use this recording as this video's voiceover" }).catch((e) => setErr(errorMessage(e)))}>
+            Use this recording
+          </Button>
+        </div>
+      ) : null}
       <p className="text-caption text-ink-3">We level your recording and time the captions to it with Muse Voice Transcribe (turn-level timing).</p>
     </div>
   );

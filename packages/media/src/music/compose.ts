@@ -331,6 +331,14 @@ function drums(ctx: Ctx, kit: Stereo, perc: Stereo): number[] {
   for (let b = 0; b < ctx.plan.bars; b++) {
     const e = E[b]!;
     const fill = fills.has(b);
+    // Phrase ends (every 4th bar) get a light pickup so the groove breathes.
+    if (!fill && E[b]! >= 2 && (b - ctx.plan.introBars) % 4 === 3) {
+      if (style === "pop") C(at(b, 15), 0.28);
+      else if (style === "tech") H(at(b, 14), 0.3, true, true);
+      else if (style === "soft") R(at(b, 15), 0.22);
+      else if (style === "boombap") SN(at(b, 15), 0.22, true);
+      else T(at(b, 14), 0.3, 110, 0.3);
+    }
     switch (style) {
       case "pop":
         if (e >= 2) {
@@ -575,18 +583,28 @@ function leadPart(ctx: Ctx, bus: Stereo): void {
         [0, 2, 5, 8, 10, 13],
         [2, 5, 8, 11, 14],
       ];
-      const rhythm = rng.pick(rhythms);
-      const contour: number[] = [];
-      let idx = rng.int(2, 4);
-      for (let i = 0; i < rhythm.length; i++) {
-        contour.push(idx);
-        idx = clamp(idx + rng.pick([-2, -1, -1, 1, 1, 2]), 0, 6);
-      }
+      // Two motifs (rhythm + chord-tone contour): A carries the hook, B answers it in bars 5–6 of
+      // every 8-bar phrase (A A B A), so long tracks develop instead of looping one bar.
+      const motif = () => {
+        const rhythm = rng.pick(rhythms);
+        const contour: number[] = [];
+        let idx = rng.int(2, 4);
+        for (let i = 0; i < rhythm.length; i++) {
+          contour.push(idx);
+          idx = clamp(idx + rng.pick([-2, -1, -1, 1, 1, 2]), 0, 6);
+        }
+        return { rhythm, contour };
+      };
+      const A = motif();
+      let B = motif();
+      if (B.rhythm === A.rhythm) B = { ...B, contour: B.contour.map((c) => c + 1) };
       for (let b = 0; b < ctx.plan.bars; b++) {
         const e = E[b]!;
         if (e < 2) continue;
         const tones = chordTones(ctx.chords[b]!, l.lo, 2);
         const answer = b % 2 === 1;
+        const pos = (b - ctx.plan.introBars) % 8;
+        const { rhythm, contour } = pos === 4 || pos === 5 ? B : A;
         rhythm.forEach((s, i) => {
           if (e === 2 && i % 2 === 1 && !answer) return;
           const ci = clamp(contour[i]! + (answer && i >= rhythm.length - 2 ? 1 : 0), 0, tones.length - 1);

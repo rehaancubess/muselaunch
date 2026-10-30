@@ -1,0 +1,193 @@
+{
+  "generatedBy": "scripts/audio-samples.ts",
+  "note": "Synthesized by MuseLaunch's own code (no samples). Regenerate with `pnpm run audio:samples`.",
+  "seed": "sample-1",
+  "seconds": 30,
+  "files": {
+    "bright-pluck.m4a": {
+      "mood": "bright-pluck",
+      "label": "Bright pluck",
+      "key": "G major",
+      "bpm": 120.4,
+      "bars": 14,
+      "progression": [
+        "Em9",
+        "Cmaj7",
+        "Gadd9",
+        "D9sus4"
+      ],
+      "accents": [
+        19.929
+      ],
+      "lufs": -15,
+      "peakDb": -1.5,
+      "renderCpuMs": 2851,
+      "bytes": 505071
+    },
+    "calm-pad.m4a": {
+      "mood": "calm-pad",
+      "label": "Calm pad",
+      "key": "G major",
+      "bpm": 77.4,
+      "bars": 9,
+      "progression": [
+        "Cmaj9",
+        "G6/9",
+        "Em9",
+        "D9sus4"
+      ],
+      "accents": [
+        20.15
+      ],
+      "lufs": -15,
+      "peakDb": -2.4,
+      "renderCpuMs": 1572,
+      "bytes": 488112
+    },
+    "tech-pulse.m4a": {
+      "mood": "tech-pulse",
+      "label": "Tech pulse",
+      "key": "D minor",
+      "bpm": 120.4,
+      "bars": 14,
+      "progression": [
+        "Dm9",
+        "Bbmaj7",
+        "Fmaj9",
+        "Cadd9"
+      ],
+      "accents": [
+        19.929
+      ],
+      "lufs": -15,
+      "peakDb": -2.2,
+      "renderCpuMs": 1894,
+      "bytes": 503706
+    },
+    "warm-keys.m4a": {
+      "mood": "warm-keys",
+      "label": "Warm keys",
+      "key": "G major",
+      "bpm": 94.6,
+      "bars": 11,
+      "progression": [
+        "Gmaj9",
+        "Em9",
+        "Am9",
+        "D13"
+      ],
+      "accents": [
+        19.657
+      ],
+      "lufs": -15,
+      "peakDb": -1.5,
+      "renderCpuMs": 2228,
+      "bytes": 498366
+    },
+    "cinematic-build.m4a": {
+      "mood": "cinematic-build",
+      "label": "Cinematic build",
+      "key": "G minor",
+      "bpm": 103.2,
+      "bars": 12,
+      "progression": [
+        "Gmadd9",
+        "Ebadd9",
+        "Bbadd9",
+        "Fadd9"
+      ],
+      "accents": [
+        19.763
+      ],
+      "lufs": -15,
+      "peakDb": -1.5,
+      "renderCpuMs": 2038,
+      "bytes": 487384
+    },
+    "lofi-chill.m4a": {
+      "mood": "lofi-chill",
+      "label": "Lo-fi chill",
+      "key": "D major",
+      "bpm": 77.4,
+      "bars": 9,
+      "progression": [
+        "Gmaj9",
+        "F#m7",
+        "Em9",
+        "Dmaj7"
+      ],
+      "accents": [
+        20.15
+      ],
+      "lufs": -15.1,
+      "peakDb": -1.5,
+      "renderCpuMs": 1687,
+      "bytes": 507626
+    },
+    "sfx-sheet.m4a": {
+      "order": [
+        "whoosh",
+        "swoosh-up",
+        "pop",
+        "click",
+        "tap",
+        "riser",
+        "impact",
+        "shimmer"
+      ],
+      "startsAtSec": {
+        "whoosh": 0.7,
+        "swoosh-up": 2.3,
+        "pop": 3.6,
+        "click": 4.48,
+        "tap": 5.26,
+        "riser": 6.1,
+        "impact": 8.4,
+        "shimmer": 11.3
+      },
+      "bytes": 132757
+    },
+    "mix-demo.m4a": {
+      "music": "bright-pluck",
+      "duckedWhereVoiceSpeaksSec": [
+        [
+          4,
+          9
+        ],
+        [
+          12,
+          19
+        ]
+      ],
+      "effects": [
+        {
+          "kind": "whoosh",
+          "atSec": 3.25
+        },
+        {
+          "kind": "tap",
+          "atSec": 6.4
+        },
+        {
+          "kind": "swoosh-up",
+          "atSec": 10.25
+        },
+        {
+          "kind": "tap",
+          "atSec": 14.2
+        },
+        {
+          "kind": "whoosh",
+          "atSec": 20.25
+        },
+        {
+          "kind": "shimmer",
+          "atSec": 24.4
+        }
+      ],
+      "lufs": -19.9,
+      "peakDb": -3.4,
+      "bytes": 506726
+    }
+  }
+}

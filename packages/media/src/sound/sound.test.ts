@@ -251,6 +251,26 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     expect((await p.credits.balance(wid)).available).toBe(1);
   });
 
+  it("times captions and ducking to a founder recording from its existing transcript (no provider call)", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_founder";
+    await makeWorkspace(p, wid, { music: false, sfx: false, aiVoiceover: false });
+    const ws = p.db.ws(wid);
+    await ws.collection("mediaAssets").create({ id: "ast_fc", appId: "app_1", kind: "video", role: "founder_clip", origin: "upload", storagePath: `workspaces/${wid}/uploads/ast_fc/c.mp4`, mimeType: "video/mp4", bytes: 1, durationSec: 12, hasAudio: true, status: "ready", isProductTruth: false, license: { type: "user_uploaded", consent: { by: "u1", at: new Date().toISOString(), scope: "test" } } } as never, { actor: "u1" });
+    await ws.collection("transcripts").create({ appId: "app_1", sourceAssetId: "ast_fc", model: p.cfg.META_MODEL_VOICE, purpose: "founder_brief", status: "succeeded", mode: "DIARIZATION", text: "I built Focusly. It plans my day.", turns: [{ startSec: 0.5, endSec: 2.1, text: "I built Focusly.", speaker: "A" }, { startSec: 3, endSec: 4.4, text: "It plans my day.", speaker: "A" }], durationSec: 12, usageEventIds: [] } as never, { actor: "u1" });
+    const base = videoDoc();
+    const doc = { ...base, audio: [{ id: "aud_voiceover", kind: "voiceover" as const, assetId: "ast_fc", startSec: 0, trimInSec: 0, volume: 1, fadeInSec: 0, fadeOutSec: 0.3, duckUnderVoice: false, sourceLabel: "founder_recording" as const }] };
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_f"), { doc, compositionId: "cmp_f", appId: "app_1", storyboard: storyboard("none"), app: null });
+    const vo = r.doc.audio.find((a) => a.kind === "voiceover")!;
+    expect(vo).toMatchObject({ sourceLabel: "founder_recording", startSec: 0, speech: [{ startSec: 0.5, endSec: 2.1 }, { startSec: 3, endSec: 4.4 }] });
+    expect(r.doc.captions).toMatchObject({ enabled: true, source: "transcript" });
+    expect(r.doc.captions.cues.map((c) => [c.startSec, c.text])).toEqual([
+      [0.5, "I built Focusly."],
+      [3, "It plans my day."],
+    ]);
+    expect((await p.db.ws(wid).collection("modelUsage").list({ limit: 5 })).items).toHaveLength(0);
+  });
+
   it("reads the narration script from the storyboard", () => {
     expect(narrationScript(storyboard("tts"))).toBe(SCRIPT);
     expect(narrationScript({ voiceover: { source: "tts" }, scenes: [{ order: 1, narration: "Two." }, { order: 0, narration: " One. " }] } as unknown as Storyboard)).toBe("One. Two.");
