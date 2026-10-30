@@ -156,7 +156,9 @@ const research: StageFn = async (env, step) => {
     `Research ${rr?.status ?? "missing"}: ${rr?.findingCount ?? 0} sourced finding(s).${rr?.summary ? ` ${clip(rr.summary, 600)}` : ""}`,
     [...(rr ? [ref("researchRuns", rr.id)] : []), ...own.slice(0, 8).map((f) => ref("researchFindings", f.id)), ...(rr?.agentRunId ? [ref("agentRuns", rr.agentRunId)] : [])],
   );
-  if ((!rr || rr.status === "failed" || rr.status === "cancelled") && !findings.length) {
+  // No sourced findings at all (failed, cancelled, or a partial run that saved none): stop rather than
+  // choose the audience from App DNA alone. Live 30 Oct: a partial run with 0 findings went ahead.
+  if (!findings.length) {
     throw fail("PROVIDER_ERROR", "Research produced no sourced findings", "Research didn't produce any sourced findings, so the autopilot can't choose an audience responsibly. Retry research, then resume.");
   }
   return { kind: "advance", to: "select_audience" };

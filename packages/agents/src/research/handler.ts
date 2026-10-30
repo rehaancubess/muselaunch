@@ -63,12 +63,20 @@ export async function researchRunHandler(ctx: JobContext<"research.run">): Promi
     return { refs: [{ entity: "researchRuns", id: rr.id }], data: { alreadyCompleted: true } };
   }
   const app = await loadAppContext(ctx.ws, appId);
+  // A retry after a failed attempt starts a fresh agent run with a fresh budget (the live 30 Oct retry
+  // inherited 213k tokens from the failed attempt). A job redelivered mid-run keeps resuming its run.
+  const prev = rr.agentRunId ? await ctx.ws.collection("agentRuns").get(rr.agentRunId) : null;
+  const startFresh = prev?.status === "failed" || prev?.status === "cancelled";
   const rec = await RunRecorder.start(ctx, {
-    id: rr.agentRunId ?? hashId("run", researchRunId),
+    id: prev && !startFresh ? prev.id : startFresh ? hashId("run", researchRunId, ctx.job.id, String(ctx.job.attempts)) : (rr.agentRunId ?? hashId("run", researchRunId)),
     kind: "research",
     model: p.cfg.META_MODEL_WONDER,
     goal: `Research (${kinds.join(", ")}) for ${app.app.name}${rr.inputs.focus ? `: ${rr.inputs.focus}` : ""}`,
     appId,
+    // Muse Spark reads 15k–110k tokens of search results inside one search_web call (live run), so a
+    // 400k token cap stopped research after ~7 searches with nothing saved. Spend stays capped by
+    // maxCostUsd; tokens are only a runaway guard here.
+    budget: { maxTokens: 3_000_000 },
   });
   await runs.update(researchRunId, { status: "running", agentRunId: rec.id, jobId: ctx.job.id, startedAt: rr.startedAt ?? nowIso() }, { actor: ctx.actor });
   const out: ResearchOutputs = { findingIds: [], refs: [], counts: {} };

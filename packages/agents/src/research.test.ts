@@ -144,6 +144,27 @@ describe("research.run (Muse Wonder tool loop + Spark search grounding)", () => 
     expect(steps.some((x) => x.title === "Conversation resent in full")).toBe(true);
   });
 
+  it("a retry after a failed attempt runs as a fresh agent run with its own budget", async () => {
+    let fail = true;
+    const broken: MetaRoute = (req) =>
+      fail && String(req.model).startsWith("muse-wonder") ? new Response(JSON.stringify({ error: { message: "bad request", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } }) : undefined;
+    const s = await setup(undefined, undefined, undefined, broken);
+    const failed = await s.ws.collection("researchRuns").getOrThrow(s.rrId);
+    expect(failed.status).toBe("failed");
+    const firstRunId = failed.agentRunId!;
+    fail = false;
+    await s.p.jobs.create(s.wid, "research.run", { appId: s.seed.appId, researchRunId: s.rrId, kinds: failed.kinds }, { actor: "u1", credits: { operation: "research.run" } });
+    await s.p.inline!.drain();
+    const rr = await s.ws.collection("researchRuns").getOrThrow(s.rrId);
+    expect(rr.status).toBe("succeeded");
+    expect(rr.agentRunId).not.toBe(firstRunId);
+    expect((await s.ws.collection("agentRuns").getOrThrow(firstRunId)).status).toBe("failed");
+    const run = await s.ws.collection("agentRuns").getOrThrow(rr.agentRunId!);
+    expect(run).toMatchObject({ status: "succeeded" });
+    expect(run.budget.maxTokens).toBe(3_000_000);
+    expect(run.usage.searchCalls).toBe(1);
+  });
+
   it("tenancy: another workspace cannot read the run's outputs", async () => {
     const s = await setup();
     expect((await s.p.db.ws("ws_other").collection("researchFindings").list({ limit: 10 })).items).toHaveLength(0);

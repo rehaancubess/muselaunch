@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { brandGate } from "@muselaunch/agents";
 import { autopilotDetail, cancelAutopilot, decideCheckpoint, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
 import { tagOf } from "./state";
+import { type MetaRoute, responsesBody, toolNames } from "@muselaunch/agents/testing";
 import { autopilotDecisionRoute, autopilotHarness, type AutopilotHarness } from "./testing";
 
 const DAY = 86_400_000;
@@ -109,6 +110,19 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
 
     // Tenancy: invisible from another workspace
     await expect(h.p.db.ws("ws_other").collection("autopilots").getOrThrow(id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("stops at research when the run saved no sourced findings, even if it ended 'partial' (no audience from App DNA alone)", async () => {
+    // Live 30 Oct: a research run that stopped at its budget with 0 findings let the loop pick an audience anyway.
+    const finishAtOnce: MetaRoute = (req) =>
+      String(req.model).startsWith("muse-wonder") && toolNames(req).includes("save_finding") ? responsesBody({ model: "muse-wonder-1.0", functionCalls: [{ name: "finish", args: { summary: "Nothing reliable found." } }] }) : undefined;
+    const h = await autopilotHarness({ routes: [finishAtOnce] });
+    const id = await start(h);
+    const ap = await get(h, id);
+    expect(ap.status).toBe("failed");
+    expect(ap.stage).toBe("research");
+    expect(ap.error?.userMessage).toMatch(/didn't produce any sourced findings/);
+    expect(ap.audience).toBeUndefined();
   });
 
   it("pauses at the budget checkpoint, continues after approval, asks before rendering, and a rejection pauses the loop", async () => {
