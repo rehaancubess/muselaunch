@@ -2,21 +2,35 @@
 
 **Build your app. MuseLaunch helps the world discover it.**
 
+> **Built entirely during the Meta Global AI Developer Hackathon (submissions close 4 Nov 2026).** Every line of
+> code, prompt, test and asset in this repository was written during the event; the first commit is
+> `0bcc02c` on 27 Oct 2026, and the full history is public. The only outside pieces are open-source
+> dependencies (listed in `package.json` files) and the models and APIs named below. The music and sound
+> effects in videos are synthesized by our own code, not samples.
+
+**Live:** https://muselaunch-web-264489246542.us-central1.run.app · API health:
+https://muselaunch-api-264489246542.us-central1.run.app/health
+
 An AI growth studio for indie app developers: connect your app, and MuseLaunch learns what it does,
-researches your market, plans distinct campaigns, produces editable promo videos from your real app
-footage, prepares publishing and creator outreach with your approval, measures results, and proposes
-the next experiment. Built on Meta's models (Muse Wonder, Muse Spark 1.3, SAM 3.1, Muse Voice
-Transcribe, and two open-weights models: self-hosted Muse Glimmer and Muse Spark Open on Baseten) with
-HyperFrames for rendering.
+researches your market, plans distinct campaigns, produces editable 30–60 s promo videos from your real
+app footage, prepares publishing and creator outreach with your approval, measures results, and proposes
+the next experiment. Growth Autopilot runs the whole loop by default and asks you before anything is
+posted, sent or spent beyond its budget.
+
+## How the Meta models work together
 
 | Model | Runs on | Used for |
 |---|---|---|
-| Muse Wonder | Meta Model API | Research planning, growth strategy, Growth Autopilot decisions (tool use) |
-| Muse Spark 1.3 | Meta Model API | App DNA (multimodal), cited research, concepts, storyboards, scene edits, claim checks, insights |
-| Muse Spark Open (open weights) | Baseten Model APIs | Post copy and hook/audience variant briefs by default (`SPARK_OPEN_TASKS`); visible fallback when the Meta Model API is rate-limited, down, timing out or out of credits |
-| SAM 3.1 | Meta Model API | Segmenting and tracking people and objects in founder footage |
-| Muse Voice Transcribe | Meta Model API | Founder recordings, captions, spoken edits |
-| Muse Glimmer (open weights) | Self-hosted (llama.cpp / Ollama / Modal) | Brand memory and the Brand Guardian |
+| Muse Wonder | Meta Model API | Research planning with live web search (every finding cited), growth strategy, Growth Autopilot decisions: audience, hypothesis, which concepts to test (tool use) |
+| Muse Spark 1.3 | Meta Model API | App DNA from the listing and screenshots (multimodal); labels every shot of a walkthrough recording by feature and flags personal info; concepts and 30–60 s storyboards that point at the exact UI to zoom into; scene-scoped edits; claim checks; **watches the rendered MP4** and fixes the scenes it finds problems in; insights |
+| SAM 3.1 | Meta Model API | Cuts the real app screen out of designed App Store images (no phone-inside-a-phone); locates UI elements for focus zooms; tracks the founder and their phone in footage for object-aware effects |
+| Muse Voice Transcribe | Meta Model API | Founder recordings and narration, captions, spoken edits, and checking that an AI voiceover says exactly what the script says |
+| Muse Glimmer (open weights) | Self-hosted on our RTX 5090 (Ollama) | Brand memory and the Brand Guardian, which reviews every video against the brand kit, verified claims and grounded features before it renders |
+| Muse Spark Open (open weights) | Baseten Model APIs | Post copy and hook/audience variant briefs (`SPARK_OPEN_TASKS`); a visible fallback when the Meta Model API is unavailable |
+| Muse Image | — | Not used: Meta's geographic policy restricts it in India, where this was built. Images come from OpenAI, labelled. |
+
+Outside Meta: OpenAI for labelled images and the optional labelled AI voice (Meta has no text-to-speech
+model), Pexels / Pixabay / Openverse for licensed stock, HyperFrames + FFmpeg for rendering.
 
 Every agent run shows which model did each step, and usage is metered under the provider that ran it.
 
@@ -25,7 +39,7 @@ Every agent run shows which model did each step, and usage is metered under the 
 - Approval gates before publishing, outreach or spend; workspace isolation; metered credits
 
 See `docs/PLAN.md` for architecture decisions and module ownership, `docs/ACCESS.md` for getting
-API access, and `docs/CONVENTIONS.md` before contributing.
+API access, `docs/INTERFACES.md` for module contracts, and `docs/CONVENTIONS.md` before contributing.
 
 ## Run it on Windows
 
@@ -37,7 +51,7 @@ Install Node.js once (`winget install OpenJS.NodeJS.LTS` in PowerShell), then do
 |---|---|
 | `start-demo.cmd` | The whole product with **no keys**: labelled test answers stand in for the AI; rendering, storage, jobs and credits are real. |
 | `start-live.cmd` | The whole product with **real AI**, using the keys in `.env`. Data is in memory. Real calls spend real credits, capped by the spend ceilings in `.env`. Uses real sign-in (Google or email link, through Firebase) when the Firebase web config is in `.env`; `start-live.cmd dev` uses the local test sign-in. |
-| `check-keys.cmd` | Checks your setup and makes a few tiny live calls with every key that's set in `.env` (Meta, Baseten, Glimmer). `check-keys.cmd media agents autopilot` runs the deeper checks. Results also go to `fixtures/live/last-run.log`. |
+| `check-keys.cmd` | Checks your setup and makes a few tiny live calls with every key that's set in `.env` (Meta, Baseten, Glimmer). `check-keys.cmd media agents autopilot` runs the deeper checks; `check-keys.cmd pipeline` runs the whole product on a real App Store app (default Magic Pocket) end to end and leaves the MP4s in `fixtures/live/pipeline/`. Results also go to `fixtures/live/last-run.log`. |
 | `setup-tools.cmd` | One-time install of FFmpeg (video) and the Google Cloud CLI (deploy) with winget. |
 | `setup-youtube.cmd` | Creates the YouTube public-data API key (restricted to YouTube Data API v3) and saves it in `.env` without showing it. |
 | `deploy.cmd` | Puts MuseLaunch online on Google Cloud Run (project and region from `.env`). Needs the Google Cloud CLI once (`winget install Google.CloudSDK`); signs you in if needed. Creates the Firestore indexes, secrets, queues and four services. Log: `.data/logs/deploy.log`. |
