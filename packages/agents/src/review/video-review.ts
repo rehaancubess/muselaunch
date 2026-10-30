@@ -131,8 +131,16 @@ export async function requestVideoReview(p: Platform, workspaceId: string, input
   const comp = await ws.collection("compositions").getOrThrow(input.compositionId);
   const version = input.version ?? comp.currentVersion;
   const { asset, quality } = await renderForVersion(ws, comp, version, input.renderAssetId);
-  const { review, created } = await ensureVideoReview(ws, { appId: comp.appId, compositionId: comp.id, version, renderAssetId: asset.id, renderQuality: quality, requestedFrom: input.requestedFrom, rerun: input.rerun }, input.actor);
-  if (!created) return { review, job: review.jobId ? await p.jobs.get(workspaceId, review.jobId) : null, reused: true };
+  const base = { appId: comp.appId, compositionId: comp.id, version, renderAssetId: asset.id, renderQuality: quality, requestedFrom: input.requestedFrom };
+  let { review, created } = await ensureVideoReview(ws, { ...base, rerun: input.rerun }, input.actor);
+  if (!created) {
+    const prior = review.jobId ? await p.jobs.get(workspaceId, review.jobId) : null;
+    // A review whose job was cancelled or failed before the handler ran would stay "queued" forever.
+    const stuck = !isTerminalVideoReview(review) && (prior?.status === "failed" || prior?.status === "cancelled");
+    if (!stuck) return { review, job: prior, reused: true };
+    await ws.collection("videoReviews").update(review.id, { status: "failed", error: clip(prior?.error?.userMessage ?? "The review stopped before Spark watched the video.", 1000) }, { actor: input.actor });
+    ({ review, created } = await ensureVideoReview(ws, { ...base, rerun: true }, input.actor));
+  }
   let job: Job;
   try {
     job = await p.jobs.create(

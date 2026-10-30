@@ -152,6 +152,18 @@ describe("Spark video review (video.review)", () => {
     await expect(requestVideoReview(p, wid, { compositionId: v.compositionId, version: 1, renderAssetId: other.renderAssetId, actor: "u1", requestedFrom: "studio" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(requestVideoReview(p, "ws_someone_else", { compositionId: v.compositionId, actor: "u1", requestedFrom: "studio" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("a review whose job was cancelled before it ran isn't reused forever: asking again starts a fresh one", async () => {
+    const v = await seedRenderedVideo(p, wid, { appId: seed.appId, screenshotId: seed.screenshotIds[0]!, hook: "Cancelled before it ran" });
+    const first = await requestVideoReview(p, wid, { compositionId: v.compositionId, actor: "u1", requestedFrom: "studio" });
+    await p.jobs.requestCancel(wid, first.job!.id, "u1");
+    const second = await requestVideoReview(p, wid, { compositionId: v.compositionId, actor: "u1", requestedFrom: "studio" });
+    expect(second.reused).toBe(false);
+    expect(second.review.id).not.toBe(first.review.id);
+    expect((await p.db.ws(wid).collection("videoReviews").getOrThrow(first.review.id)).status).toBe("failed");
+    await p.inline!.drain();
+    expect((await p.db.ws(wid).collection("videoReviews").getOrThrow(second.review.id)).status).toBe("succeeded");
+  });
 });
 
 describe("video review measurements and fix plans (pure)", () => {

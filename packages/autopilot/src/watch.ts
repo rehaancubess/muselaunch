@@ -115,6 +115,7 @@ export async function watchRenders(env: LoopEnv, step: WatchStep): Promise<Outco
         credits: { operation: "video.review" },
       },
     );
+    if (review.jobId !== job.id) await env.ws.collection("videoReviews").update(review.id, { jobId: job.id }, { actor: env.ctx.actor });
     waitIds.push(job.id);
   }
   return { kind: "wait", jobIds: waitIds, tag: "render:watch", reason: `${who} is watching ${renders.length} rendered video${renders.length === 1 ? "" : "s"}` };
