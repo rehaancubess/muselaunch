@@ -160,11 +160,23 @@ function pexelsPhotoItem(ph: PexelsPhoto): StockItem | null {
     license: { ...PEXELS_LICENSE, attribution: `Photo by ${ph.photographer} on Pexels` },
   });
 }
+/** Pexels videos have no title field; the page slug describes them ("/video/woman-typing-on-a-laptop-3195394/"). */
+export function pexelsSlugTitle(pageUrl: string): string | undefined {
+  try {
+    const slug = new URL(pageUrl).pathname.split("/").filter(Boolean).pop() ?? "";
+    const words = slug.replace(/-?\d+$/, "").replace(/-/g, " ").trim();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function pexelsVideoItem(v: PexelsVideo): StockItem | null {
   return valid({
     provider: "pexels",
     id: String(v.id),
     kind: "video",
+    title: pexelsSlugTitle(v.url)?.slice(0, 300),
     previewUrl: v.image,
     pageUrl: v.url,
     width: v.width,
@@ -349,3 +361,6 @@ export async function getStockDetail(p: Platform, provider: StockProviderId, id:
   if (!adapter.supports(kind)) throw new AppError("BAD_REQUEST", `${adapter.label} does not provide ${kind}s`);
   return adapter.get(p, id, kind, deps);
 }
+
+// Ranking + multi-provider search for storyboard b-roll (storyboard.resolve_media).
+export * from "./pick";

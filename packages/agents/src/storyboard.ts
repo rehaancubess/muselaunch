@@ -158,8 +158,9 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
   const compositionId = hashId("cmp", storyboardId);
   const already = await ws.collection("storyboards").get(storyboardId);
   if (already) {
-    const job = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
-    return { refs: [{ entity: "storyboards", id: storyboardId }], data: { compositionId, buildJobId: job.id, alreadyGenerated: true } };
+    // Lifestyle b-roll first (storyboard.resolve_media), which then enqueues composition.build.
+    const job = await ctx.enqueue("storyboard.resolve_media", { appId, storyboardId, compositionId }, { idempotencyKey: `storyboard.resolve_media:${storyboardId}` });
+    return { refs: [{ entity: "storyboards", id: storyboardId }], data: { compositionId, mediaJobId: job.id, alreadyGenerated: true } };
   }
 
   const app = await loadAppContext(ws, appId);
@@ -248,12 +249,12 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
     await ws.collection("campaignVariants").update(variantId, { storyboardId, status: variant.status === "proposed" ? "selected" : variant.status, compositionIds: [...new Set([...variant.compositionIds, compositionId])] }, { actor: ctx.actor });
     // Producing (again): the campaign returns to `review` when every production chain has finished (campaign-status.ts).
     if (campaign.status === "planning" || campaign.status === "concepts_ready" || campaign.status === "review") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
-    await ctx.progress(90, "queueing composition build");
-    const build = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
+    await ctx.progress(90, "queueing b-roll and composition build");
+    const media = await ctx.enqueue("storyboard.resolve_media", { appId, storyboardId, compositionId }, { idempotencyKey: `storyboard.resolve_media:${storyboardId}` });
     await rec.finish("succeeded", { outputRefs: [{ entity: "storyboards", id: storyboard.id }], memoryRefs: memory.items.map((m) => m.id) });
     return {
       refs: [{ entity: "storyboards", id: storyboard.id }, { entity: "agentRuns", id: rec.id }],
-      data: { compositionId, buildJobId: build.id, claimIssues: claimCheck.issues, fixes: check.fixes },
+      data: { compositionId, mediaJobId: media.id, claimIssues: claimCheck.issues, fixes: check.fixes },
     };
   } catch (raw) {
     const err = toAppError(raw);

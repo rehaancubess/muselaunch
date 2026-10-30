@@ -26,6 +26,11 @@ describe("module B API (app-dna.ts + campaigns.ts) with fixture-backed Meta", ()
       built.push(ctx.payload.compositionId);
       return { creditsUsed: 0 };
     },
+    // Module D's b-roll step (not exercised here): pass straight through to the build.
+    "storyboard.resolve_media": async (ctx: JobContext<"storyboard.resolve_media">) => {
+      const build = await ctx.enqueue("composition.build", ctx.payload, { idempotencyKey: `composition.build:${ctx.payload.storyboardId}` });
+      return { data: { buildJobId: build.id } };
+    },
   });
   const app = buildApp(p);
   const alice = client(app, "alice");

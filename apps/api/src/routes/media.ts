@@ -1,6 +1,19 @@
-import { AnalyzeClipRequest, ImageGenerateRequest, SegmentCorrectionRequest, SegmentRequest, StockImportRequest, StockSearchQuery, TranscribeRequest, TtsRequest, type ImageProviderInfo } from "@muselaunch/contracts";
+import {
+  AnalyzeClipRequest,
+  BrollHintKind,
+  ImageGenerateRequest,
+  SegmentCorrectionRequest,
+  SegmentRequest,
+  StockImportRequest,
+  StockSearchQuery,
+  TranscribeRequest,
+  TtsRequest,
+  type BrollStatusResponse,
+  type ImageProviderInfo,
+  type MediaProvidersResponse,
+} from "@muselaunch/contracts";
 import { correctSegmentation, DEFAULT_CLIP_PROMPTS, estimateClipAnalysis, importStock, mediaDeps, requestClipAnalysis, requestSegmentation, requestTranscript, transcriptToCaptionCues, waitForTranscript } from "@muselaunch/media";
-import { AppError, assertKeyInWorkspace } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, toAppError } from "@muselaunch/platform";
 import { assertBuiltinVoice, chooseImageProvider, guardImagePrompt, searchStock, stockProviderStates, TTS_DISCLOSURE } from "@muselaunch/providers";
 import { Hono } from "hono";
 import { actorOf, body, idempotencyKey, query, requireCap, type AppEnv } from "../context";
@@ -135,6 +148,53 @@ mediaRoutes.post("/stock/import", requireCap("content.write"), async (c) => {
   const input = await body(c, StockImportRequest);
   const { asset, job, created } = await importStock(p, c.get("workspaceId"), input, actorOf(c));
   return c.json({ asset, job }, created ? 201 : 200);
+});
+
+/**
+ * What the Studio's Stock and Generate tabs can use on this deployment, without calling any provider:
+ * stock providers with their state, and the image provider this user's requests would go to (or why
+ * generation is unavailable), with credit prices.
+ */
+mediaRoutes.get("/media/providers", async (c) => {
+  const p = c.get("platform");
+  const creditsPerImage = p.credits.estimate("media.image_generate", { count: 1 }).credits;
+  let image: MediaProvidersResponse["image"];
+  try {
+    const choice = chooseImageProvider(p, c.get("country"));
+    image = { state: "live", provider: { id: choice.id, label: choice.label, model: choice.model, museImage: choice.museImage }, creditsPerImage };
+  } catch (raw) {
+    const err = toAppError(raw);
+    if (err.code !== "PROVIDER_NOT_CONFIGURED") throw err;
+    image = { state: "not_configured", message: err.opts.userMessage ?? err.message, creditsPerImage };
+  }
+  const res: MediaProvidersResponse = { stock: stockProviderStates(p), stockDownloadCredits: p.credits.estimate("media.stock_download").credits, image };
+  return c.json(res);
+});
+
+/** Lifestyle b-roll of a storyboard: each stock/generated hint, the asset `storyboard.resolve_media` attached, or why not. */
+mediaRoutes.get("/storyboards/:storyboardId/broll", async (c) => {
+  const p = c.get("platform");
+  const ws = p.db.ws(c.get("workspaceId"));
+  const sb = await ws.collection("storyboards").getOrThrow(c.req.param("storyboardId"));
+  const hints = [...sb.scenes].sort((a, b) => a.order - b.order).flatMap((scene) => scene.assets.flatMap((h) => (BrollHintKind.safeParse(h.kind).success ? [{ scene, h }] : [])));
+  const ids = [...new Set(hints.map((x) => x.h.assetId).filter((x): x is string => Boolean(x)))];
+  const assets = new Map((await ws.collection("mediaAssets").getMany(ids)).filter((a) => a.status !== "deleted").map((a) => [a.id, a]));
+  const res: BrollStatusResponse = {
+    storyboardId: sb.id,
+    items: hints.map(({ scene, h }) => {
+      const a = h.assetId ? assets.get(h.assetId) : undefined;
+      return {
+        sceneId: scene.id,
+        sceneOrder: scene.order,
+        kind: BrollHintKind.parse(h.kind),
+        query: h.query,
+        assetId: a?.id,
+        unresolved: h.unresolved,
+        asset: a ? { id: a.id, title: a.title, kind: a.kind, role: a.role, origin: a.origin, sourceLabel: a.sourceLabel, license: a.license } : undefined,
+      };
+    }),
+  };
+  return c.json(res);
 });
 
 // ---------------------------------------------------------------------------

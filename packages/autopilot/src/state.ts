@@ -66,8 +66,8 @@ export async function spentCredits(ws: WorkspaceDb, appId: string, log: LogEntry
   const set = new Set(ids);
   const recent = (await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 300 })).items;
   const all = new Map(direct.map((j) => [j.id, j]));
-  // two levels of chaining (storyboard → build → preview)
-  for (let level = 0; level < 2; level++) {
+  // three levels of chaining (storyboard → b-roll → build → preview)
+  for (let level = 0; level < 3; level++) {
     for (const j of recent) if (j.parentJobId && set.has(j.parentJobId) && !all.has(j.id) && j.type !== "autopilot.step") all.set(j.id, j);
     for (const id of all.keys()) set.add(id);
   }

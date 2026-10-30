@@ -1,6 +1,8 @@
 import { sceneHash } from "@muselaunch/compositions";
 import { installCampaignHooks } from "@muselaunch/agents";
-import { fixtureJson, installFakeMeta, jsonRoute, requestText, resolvePlaceholders, seedApp } from "@muselaunch/agents/testing";
+import { fixtureJson, installFakeMeta, jsonRoute, png, requestText, resolvePlaceholders, seedApp } from "@muselaunch/agents/testing";
+import { installMediaDeps } from "@muselaunch/media";
+import { loadFixture } from "@muselaunch/media/testing";
 import { createTestPlatform } from "@muselaunch/platform";
 import { handlers as workerHandlers } from "@muselaunch/worker/registry";
 import { describe, expect, it } from "vitest";
@@ -37,6 +39,13 @@ describe("B → C pipeline: storyboard → composition → AI scene edit → app
         return { summary: "Sharper hook", targetSceneIds: [sceneId], ops: [{ op: "update_layer", sceneId, layerId, set: { text: "Where did your evening go?" } }] };
       }),
     ]);
+    // Lifestyle b-roll (D's storyboard.resolve_media) is served from the labelled Openverse fixture; no network.
+    const openverse = loadFixture<{ response: J }>("openverse-search.json").response;
+    const photo = await png([200, 180, 150], [300, 450]);
+    installMediaDeps(p, {
+      fetch: (async (url: string) => new Response(JSON.stringify(/^\/v1\/images\/[^/]+\/$/.test(new URL(url).pathname) ? openverse.results[0] : openverse), { status: 200 })) as typeof fetch,
+      download: async (url) => ({ body: photo, contentType: "image/png", url }),
+    });
     const wid = (await call("POST", "/v1/workspaces", { name: "Pipeline" })).body.workspace.id;
     const W = `/v1/workspaces/${wid}`;
     const seed = await seedApp(p, wid);
@@ -52,8 +61,11 @@ describe("B → C pipeline: storyboard → composition → AI scene edit → app
     const variant = campaign.variants.find((v: J) => v.angleType === "practical_demo");
     expect((await call("POST", `${W}/campaigns/${campaign.campaign.id}/variants/${variant.id}/produce`, { aspectRatio: "9:16", targetDurationSec: 15 })).status).toBe(202);
     await p.inline!.drain();
-    // storyboard → build → preview finished → the campaign leaves "producing" (status hook).
+    // storyboard → b-roll → build → preview finished → the campaign leaves "producing" (status hook).
     expect(await p.db.ws(wid).collection("campaigns").getOrThrow(campaign.campaign.id)).toMatchObject({ status: "review" });
+    const sbId = (await p.db.ws(wid).collection("campaignVariants").getOrThrow(variant.id)).storyboardId!;
+    const stockHint = (await p.db.ws(wid).collection("storyboards").getOrThrow(sbId)).scenes.flatMap((s) => s.assets).find((h) => h.kind === "stock_image")!;
+    expect(await p.db.ws(wid).collection("mediaAssets").getOrThrow(stockHint.assetId!)).toMatchObject({ role: "stock_image", origin: "stock", isProductTruth: false, license: { provider: "Openverse (Creative Commons)" } });
     expect((await p.db.ws(wid).collection("campaignVariants").getOrThrow(variant.id)).status).toBe("produced");
 
     const after = (await call("GET", `${W}/campaigns/${campaign.campaign.id}`)).body;

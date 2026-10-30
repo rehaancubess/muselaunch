@@ -393,7 +393,15 @@ const produce: StageFn = async (env, step) => {
     return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "produce:storyboards", reason: `Writing ${jobs.length} storyboard(s)` };
   }
   const storyboards = await delegated(env, "storyboard.generate", (j) => (j.payload as { campaignId?: string }).campaignId === campaignId);
-  const builds = storyboards.flatMap((j) => {
+  // storyboard → storyboard.resolve_media (lifestyle b-roll) → composition.build
+  const mediaIds = storyboards.flatMap((j) => {
+    const d = j.output?.data as { mediaJobId?: string } | undefined;
+    return j.status === "succeeded" && d?.mediaJobId ? [d.mediaJobId] : [];
+  });
+  const media = await env.ws.collection("jobs").getMany(mediaIds);
+  const findingMedia = media.filter((j) => !isTerminalJob(j));
+  if (findingMedia.length) return { kind: "wait", jobIds: findingMedia.map((j) => j.id), tag: "produce:media", reason: `Finding lifestyle b-roll for ${findingMedia.length} video(s)` };
+  const builds = [...storyboards, ...media].flatMap((j) => {
     const d = j.output?.data as { buildJobId?: string } | undefined;
     return j.status === "succeeded" && d?.buildJobId ? [d.buildJobId] : [];
   });
@@ -402,6 +410,7 @@ const produce: StageFn = async (env, step) => {
   if (pending.length) return { kind: "wait", jobIds: pending.map((j) => j.id), tag: "produce:builds", reason: `Building ${pending.length} editable video(s)` };
   const failedSb = storyboards.filter((j) => j.status !== "succeeded");
   for (const j of failedSb) env.note("error", `A storyboard failed: ${jobError(j)}`, [ref("jobs", j.id)]);
+  for (const j of media.filter((m) => m.status !== "succeeded")) env.note("error", `Finding b-roll failed, so that video wasn't built: ${jobError(j)}`, [ref("jobs", j.id)]);
   for (const j of buildJobs.filter((b) => b.status !== "succeeded")) env.note("error", `A composition build failed: ${jobError(j)}`, [ref("jobs", j.id)]);
   const ids = storyboards.flatMap((j) => {
     const d = j.output?.data as { compositionId?: string } | undefined;

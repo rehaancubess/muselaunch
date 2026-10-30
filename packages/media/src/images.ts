@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { MediaAsset } from "@muselaunch/contracts";
 import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
-import { guardImagePrompt, resolveImageProvider, type ImageResult } from "@muselaunch/providers";
+import { guardImagePrompt, resolveImageProvider, type ImageProvider, type ImageProviderChoice, type ImageResult, type ImageSize } from "@muselaunch/providers";
 import { probeMedia } from "./ffmpeg";
 import { callCtx, derivedId, EXT_BY_MIME, mediaDeps, sha256, withWorkdir } from "./util";
 
@@ -52,11 +52,45 @@ export async function imageGenerateHandler(ctx: JobContext<"media.image_generate
   await ctx.progress(80, "saving");
 
   const revision = parent ? (parent.generation?.revision ?? 0) + 1 : 1;
+  const created = await storeGeneratedImages(ctx, { ids, result, choice, provider, prompt, size, revision, appId: appId ?? parent?.appId, campaignId: campaignId ?? parent?.campaignId, parent });
+  const reserved = ctx.job.reservation?.credits;
+  return {
+    refs: created.map((a) => ({ entity: "mediaAssets", id: a.id })),
+    data: { assetIds: created.map((a) => a.id), provider: choice, revision, costUsd: result.costUsd },
+    // Charge only for images actually returned.
+    creditsUsed: reserved !== undefined ? Math.ceil((reserved * created.length) / count) : undefined,
+  };
+}
+
+/**
+ * Store a provider's generated images as labelled MediaAssets (deterministic ids → idempotent):
+ * `generated_image`, origin `generated`, `ai_generated_image`, generated-terms licence and the
+ * generation record. Shared by `media.image_generate` and storyboard b-roll.
+ */
+export async function storeGeneratedImages(
+  ctx: JobContext,
+  input: {
+    ids: string[];
+    result: ImageResult;
+    choice: ImageProviderChoice;
+    provider: Pick<ImageProvider, "termsUrl">;
+    prompt: string;
+    size: ImageSize;
+    revision?: number;
+    appId?: string;
+    campaignId?: string;
+    parent?: MediaAsset;
+    labels?: string[];
+  },
+): Promise<MediaAsset[]> {
+  const repo = ctx.ws.collection("mediaAssets");
+  const { result, choice, size, parent } = input;
+  const revision = input.revision ?? 1;
   const usageEvent = result.usageEventId ?? (await latestUsageEventId(ctx));
-  const created: MediaAsset[] = await withWorkdir(async (dir) => {
+  return withWorkdir(async (dir) => {
     const out: MediaAsset[] = [];
-    for (const [i, img] of result.images.slice(0, count).entries()) {
-      const id = ids[i]!;
+    for (const [i, img] of result.images.slice(0, input.ids.length).entries()) {
+      const id = input.ids[i]!;
       const ext = EXT_BY_MIME[img.mimeType] ?? "png";
       const key = workspaceKey(ctx.workspaceId, "generated", id, `image.${ext}`);
       const { bytes } = await ctx.platform.storage.put(key, img.data, { contentType: img.mimeType });
@@ -67,8 +101,8 @@ export async function imageGenerateHandler(ctx: JobContext<"media.image_generate
       const { entity } = await repo.createIfAbsent(
         {
           id,
-          appId: appId ?? parent?.appId,
-          campaignId: campaignId ?? parent?.campaignId,
+          appId: input.appId,
+          campaignId: input.campaignId,
           kind: "image",
           role: "generated_image",
           origin: "generated",
@@ -81,10 +115,10 @@ export async function imageGenerateHandler(ctx: JobContext<"media.image_generate
           status: "ready",
           isProductTruth: false,
           sourceLabel: "ai_generated_image",
-          labels: ["ai_generated", `provider:${result.provider}`],
+          labels: ["ai_generated", `provider:${result.provider}`, ...(input.labels ?? [])].slice(0, 30),
           title: `AI image · ${choice.label}${revision > 1 ? ` · rev ${revision}` : ""}`.slice(0, 200),
-          license: { type: "generated_terms", provider: choice.label, termsUrl: provider.termsUrl, restrictions: "AI-generated. Must not be presented as a real product screenshot." },
-          generation: { provider: result.provider, model: result.model, prompt: prompt.slice(0, 4000), revision, parentAssetId: parent?.id, usageEventId: usageEvent },
+          license: { type: "generated_terms", provider: choice.label, termsUrl: input.provider.termsUrl, restrictions: "AI-generated. Must not be presented as a real product screenshot." },
+          generation: { provider: result.provider, model: result.model, prompt: input.prompt.slice(0, 4000), revision, parentAssetId: parent?.id, usageEventId: usageEvent },
           derivedFromAssetId: parent?.id,
         },
         { actor: ctx.actor },
@@ -93,13 +127,6 @@ export async function imageGenerateHandler(ctx: JobContext<"media.image_generate
     }
     return out;
   });
-  const reserved = ctx.job.reservation?.credits;
-  return {
-    refs: created.map((a) => ({ entity: "mediaAssets", id: a.id })),
-    data: { assetIds: created.map((a) => a.id), provider: choice, revision, costUsd: result.costUsd },
-    // Charge only for images actually returned.
-    creditsUsed: reserved !== undefined ? Math.ceil((reserved * created.length) / count) : undefined,
-  };
 }
 
 async function latestUsageEventId(ctx: JobContext): Promise<string | undefined> {

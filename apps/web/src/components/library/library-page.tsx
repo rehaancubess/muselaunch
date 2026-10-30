@@ -286,7 +286,7 @@ export function LibraryPage() {
                   : filter === "renders"
                     ? "Rendered videos and export packages appear here after you produce a campaign."
                     : filter === "generated"
-                      ? "Generated and stock media is labelled with its provider and licence when you add it in the Studio."
+                      ? "Lifestyle b-roll appears here with its provider and licence: stock from Pexels, Pixabay or Openverse, and labelled AI images. MuseLaunch finds it for your storyboards automatically, and you can search stock or generate an image in the Studio’s media panel."
                       : "Upload files above and set their type."
               }
             />

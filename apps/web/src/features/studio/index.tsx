@@ -176,7 +176,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   }
 
   const disabled = studio.saving;
-  const mediaPanel = <AssetsDrawer workspaceId={workspaceId} appId={appId} doc={doc} scene={activeScene} layer={layer} onPatch={onPatch} disabled={disabled} />;
+  const mediaPanel = <AssetsDrawer workspaceId={workspaceId} appId={appId} doc={doc} scene={activeScene} layer={layer} onPatch={onPatch} disabled={disabled} composition={data.composition} />;
   return (
     <div className="flex min-h-[calc(100dvh-var(--ml-topbar-h))] flex-col bg-mist lg:h-[calc(100dvh-var(--ml-topbar-h))]">
       <StudioTopbar

@@ -1,4 +1,5 @@
 import type { HandlerRegistry } from "@muselaunch/platform";
+import { resolveMediaHandler } from "./broll";
 import { analyzeClipHandler } from "./clip";
 import { imageGenerateHandler } from "./images";
 import { probeHandler } from "./probe";
@@ -14,7 +15,11 @@ export const handlers: HandlerRegistry = {
   "media.image_generate": imageGenerateHandler,
   "media.tts": ttsHandler,
   "media.analyze_clip": analyzeClipHandler,
+  "storyboard.resolve_media": resolveMediaHandler,
 };
+
+export { brollTargets, imageSizeFor, importBroll, reasonFor, trimBrollVideo, usedKey, BROLL_KINDS, VIDEO_SCALE, type BrollOutcome, type BrollTarget } from "./broll";
+export { storeGeneratedImages } from "./images";
 
 export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "./captions";
 export { ffmpeg, ffmpegPath, ffprobePath, ffmpegWriter, probeMedia, countVideoFrames, type MediaProbe } from "./ffmpeg";

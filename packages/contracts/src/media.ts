@@ -283,6 +283,52 @@ export const StockImportRequest = z.object({
 });
 export type StockImportRequest = z.infer<typeof StockImportRequest>;
 
+export const StockProviderState = z.object({
+  id: StockProviderId,
+  label: z.string(),
+  state: z.enum(["live", "not_configured"]),
+  kinds: z.array(z.enum(["image", "video"])),
+});
+export type StockProviderState = z.infer<typeof StockProviderState>;
+
+/** `GET /media/providers`: what the Studio's Stock and Generate tabs can use on this deployment (honest states, no calls made). */
+export const MediaProvidersResponse = z.object({
+  stock: z.array(StockProviderState),
+  /** Credits per stock photo/clip that `storyboard.resolve_media` downloads into a scene. */
+  stockDownloadCredits: z.number().int().nonnegative(),
+  image: z.object({
+    state: z.enum(["live", "not_configured"]),
+    /** Which provider a request from this user would go to (always named). */
+    provider: ImageProviderInfo.optional(),
+    /** Why generation is unavailable (when not configured). */
+    message: z.string().optional(),
+    creditsPerImage: z.number().int().nonnegative(),
+  }),
+});
+export type MediaProvidersResponse = z.infer<typeof MediaProvidersResponse>;
+
+export const BrollHintKind = z.enum(["stock_video", "stock_image", "generated_image"]);
+export type BrollHintKind = z.infer<typeof BrollHintKind>;
+
+/** One lifestyle-media hint of a storyboard scene and what `storyboard.resolve_media` attached (or why not). */
+export const BrollHintStatus = z.object({
+  /** Storyboard scene id (composition scenes carry it as `storyboardSceneId`). */
+  sceneId: Id,
+  sceneOrder: z.number().int().nonnegative(),
+  kind: BrollHintKind,
+  query: z.string().optional(),
+  assetId: Id.optional(),
+  unresolved: z.string().optional(),
+  asset: z
+    .object({ id: Id, title: z.string().optional(), kind: MediaKind, role: MediaRole, origin: MediaOrigin, sourceLabel: z.string().optional(), license: AssetLicense.optional() })
+    .optional(),
+});
+export type BrollHintStatus = z.infer<typeof BrollHintStatus>;
+
+/** `GET /storyboards/:storyboardId/broll`. */
+export const BrollStatusResponse = z.object({ storyboardId: Id, items: z.array(BrollHintStatus) });
+export type BrollStatusResponse = z.infer<typeof BrollStatusResponse>;
+
 export const TtsRequest = z.object({
   appId: Id.optional(),
   text: z.string().trim().min(1).max(4000),

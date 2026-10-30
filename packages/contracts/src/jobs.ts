@@ -16,6 +16,8 @@ export const JobPayloads = {
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
   "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).default(15) }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
+  /** Lifestyle b-roll: turn the storyboard's stock/generated hints into licensed assets, then enqueue composition.build. */
+  "storyboard.resolve_media": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
   "composition.edit": z.object({
     appId: Id,
     compositionId: Id,
@@ -74,6 +76,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "campaign.generate_concepts": "agents",
   "storyboard.generate": "agents",
   "composition.build": "agents",
+  "storyboard.resolve_media": "media",
   "composition.edit": "agents",
   "composition.variants": "agents",
   "copy.generate": "agents",

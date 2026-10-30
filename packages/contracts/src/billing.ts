@@ -126,6 +126,10 @@ export const DEFAULT_CREDIT_PRICES = {
   "media.transcribe_per_min": 1,
   "media.image_generate": 6,
   "media.image_edit": 6,
+  /** Per stock photo/clip downloaded, trimmed and stored for a storyboard scene (lifestyle b-roll). */
+  "media.stock_download": 1,
+  /** B-roll orchestration is free; each stock download / generated image inside it is charged at its own price. */
+  "storyboard.resolve_media": 0,
   "media.tts_per_100_chars": 1,
   "experiment.analyze": 8,
   /** Per tracked account refreshed. */

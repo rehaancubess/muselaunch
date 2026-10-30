@@ -192,4 +192,40 @@ describe("media API", () => {
     expect(tts.json.disclosure).toMatch(/AI-generated voice/);
     expect((await alice.post(`/v1/workspaces/${wsA}/tts`, { text: "hi", voice: "my-cloned-voice" })).status).toBe(400);
   });
+
+  it("states b-roll providers honestly and reports a storyboard's b-roll per scene, workspace-scoped", async () => {
+    const prov = await alice.get(`/v1/workspaces/${wsA}/media/providers`);
+    expect(prov.status).toBe(200);
+    expect(prov.json.stock.find((x: Json) => x.id === "openverse")).toMatchObject({ state: "live", kinds: ["image"] });
+    expect(prov.json.stock.find((x: Json) => x.id === "pexels")).toMatchObject({ state: "not_configured", kinds: ["image", "video"] });
+    expect(prov.json.image).toMatchObject({ state: "live", provider: { id: "openai", label: "OpenAI Images" }, creditsPerImage: 6 });
+    expect(prov.json.stockDownloadCredits).toBe(1);
+
+    const ws = p.db.ws(wsA);
+    const photo = await ws.collection("mediaAssets").create(
+      { kind: "image", role: "stock_image", origin: "stock", storagePath: `workspaces/${wsA}/stock/x/photo.jpg`, mimeType: "image/jpeg", status: "ready", sourceLabel: "stock", license: { type: "creative_commons", provider: "Openverse (Creative Commons)", attribution: "“Desk” by A is licensed under CC BY 2.0" } },
+      { actor: "alice" },
+    );
+    const scene = (i: number, assets: Json[]) => ({ id: `sbs_${i}`, order: i, purpose: "other", durationSec: 3, visual: "v", template: "text-over-media", assets });
+    const sb = await ws.collection("storyboards").create(
+      {
+        appId: "app_x",
+        campaignId: "cmp_x",
+        variantId: "var_x",
+        title: "B-roll",
+        aspectRatio: "9:16",
+        targetDurationSec: 6,
+        scenes: [scene(1, [{ kind: "stock_video", query: "city at night", unresolved: "Stock video needs a Pexels or Pixabay API key on this deployment." }]), scene(0, [{ kind: "screenshot", assetId: "ast_real" }, { kind: "stock_image", query: "desk", assetId: photo.id }])],
+      } as never,
+      { actor: "alice" },
+    );
+    const r = await alice.get(`/v1/workspaces/${wsA}/storyboards/${sb.id}/broll`);
+    expect(r.status).toBe(200);
+    expect(r.json.items).toEqual([
+      { sceneId: "sbs_0", sceneOrder: 0, kind: "stock_image", query: "desk", assetId: photo.id, asset: expect.objectContaining({ id: photo.id, origin: "stock", license: expect.objectContaining({ provider: "Openverse (Creative Commons)" }) }) },
+      { sceneId: "sbs_1", sceneOrder: 1, kind: "stock_video", query: "city at night", unresolved: "Stock video needs a Pexels or Pixabay API key on this deployment." },
+    ]);
+    expect((await bob.get(`/v1/workspaces/${wsA}/storyboards/${sb.id}/broll`)).status).toBe(404);
+    expect((await bob.get(`/v1/workspaces/${wsB}/storyboards/${sb.id}/broll`)).status).toBe(404);
+  });
 });

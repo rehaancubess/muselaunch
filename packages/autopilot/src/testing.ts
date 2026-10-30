@@ -144,6 +144,11 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
       await createComposition(ctx.ws, { id: ctx.payload.compositionId, appId: sb.appId, campaignId: sb.campaignId, variantId: sb.variantId, storyboardId: sb.id, title: sb.title, doc }, ctx.actor);
       return { refs: [{ entity: "compositions", id: ctx.payload.compositionId }], creditsUsed: 2 };
     },
+    // Module D's b-roll step: pass straight through to the build (stock lookups are tested in @muselaunch/media).
+    "storyboard.resolve_media": async (ctx: JobContext<"storyboard.resolve_media">) => {
+      const build = await ctx.enqueue("composition.build", ctx.payload, { idempotencyKey: `composition.build:${ctx.payload.storyboardId}`, credits: { operation: "composition.build" } });
+      return { data: { buildJobId: build.id } };
+    },
     "render.preview": async () => ({ creditsUsed: 0 }),
     // Stand-in for module C's renderer: a labelled stub file, never shown as a real render.
     "render.final": async (ctx: JobContext<"render.final">) => {

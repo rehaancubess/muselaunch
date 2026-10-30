@@ -1,0 +1,33 @@
+{
+  "fixture": true,
+  "label": "Constructed in the documented Pexels GET /v1/search response shape (https://www.pexels.com/api/documentation/#photos-search). Values are illustrative, not a live response. GET /v1/photos/:id returns one element of `photos`.",
+  "response": {
+    "page": 1,
+    "per_page": 15,
+    "total_results": 1,
+    "photos": [
+      {
+        "id": 1036808,
+        "width": 3648,
+        "height": 5472,
+        "url": "https://www.pexels.com/photo/desk-lamp-on-a-wooden-desk-1036808/",
+        "photographer": "Example Photographer",
+        "photographer_url": "https://www.pexels.com/@example-photographer",
+        "photographer_id": 128213,
+        "avg_color": "#7E6A55",
+        "src": {
+          "original": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg",
+          "large2x": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "large": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
+          "medium": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&h=350",
+          "small": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&h=130",
+          "portrait": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=1200&w=800",
+          "tiny": "https://images.pexels.com/photos/1036808/pexels-photo-1036808.jpeg?auto=compress&cs=tinysrgb&dpr=1&fit=crop&h=200&w=280"
+        },
+        "liked": false,
+        "alt": "Warm desk lamp lighting a wooden desk in the evening"
+      }
+    ],
+    "next_page": null
+  }
+}

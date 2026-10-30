@@ -194,7 +194,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
   const jobs = useApiQuery<Page<Job>>(wsPath(workspaceId, "/jobs"), { query: { appId, limit: 40 }, refetchInterval: 5000 });
   // Chained pipeline jobs (composition.build, render.*) carry composition/storyboard ids, not the campaign id.
   const known = useRef<{ compositions: Set<string>; storyboards: Set<string> }>({ compositions: new Set(), storyboards: new Set() });
-  const PIPELINE = new Set(["storyboard.generate", "composition.build", "composition.variants", "render.preview", "render.final", "package.export", "copy.generate", "campaign.generate_concepts"]);
+  const PIPELINE = new Set(["storyboard.generate", "storyboard.resolve_media", "composition.build", "composition.variants", "render.preview", "render.final", "package.export", "copy.generate", "campaign.generate_concepts"]);
   const campaignJobs = (jobs.data?.items ?? []).filter((j) => {
     const pl = j.payload as { campaignId?: string; compositionId?: string; storyboardId?: string };
     return pl?.campaignId === campaignId || (pl?.compositionId && known.current.compositions.has(pl.compositionId)) || (pl?.storyboardId && known.current.storyboards.has(pl.storyboardId));

@@ -151,6 +151,8 @@ export const AssetHint = z.object({
   /** For generated/stock: the prompt or query. Generated media must never depict the app UI. */
   query: z.string().max(500).optional(),
   featureId: Id.optional(),
+  /** Set by storyboard.resolve_media when no stock/generated media could be attached: why (shown in the Studio). */
+  unresolved: z.string().max(300).optional(),
 });
 
 export const StoryboardScene = z.object({

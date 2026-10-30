@@ -3,12 +3,13 @@ import type { Platform } from "@muselaunch/platform";
 
 /**
  * Campaign production lifecycle (module B): `producing` → `review` once every variant sent to
- * production has finished its chain — storyboard.generate → composition.build → render.preview —
+ * production has finished its chain — storyboard.generate → storyboard.resolve_media →
+ * composition.build → render.preview —
  * successfully or with a failure at any step. Variants whose video was built are marked `produced`.
  * Driven by a job-status hook (installCampaignHooks) and re-checked when a campaign is read.
  */
 
-const CHAIN = new Set<Job["type"]>(["storyboard.generate", "composition.build", "render.preview"]);
+const CHAIN = new Set<Job["type"]>(["storyboard.generate", "storyboard.resolve_media", "composition.build", "render.preview"]);
 const done = (j: Pick<Job, "status">) => TERMINAL_JOB_STATUSES.includes(j.status);
 
 export async function syncCampaignProduction(p: Platform, workspaceId: string, campaignId: string): Promise<Campaign | null> {
@@ -25,7 +26,10 @@ export async function syncCampaignProduction(p: Platform, workspaceId: string, c
   for (const [variantId, sb] of latest) {
     if (!done(sb)) return campaign;
     if (sb.status !== "succeeded") continue;
-    const build = child(sb, "composition.build");
+    // storyboard → storyboard.resolve_media (b-roll) → composition.build; older chains skip the b-roll hop.
+    const media = child(sb, "storyboard.resolve_media");
+    if (media && !done(media)) return campaign;
+    const build = child(sb, "composition.build") ?? (media && child(media, "composition.build"));
     if (!build) continue;
     if (!done(build)) return campaign;
     if (build.status !== "succeeded") continue;

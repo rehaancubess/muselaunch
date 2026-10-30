@@ -13,6 +13,7 @@ const JOB_LABELS: Record<string, string> = {
   "strategy.run": "Planning strategy",
   "campaign.generate_concepts": "Generating concepts",
   "storyboard.generate": "Writing storyboard",
+  "storyboard.resolve_media": "Finding lifestyle b-roll",
   "composition.build": "Building composition",
   "composition.edit": "Applying AI edit",
   "composition.variants": "Making variants",

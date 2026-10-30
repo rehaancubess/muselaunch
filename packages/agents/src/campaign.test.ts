@@ -48,6 +48,11 @@ async function setup(routes: MetaRoute[] = []) {
       built.push({ storyboardId: ctx.payload.storyboardId, compositionId: ctx.payload.compositionId });
       return { creditsUsed: 0 };
     },
+    // Module D's b-roll step (not exercised here): pass straight through to the build.
+    "storyboard.resolve_media": async (ctx: JobContext<"storyboard.resolve_media">) => {
+      const build = await ctx.enqueue("composition.build", ctx.payload, { idempotencyKey: `composition.build:${ctx.payload.storyboardId}` });
+      return { data: { buildJobId: build.id } };
+    },
   });
   const wid = "ws_campaign";
   await p.credits.ensureAccount(wid, { grant: 1000, reason: "test" });

@@ -72,6 +72,7 @@ export function providerStatuses(p: Platform, endUserCountry?: string): Provider
       detail: cfg.YOUTUBE_API_KEY ? "API key set (free; 3 quota units per channel analysis)" : "Set YOUTUBE_API_KEY (setup-youtube.cmd creates one)",
     },
     { id: "tts", label: "Text-to-speech", role: "Optional narration (labelled external TTS)", state: cfg.OPENAI_API_KEY ? "live" : "not_configured", detail: cfg.OPENAI_API_KEY ? cfg.OPENAI_TTS_MODEL : "Optional" },
+    // No generated-video provider: Meta has no video generation API and OpenAI's Sora API shut down on 24 Sep 2026; b-roll is licensed stock or generated stills.
     {
       id: "stock",
       label: "Stock media",

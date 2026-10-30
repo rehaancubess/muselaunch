@@ -1,0 +1,53 @@
+{
+  "fixture": true,
+  "label": "Constructed in the documented Pexels GET /videos/search response shape (https://www.pexels.com/api/documentation/#videos-search). Values are illustrative, not a live response. GET /videos/videos/:id returns one element of `videos`.",
+  "response": {
+    "page": 1,
+    "per_page": 15,
+    "total_results": 3,
+    "url": "https://www.pexels.com/search/videos/student%20studying/",
+    "videos": [
+      {
+        "id": 3195394,
+        "width": 1920,
+        "height": 1080,
+        "url": "https://www.pexels.com/video/woman-typing-on-a-laptop-3195394/",
+        "image": "https://images.pexels.com/videos/3195394/free-video-3195394.jpg",
+        "duration": 20,
+        "user": { "id": 1437723, "name": "Example Videographer", "url": "https://www.pexels.com/@example-videographer" },
+        "video_files": [
+          { "id": 9001, "quality": "hd", "file_type": "video/mp4", "width": 1920, "height": 1080, "link": "https://videos.pexels.com/video-files/3195394/3195394-hd_1920_1080_25fps.mp4" },
+          { "id": 9002, "quality": "sd", "file_type": "video/mp4", "width": 960, "height": 540, "link": "https://videos.pexels.com/video-files/3195394/3195394-sd_960_540_25fps.mp4" }
+        ],
+        "video_pictures": []
+      },
+      {
+        "id": 6394054,
+        "width": 1080,
+        "height": 1920,
+        "url": "https://www.pexels.com/video/student-studying-at-a-desk-with-headphones-6394054/",
+        "image": "https://images.pexels.com/videos/6394054/free-video-6394054.jpg",
+        "duration": 12,
+        "user": { "id": 3149039, "name": "Example Creator", "url": "https://www.pexels.com/@example-creator" },
+        "video_files": [
+          { "id": 9101, "quality": "uhd", "file_type": "video/mp4", "width": 2160, "height": 3840, "link": "https://videos.pexels.com/video-files/6394054/6394054-uhd_2160_3840_25fps.mp4" },
+          { "id": 9102, "quality": "hd", "file_type": "video/mp4", "width": 1080, "height": 1920, "link": "https://videos.pexels.com/video-files/6394054/6394054-hd_1080_1920_25fps.mp4" }
+        ],
+        "video_pictures": []
+      },
+      {
+        "id": 4065924,
+        "width": 1080,
+        "height": 1920,
+        "url": "https://www.pexels.com/video/student-studying-in-a-library-4065924/",
+        "image": "https://images.pexels.com/videos/4065924/free-video-4065924.jpg",
+        "duration": 9,
+        "user": { "id": 2286921, "name": "Another Creator", "url": "https://www.pexels.com/@another-creator" },
+        "video_files": [
+          { "id": 9201, "quality": "hd", "file_type": "video/mp4", "width": 1080, "height": 1920, "link": "https://videos.pexels.com/video-files/4065924/4065924-hd_1080_1920_30fps.mp4" }
+        ],
+        "video_pictures": []
+      }
+    ]
+  }
+}
