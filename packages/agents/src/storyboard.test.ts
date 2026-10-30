@@ -168,6 +168,11 @@ async function setup(routes: MetaRoute[]) {
       built.push(ctx.payload.storyboardId);
       return { creditsUsed: 0 };
     },
+    // The b-roll step (packages/media, not exercised here) passes straight through to the build.
+    "storyboard.resolve_media": async (ctx: JobContext<"storyboard.resolve_media">) => {
+      const build = await ctx.enqueue("composition.build", ctx.payload, { idempotencyKey: `composition.build:${ctx.payload.storyboardId}` });
+      return { data: { buildJobId: build.id } };
+    },
   });
   const wid = "ws_storyboard_long";
   await p.credits.ensureAccount(wid, { grant: 1000, reason: "test" });
