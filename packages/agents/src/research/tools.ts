@@ -125,9 +125,11 @@ export function searchTool(o: ResearchToolOptions): LoopTool {
         maxOutputTokens: 2500,
         reasoningEffort: "low",
       });
-      o.rec.addModelUsage(res);
-      // A grounded call that performed no search still consumes one unit of search budget.
-      if (res.searchCalls === 0) o.rec.usage.searchCalls += 1;
+      // The search budget counts search_web calls, one each: Muse Spark runs several web searches inside
+      // one call (5–10 in the first live run), which would otherwise exhaust a 12-search budget in two
+      // calls. Their cost is still metered in costUsd.
+      o.rec.addModelUsage({ ...res, searchCalls: 0 });
+      o.rec.usage.searchCalls += 1;
       for (const c of res.citations) o.registry.register(c);
       for (const r of res.searchResults) o.registry.register(r);
       const sources = mergeSources(res.citations, res.searchResults, 12).map((s) => ({ url: s.url, title: s.title, excerpt: clip(s.excerpt, 400) }));

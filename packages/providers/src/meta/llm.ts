@@ -182,6 +182,19 @@ function extract(res: ResponsesResult): Omit<LlmTextResult, "model" | "costUsd">
   };
 }
 
+/**
+ * Muse Spark and Wonder count reasoning, and the commentary they write between web searches, against
+ * `max_output_tokens`. In the first live run (30 Oct) a search-grounded call capped at 2,000 tokens ran
+ * nine searches and stopped incomplete with 1,123 reasoning tokens used. Callers size limits for the
+ * answer, so real Meta calls get headroom on top (billing is per token actually used). The OpenAI
+ * stand-in keeps the caller's limit.
+ */
+export const META_REASONING_HEADROOM = { base: 2000, webSearch: 4000 } as const;
+function reasoningHeadroom(p: Platform, webSearch: boolean): number {
+  if (p.cfg.standIn) return 0;
+  return webSearch ? META_REASONING_HEADROOM.webSearch : META_REASONING_HEADROOM.base;
+}
+
 function modelId(p: Platform, role: ModelRole = "spark") {
   return role === "wonder" ? p.cfg.META_MODEL_WONDER : p.cfg.META_MODEL_SPARK;
 }
@@ -189,7 +202,7 @@ function modelId(p: Platform, role: ModelRole = "spark") {
 async function callResponses(p: Platform, call: RespondCall, format?: { name: string; schema: Record<string, unknown> }): Promise<RespondResult> {
   const client = metaClient(p);
   const model = modelId(p, call.model);
-  const maxOut = call.maxOutputTokens ?? 8000;
+  const maxOut = (call.maxOutputTokens ?? 8000) + reasoningHeadroom(p, Boolean(call.webSearch));
   const items: ResponseInputItem[] = typeof call.input === "string" ? [{ role: "user", content: [{ type: "input_text", text: call.input }] }] : call.input;
   let inputText = "";
   let imageCount = 0;

@@ -60,6 +60,13 @@ export async function runToolLoop(
   let input: ResponseInputItem[] = [{ role: "user", content: [{ type: "input_text", text: opts.input }] }];
   let previousResponseId: string | undefined;
   let finalText = "";
+  /** Set after a search-budget hit: the loop gets one wrap-up turn, and then reports that stop. */
+  let wrapUp: string | null = null;
+  const ended = async (turns: number): Promise<LoopOutcome> => {
+    if (!wrapUp) return { finished: true, finalText, turns };
+    await rec.budgetStopStep(wrapUp);
+    return { finished: false, stopReason: wrapUp, finalText, turns };
+  };
   for (let turn = 0; turn < maxTurns; turn++) {
     opts.throwIfCancelled();
     const stop = rec.budgetStop();
@@ -89,7 +96,7 @@ export async function runToolLoop(
     });
     previousResponseId = res.responseId;
     if (res.text) finalText = res.text;
-    if (!res.functionCalls.length) return { finished: true, finalText, turns: turn + 1 };
+    if (!res.functionCalls.length) return ended(turn + 1);
     if (!previousResponseId) throw new AppError("PROVIDER_ERROR", "Responses API returned no response id for a tool-calling turn", { retryable: true });
 
     const outputs: ResponseInputItem[] = [];
@@ -108,7 +115,8 @@ export async function runToolLoop(
       const limit = rec.budgetStop({ toolCalls: 1, searchCalls: tool.search ? 1 : 0 });
       if (limit) {
         budgetHit = limit;
-        reply({ error: `budget_exhausted: ${limit}. Do not call more tools; call finish now.` });
+        const onlySearches = tool.search && limit.startsWith("search");
+        reply({ error: `budget_exhausted: ${limit}. ${onlySearches ? "No more searches: save what the results you already have support, then call finish." : "Do not call more tools; call finish now."}` });
         continue;
       }
       const parsed = parseToolArgs(fc.arguments, tool.schema);
@@ -133,10 +141,18 @@ export async function runToolLoop(
       }
     }
     await rec.save({});
-    if (finish) return { finished: true, finalText, turns: turn + 1 };
+    if (finish) return ended(turn + 1);
     if (budgetHit) {
-      await rec.budgetStopStep(budgetHit);
-      return { finished: false, stopReason: budgetHit, finalText, turns: turn + 1 };
+      // The calls that did run in this turn still have results. Send them back for one wrap-up turn
+      // (budgeted calls keep being refused) so the model can save what it found, rather than
+      // discarding them. First live run: 4 parallel searches, budget hit on the third, nothing saved.
+      if (!wrapUp && budgetHit.startsWith("search") && turn + 1 < maxTurns) {
+        wrapUp = budgetHit;
+        input = outputs;
+        continue;
+      }
+      await rec.budgetStopStep(wrapUp ?? budgetHit);
+      return { finished: false, stopReason: wrapUp ?? budgetHit, finalText, turns: turn + 1 };
     }
     input = outputs;
   }

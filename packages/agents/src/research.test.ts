@@ -1,18 +1,18 @@
 import { createTestPlatform } from "@muselaunch/platform";
 import { describe, expect, it } from "vitest";
 import { handlers } from "./index";
-import { fixtureJson, installFakeMeta, installFakeWeb, searchRoute, seedApp, textRoute, wonderRoute } from "./testing";
+import { fixtureJson, installFakeMeta, installFakeWeb, type MetaRoute, searchRoute, seedApp, textRoute, wonderRoute } from "./testing";
 
 type Turns = { turns: { name: string; args: unknown }[][] };
 
-async function setup(budget?: Record<string, number>, turns = fixtureJson<Turns>("wonder-research-turns.json").turns) {
+async function setup(budget?: Record<string, number>, turns = fixtureJson<Turns>("wonder-research-turns.json").turns, search: MetaRoute = searchRoute()) {
   const p = createTestPlatform({ META_API_KEY: "test-key" }, handlers);
   const wid = "ws_research";
   await p.credits.ensureAccount(wid, { grant: 500, reason: "test" });
   const seed = await seedApp(p, wid);
   const ws = p.db.ws(wid);
   const wonder = wonderRoute(turns);
-  const meta = installFakeMeta(p, [wonder, searchRoute(), textRoute("Summarise these research findings", "Sources report that study-with-me timer videos recur on short-form platforms. This may mean Tidy Timer's timer screen is a natural hook.")]);
+  const meta = installFakeMeta(p, [wonder, search, textRoute("Summarise these research findings", "Sources report that study-with-me timer videos recur on short-form platforms. This may mean Tidy Timer's timer screen is a natural hook.")]);
   installFakeWeb(p, [{ match: "https://calmstudy.example.com/about", contentType: "text/html", body: "<html><head><title>CalmStudy</title></head><body><h1>CalmStudy</h1><p>Daily Pomodoro study-with-me streams. Business inquiries: hello@calmstudy.example.com</p><script>steal()</script></body></html>" }]);
   const rr = await ws.collection("researchRuns").create({ appId: seed.appId, kinds: ["trends", "competitors", "creators", "opportunities"], status: "queued", inputs: { countries: ["US"], languages: ["en"], channels: [], competitorIds: [] } }, { actor: "u1" });
   if (budget) {
@@ -80,18 +80,40 @@ describe("research.run (Muse Wonder tool loop + Spark search grounding)", () => 
     expect(usage.map((u) => u.model).sort()).toEqual(["muse-spark-1.3", "muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-1.0", "muse-wonder-1.0"]);
   });
 
-  it("stops at the search budget with a budget_stop step instead of crashing (status partial)", async () => {
+  it("at the search budget, gets one wrap-up turn to save what it found, then stops with a budget_stop step (status partial)", async () => {
     const search = (q: string) => ({ name: "search_web", args: { query: q } });
-    const s = await setup({ maxSearchCalls: 1 }, [[{ name: "set_plan", args: { goal: "g", tasks: [{ title: "t", role: "research", objective: "o" }] } }, search("study with me trend"), search("second search over budget")]]);
+    const finding = { kind: "format", statement: "Study-with-me videos with an on-screen timer are a recurring short-form format.", sourceUrls: ["https://trends.example.com/2026/study-with-me-format"], confidence: 0.8 };
+    const s = await setup({ maxSearchCalls: 1 }, [
+      [{ name: "set_plan", args: { goal: "g", tasks: [{ title: "t", role: "research", objective: "o" }] } }, search("study with me trend"), search("second search over budget")],
+      [search("third search, still over budget"), { name: "save_finding", args: finding }],
+    ]);
     expect((await s.p.jobs.get(s.wid, s.jobId))?.status).toBe("succeeded");
     const rr = await s.ws.collection("researchRuns").getOrThrow(s.rrId);
     expect(rr.status).toBe("partial");
     expect(rr.summary).toContain("Stopped early: search limit (1)");
+    expect(rr.findingCount).toBe(1); // saved in the wrap-up turn from the first search's results
     const run = await s.ws.collection("agentRuns").getOrThrow(rr.agentRunId!);
     expect(run.usage.searchCalls).toBe(1);
     const steps = (await s.ws.collection("agentSteps").list({ where: [["runId", "==", run.id]], orderBy: { field: "index", dir: "asc" }, limit: 100 })).items;
-    expect(steps.at(-1)).toMatchObject({ kind: "budget_stop", title: "Stopped: search limit (1)" });
-    expect(s.wonder.turns).toBe(1); // no further Wonder turn after the budget stop
+    expect(steps.filter((x) => x.kind === "budget_stop").map((x) => x.title)).toEqual(["Stopped: search limit (1)"]);
+    expect(steps.at(-1)).toMatchObject({ kind: "model_call", title: "Summarise findings (Muse Spark)" });
+    expect(s.wonder.turns).toBe(2); // exactly one wrap-up turn after the budget hit
+    const wrapUp = s.meta.requests.filter((r) => r.model === "muse-wonder-1.0")[1]!;
+    expect(JSON.stringify(wrapUp.input)).toContain("No more searches");
+  });
+
+  it("counts one search per search_web call, however many web searches Spark runs inside it", async () => {
+    // Live Muse Spark ran 5–10 web searches inside one grounded call.
+    const base = searchRoute();
+    const multi: MetaRoute = (req, i) => {
+      const body = base(req, i) as { output: unknown[] } | undefined;
+      if (body) body.output.unshift(...Array.from({ length: 8 }, (_, n) => ({ type: "web_search_call", id: `ws_extra_${n}`, status: "completed" })));
+      return body;
+    };
+    const s = await setup(undefined, undefined, multi);
+    expect((await s.ws.collection("researchRuns").getOrThrow(s.rrId)).status).toBe("succeeded");
+    const run = await s.ws.collection("agentRuns").getOrThrow((await s.ws.collection("researchRuns").getOrThrow(s.rrId)).agentRunId!);
+    expect(run.usage.searchCalls).toBe(1);
   });
 
   it("tenancy: another workspace cannot read the run's outputs", async () => {
