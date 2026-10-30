@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BaseEntity, Id, IsoDateTime } from "./common";
+import { WorkspaceSoundSettings } from "./sound";
 
 export const Role = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof Role>;
@@ -52,6 +53,11 @@ export const Workspace = BaseEntity.extend({
       metaDataMode: z.enum(["standard"]).default("standard"),
       /** Growth Autopilot is the default for everything; "I'll do it myself" turns it off. */
       autopilot: WorkspaceAutopilotSettings.default({ ...DEFAULT_AUTOPILOT_SETTINGS }),
+      /**
+       * Video sound defaults (absent = `DEFAULT_SOUND_SETTINGS`: original music + effects on, AI
+       * voiceover off). Additive; read through `soundSettings()` (@muselaunch/media).
+       */
+      sound: WorkspaceSoundSettings.optional(),
     })
     .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } }),
 });

@@ -11,6 +11,7 @@ export { describeForLLM, describeClipObjects, OBJECT_AWARE_VOCABULARY } from "./
 export { sceneHash, docHash, sceneHashes, canonicalJson, sha256Hex } from "./hash";
 export { TEMPLATE_CATALOG, TEMPLATE_SHOT, DEVICE_TEMPLATES, PRODUCT_SCENE_TEMPLATES, CTA_TEMPLATES, type TemplateInfo, type TemplateNeed, type ShotSize } from "./catalog";
 export { BLOCK_IDS, BLOCK_PARAMS, type BlockId } from "./blocks";
+export { attachAudio, placeSfx, soundStale, musicAccents, speechRanges, duckingLane, compileAudioTags, SOUND_LEVELS, type AttachAudioOptions, type AttachMusic, type AttachVoiceover, type SfxCue } from "./audio";
 export { compileToHtml, collectAssetRefs, deviceGeometry, ROOT_COMPOSITION_ID, type CompileOptions, type CompileResult, type DeviceGeometry, type SegmentationInfo } from "./compile";
 export { buildFromStoryboard, mediaToScreen, themeFromBrand, type BuildInput, type ScreenMedia } from "./build";
 export { registerCompileRuntime, getCompileRuntime, type CompileRuntime } from "./runtime";

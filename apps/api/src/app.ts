@@ -23,6 +23,7 @@ import { needsYouRoutes } from "./routes/needs-you";
 import { oauthRoutes } from "./routes/oauth";
 import { publicLinkRoutes } from "./routes/public-links";
 import { publishingRoutes } from "./routes/publishing";
+import { soundRoutes } from "./routes/sound";
 import { statusRoutes } from "./routes/status";
 import { localStorageRoutes } from "./routes/storage-local";
 import { videoReviewRoutes } from "./routes/video-reviews";
@@ -84,6 +85,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", autopilotRoutes);
   ws.route("/", compositionRoutes);
   ws.route("/", mediaRoutes);
+  ws.route("/", soundRoutes);
   ws.route("/", discoverRoutes);
   ws.route("/", publishingRoutes);
   ws.route("/", analyticsRoutes);

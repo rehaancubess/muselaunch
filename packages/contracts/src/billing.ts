@@ -161,6 +161,12 @@ export const DEFAULT_CREDIT_PRICES = {
   "media.analyze_recording_per_min": 6,
   /** Per screenshot checked: Muse Spark raw-UI vs store-image check, plus a SAM 3.1 screen cut-out for store images. */
   "media.extract_ui_per_image": 2,
+  /** Original music and sound effects run on our own synthesizer: no provider cost. */
+  "media.music": 0,
+  /** AI voiceover: external TTS per started 100 characters (per generation; one regeneration may run). */
+  "media.voiceover_per_100_chars": 1,
+  /** Muse Voice Transcribe check / caption timing of a voiceover, per started minute (per pass). */
+  "media.voiceover_check_per_min": 1,
 } as const;
 export type CreditOperation = keyof typeof DEFAULT_CREDIT_PRICES;
 

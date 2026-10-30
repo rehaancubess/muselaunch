@@ -5,6 +5,7 @@ import { imageGenerateHandler } from "./images";
 import { probeHandler } from "./probe";
 import { analyzeRecordingHandler } from "./recording";
 import { segmentHandler } from "./segment";
+import { musicHandler, voiceoverHandler } from "./sound";
 import { transcribeHandler } from "./transcribe";
 import { ttsHandler } from "./tts";
 import { extractUiHandler } from "./ui-extract";
@@ -20,10 +21,16 @@ export const handlers: HandlerRegistry = {
   "storyboard.resolve_media": resolveMediaHandler,
   "media.analyze_recording": analyzeRecordingHandler,
   "media.extract_ui": extractUiHandler,
+  "media.music": musicHandler,
+  "media.voiceover": voiceoverHandler,
 };
 
 export { brollTargets, imageSizeFor, importBroll, reasonFor, trimBrollVideo, usedKey, BROLL_KINDS, VIDEO_SCALE, type BrollOutcome, type BrollTarget } from "./broll";
 export { storeGeneratedImages } from "./images";
+
+// Sound (Track 3): original music + SFX synthesized by our own code, verified AI voiceover.
+export { renderMusic, planArrangement, renderSfx, encodeM4a, wavBytes, integratedLoudness, ensureMusicAsset, ensureSfxLibrary, moodFromText, musicAssetId, sfxAssetId, MUSIC_ENGINE_VERSION, SFX_ENGINE_VERSION, type MusicRender, type MusicPlan } from "./music";
+export { prepareSoundtrack, soundSettings, narrationScript, setSfx, removeMusic, removeVoiceover, normalizeWords, wordErrorRate, scriptTurns, voiceoverCredits, type SoundtrackResult, type VoiceoverResult } from "./sound";
 
 export { transcriptToCaptionCues, cuesToSrt, cuesToVtt, type CueOptions } from "./captions";
 export { ffmpeg, ffmpegPath, ffprobePath, ffmpegWriter, probeMedia, countVideoFrames, type MediaProbe } from "./ffmpeg";

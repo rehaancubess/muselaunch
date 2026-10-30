@@ -108,6 +108,65 @@ function AutopilotSettings() {
   );
 }
 
+const TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"];
+
+/**
+ * Video sound defaults (Track 3): original music and effects on by default; AI voiceover (external
+ * TTS, labelled, checked with Muse Voice Transcribe) off by default. AI voice spends credits on
+ * every new video with narration, so switching it needs billing.manage (the API enforces it).
+ */
+function SoundSettings() {
+  const { workspace, workspaceId, can, refetch } = useWorkspace();
+  const toast = useToast();
+  const invalidate = useInvalidate();
+  const raw = (workspace?.settings as { sound?: { music?: boolean; sfx?: boolean; aiVoiceover?: boolean; voice?: string } } | undefined)?.sound;
+  const s = { music: raw?.music ?? true, sfx: raw?.sfx ?? true, aiVoiceover: raw?.aiVoiceover ?? false, voice: raw?.voice ?? "marin" };
+  const [busy, setBusy] = useState<string | null>(null);
+  const manage = can("workspace.manage");
+  const money = manage && can("billing.manage");
+  const save = async (key: string, patch: Record<string, unknown>, done: string) => {
+    setBusy(key);
+    try {
+      await api.patch(wsPath(workspaceId, "/sound/settings"), patch);
+      refetch();
+      await invalidate("/v1/me", wsPath(workspaceId));
+      toast.success(done);
+    } catch (err) {
+      toast.error("Couldn’t save", errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const row = (id: string, title: string, body: string, checked: boolean, enabled: boolean, onChange: (v: boolean) => void) => (
+    <label className="flex items-start justify-between gap-4 p-5 sm:p-6" htmlFor={id}>
+      <span className="min-w-0 space-y-1">
+        <span className="block text-body font-medium text-ink">{title}</span>
+        <span className="block text-footnote text-ink-2 text-pretty">{body}</span>
+      </span>
+      <Switch id={id} label={title} checked={checked} disabled={!enabled || busy !== null} onCheckedChange={onChange} />
+    </label>
+  );
+  return (
+    <div className="divide-y divide-line rounded-xl bg-surface shadow-raised">
+      {row("snd-music", "Original music", "Every new video gets music composed for it by MuseLaunch, in the mood its storyboard asks for. Owned by you, no cost.", s.music, manage, (v) => void save("music", { music: v }, v ? "New videos get original music" : "New videos start without music"))}
+      {row("snd-sfx", "Sound effects", "Subtle whooshes on transitions, taps on app taps and a shimmer on the end card.", s.sfx, manage, (v) => void save("sfx", { sfx: v }, v ? "Sound effects on" : "Sound effects off"))}
+      {row(
+        "snd-voice",
+        "AI voiceover",
+        `When a storyboard has narration, speak it with an AI voice (OpenAI TTS, external, labelled as AI) checked against the script with Muse Voice Transcribe. Uses credits per video.${money ? "" : " Only members who manage billing can change this."}`,
+        s.aiVoiceover,
+        money,
+        (v) => void save("voice", { aiVoiceover: v }, v ? "AI voiceover on for new videos" : "AI voiceover off"),
+      )}
+      <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-end sm:justify-between sm:p-6">
+        <Field label="AI voice" hint="A built-in voice. Voices are never cloned from a real person.">
+          {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={s.voice} disabled={!manage || busy !== null} onChange={(e) => void save("voicename", { voice: e.target.value }, `AI voice: ${e.target.value}`)} options={TTS_VOICES.map((v) => ({ value: v, label: v[0]!.toUpperCase() + v.slice(1) }))} />}
+        </Field>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkspaceSettingsPage() {
   const { workspace, workspaceId, can, refetch } = useWorkspace();
   const me = useMe();
@@ -132,6 +191,9 @@ export default function WorkspaceSettingsPage() {
       <PageHeader title="Settings" className="pb-0" />
       <Section title="Growth Autopilot" description="AI does the work by default. You approve what goes out.">
         <AutopilotSettings />
+      </Section>
+      <Section title="Sound" description="Music, effects and voice for new videos. Change any of it per video in Studio → Sound.">
+        <SoundSettings />
       </Section>
       <Section title="Workspace">
         <form

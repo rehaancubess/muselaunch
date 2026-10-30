@@ -18,6 +18,7 @@ import { emitAiEdit, useAiEditCommand } from "@/lib/commands";
 import { useCurrentApp } from "@/lib/workspace";
 import { AiPanel } from "./ai-panel";
 import { AssetsDrawer } from "./assets-drawer";
+import { AudioPanel } from "./audio-panel";
 import { ClipPanel } from "./clip-panel";
 import { clipObjects, docAnalysisIds, pickDemo, useClips } from "./clips";
 import { Inspector } from "./inspector";
@@ -248,6 +249,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
               <TabsTrigger value="edit">Inspector</TabsTrigger>
               <TabsTrigger value="ai">Ask Muse</TabsTrigger>
               <TabsTrigger value="clip">Clip</TabsTrigger>
+              <TabsTrigger value="sound">Sound</TabsTrigger>
               <TabsTrigger value="brand" count={brandOpen.length || undefined}>
                 Brand
               </TabsTrigger>
@@ -295,6 +297,9 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
                 }}
                 disabled={disabled}
               />
+            </TabsContent>
+            <TabsContent value="sound" className="min-h-0 flex-1 overflow-y-auto">
+              <AudioPanel workspaceId={workspaceId} base={studio.base} appId={appId} version={data.composition.currentVersion} onCommitted={studio.applyCommit} onRefresh={() => void studio.refresh()} disabled={disabled} />
             </TabsContent>
             <TabsContent value="brand" className="min-h-0 flex-1">
               <BrandGuardianPanel

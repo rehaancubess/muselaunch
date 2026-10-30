@@ -20,6 +20,7 @@ import { adaptToAspect, buildFromStoryboard, collectAssetRefs, compileToHtml, do
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import type { WorkspaceDb } from "@muselaunch/db";
+import { prepareSoundtrack, type SoundtrackResult } from "@muselaunch/media";
 import { AppError, assertKeyInWorkspace, workspaceKey, type HandlerRegistry, type JobContext, type ObjectStorage } from "@muselaunch/platform";
 import { exportPackage } from "./package";
 import { extFor, extractFrame, probe, sha256File, shortHash, toJpeg } from "./media";
@@ -119,13 +120,19 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
   const existing = await ctx.ws.collection("compositions").get(compositionId);
   let composition: Composition;
   let version: CompositionVersion;
+  let sound: Pick<SoundtrackResult, "notes" | "warnings" | "music" | "sfx" | "voiceover"> | undefined;
   if (existing) {
     composition = existing;
     version = await getVersion(ctx.ws, compositionId, existing.currentVersion);
   } else {
     const clipAnalyses = await loadAppClipAnalyses(ctx.ws, appId);
     const recordingSegments = await loadAppRecordingSegments(ctx.ws, appId);
-    const doc = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses, recordingSegments });
+    const built = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses, recordingSegments });
+    // Sound pass (Track 3): original music + effects, and AI voiceover when the workspace allows it.
+    await ctx.progress(40, "adding original music and sound");
+    const { doc, ...soundInfo } = await prepareSoundtrack(ctx, { doc: built, compositionId, appId, storyboard, app });
+    sound = soundInfo;
+    for (const w of soundInfo.warnings) await ctx.log_event(`Sound: ${w}`, { entity: "compositions", id: compositionId });
     ({ composition, version } = await createComposition(
       ctx.ws,
       { id: compositionId, appId, campaignId: storyboard.campaignId, variantId: storyboard.variantId, storyboardId, title: storyboard.title, doc },
@@ -149,7 +156,7 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
       { entity: "compositions", id: compositionId },
       { entity: "compositionVersions", id: version.id },
     ],
-    data: { lint, previewJobId: preview.id },
+    data: { lint, previewJobId: preview.id, ...(sound ? { sound } : {}) },
   };
 }
 

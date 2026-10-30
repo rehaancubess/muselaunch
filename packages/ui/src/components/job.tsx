@@ -28,6 +28,8 @@ const JOB_LABELS: Record<string, string> = {
   "media.tts": "Generating narration",
   "media.analyze_recording": "Cutting walkthrough into clips",
   "media.extract_ui": "Cutting out app screens (SAM)",
+  "media.music": "Composing original music",
+  "media.voiceover": "Adding voiceover",
   "discover.refresh": "Refreshing Discover",
   "outreach.draft": "Drafting outreach",
   "outreach.send": "Sending outreach",

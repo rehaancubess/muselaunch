@@ -7,6 +7,7 @@ export * from "./agents";
 export * from "./campaign";
 export * from "./composition";
 export * from "./media";
+export * from "./sound";
 export * from "./jobs";
 export * from "./publishing";
 export * from "./analytics";

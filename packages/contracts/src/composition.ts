@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime, Percent01 } from "./common";
+import { MusicMood, SfxKind, SpeechRange, VoiceoverCheck } from "./sound";
 
 /**
  * Canonical, versioned composition document (spec 4.6).
@@ -342,8 +343,23 @@ export const AudioTrack = z.object({
   fadeOutSec: z.number().min(0).max(10).default(0.5),
   /** Lower music under voiceover. */
   duckUnderVoice: z.boolean().default(true),
-  /** `tts` voiceover must be labelled as external TTS (spec 8). */
-  sourceLabel: z.enum(["licensed_music", "user_upload", "founder_recording", "external_tts", "generated"]),
+  /**
+   * `tts` voiceover must be labelled as external TTS (spec 8). `original_music` / `original_sfx`:
+   * synthesized by MuseLaunch's own code (owned, no samples).
+   */
+  sourceLabel: z.enum(["licensed_music", "user_upload", "founder_recording", "external_tts", "generated", "original_music", "original_sfx"]),
+  /** Placed by MuseLaunch's sound pass; re-placed when scenes change. Tracks without it are the user's. Additive. */
+  auto: z.boolean().optional(),
+  /** Display name, e.g. "Whoosh into scene 3". Additive. */
+  label: z.string().max(80).optional(),
+  /** sfx: which synthesized effect. Additive. */
+  sfx: SfxKind.optional(),
+  /** music: the mood preset it was rendered with. Additive. */
+  mood: MusicMood.optional(),
+  /** voiceover: spoken stretches (track-local seconds, Muse Voice Transcribe turns) used to duck music. Additive. */
+  speech: z.array(SpeechRange).max(200).optional(),
+  /** voiceover: script check by Muse Voice Transcribe (AI voice). Additive. */
+  check: VoiceoverCheck.optional(),
 });
 export type AudioTrack = z.infer<typeof AudioTrack>;
 
@@ -397,7 +413,8 @@ export const CompositionDoc = z.object({
     .object({ top: z.number().min(0).max(0.4), bottom: z.number().min(0).max(0.4), left: z.number().min(0).max(0.4), right: z.number().min(0).max(0.4) })
     .default({ top: 0.08, bottom: 0.14, left: 0.05, right: 0.05 }),
   scenes: z.array(Scene).min(1).max(30),
-  audio: z.array(AudioTrack).max(8).default([]),
+  /** Music + voiceover + automatically placed sound effects (one short track per effect). */
+  audio: z.array(AudioTrack).max(48).default([]),
   captions: Captions.default({ enabled: false, preset: "boxed", position: "bottom", source: "script", cues: [] }),
   meta: z
     .object({ storyboardId: Id.optional(), generatedByRunId: Id.optional(), brandProfileVersion: z.number().int().optional() })

@@ -60,6 +60,23 @@ export function estimateCredits(prices: CreditPrices, operation: string, params:
       const chars = typeof params.text === "string" ? params.text.length : num("chars", 300);
       return line("Voiceover (external TTS)", Math.max(1, Math.ceil(chars / 100)) * (prices["media.tts_per_100_chars"] ?? 1));
     }
+    case "media.voiceover": {
+      // AI voice: external TTS per started 100 characters + a Muse Voice Transcribe check per started
+      // minute; held for one possible regeneration (only what runs is charged). Recording: timing pass only.
+      const chars = typeof params.text === "string" ? params.text.length : num("chars", 0);
+      const mins = Math.max(1, Math.ceil(num("durationSec", Math.max(5, chars / 15)) / 60));
+      const check = mins * (prices["media.voiceover_check_per_min"] ?? 1);
+      if (params.source === "recording") return line(`Voice timing (Muse Voice Transcribe, ${mins} min)`, check);
+      const tts = Math.max(1, Math.ceil(chars / 100)) * (prices["media.voiceover_per_100_chars"] ?? 1);
+      return {
+        credits: 2 * (tts + check),
+        breakdown: [
+          { label: "AI voice (external TTS)", credits: tts },
+          { label: "Script check (Muse Voice Transcribe)", credits: check },
+          { label: "Held for one regeneration if the check fails", credits: tts + check },
+        ],
+      };
+    }
     case "discover.refresh": {
       const n = Math.max(1, Array.isArray(params.trackedCreatorIds) && params.trackedCreatorIds.length ? params.trackedCreatorIds.length : num("trackers", 1));
       return line(`Check ${n} tracked account${n === 1 ? "" : "s"}`, n * (prices["discover.refresh_per_tracker"] ?? 2));
