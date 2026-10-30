@@ -302,15 +302,24 @@ export function Timeline({
             );
           })}
 
-          {doc.audio.length ? (
-            <Row label="Audio" icon={<AudioLines className="size-3.5" aria-hidden />}>
-              {doc.audio.map((a) => (
-                <div key={a.id} className="absolute top-1.5 bottom-1.5 rounded border border-line-strong bg-[#e8f6ee] px-1.5 text-caption leading-6 text-success" style={{ left: a.startSec * pps, width: Math.max(8, ((a.endSec ?? total) - a.startSec) * pps) }}>
-                  {a.kind} · {a.sourceLabel.replace(/_/g, " ")}
-                </div>
-              ))}
-            </Row>
-          ) : null}
+          {(["music", "voiceover", "sfx"] as const).map((kind) => {
+            const tracks = doc.audio.filter((a) => a.kind === kind);
+            if (!tracks.length) return null;
+            return (
+              <Row key={kind} label={kind === "music" ? "Music" : kind === "voiceover" ? "Voice" : "Effects"} icon={<AudioLines className="size-3.5" aria-hidden />}>
+                {tracks.map((a) => (
+                  <div
+                    key={a.id}
+                    title={`${a.label ?? a.kind} · ${a.sourceLabel.replace(/_/g, " ")}`}
+                    className={cn("absolute top-1.5 bottom-1.5 truncate rounded border px-1.5 text-caption leading-6", kind === "voiceover" ? "border-accent/40 bg-accent-soft text-accent-ink" : "border-line-strong bg-[#e8f6ee] text-success")}
+                    style={{ left: a.startSec * pps, width: Math.max(kind === "sfx" ? 6 : 8, ((a.endSec ?? total) - a.startSec) * pps) }}
+                  >
+                    {kind === "sfx" ? "" : (a.label ?? `${a.kind} · ${a.sourceLabel.replace(/_/g, " ")}`)}
+                  </div>
+                ))}
+              </Row>
+            );
+          })}
           {doc.captions.cues.length ? (
             <Row label={doc.captions.enabled ? "Captions" : "Captions (off)"} icon={<Captions className="size-3.5" aria-hidden />}>
               {doc.captions.cues.map((c) => (

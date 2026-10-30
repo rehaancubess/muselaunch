@@ -25,6 +25,8 @@ const JOB_LABELS: Record<string, string> = {
   "media.transcribe": "Transcribing audio",
   "media.image_generate": "Generating image",
   "media.tts": "Generating narration",
+  "media.music": "Composing original music",
+  "media.voiceover": "Adding voiceover",
   "discover.refresh": "Refreshing Discover",
   "outreach.draft": "Drafting outreach",
   "outreach.send": "Sending outreach",

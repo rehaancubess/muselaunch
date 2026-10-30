@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Id } from "./common";
+import { ConsentInput } from "./media";
 
 /**
  * Sound for videos (Track 3): original music and sound effects synthesized by MuseLaunch's own code
@@ -138,7 +139,8 @@ export type SoundSfxRequest = z.infer<typeof SoundSfxRequest>;
 /** `POST /compositions/:id/sound/voiceover`: AI voice (external TTS, verified) or your own recording. */
 export const SoundVoiceoverRequest = z.discriminatedUnion("source", [
   z.object({ source: z.literal("tts"), baseVersion: z.number().int().min(1), voice: z.string().max(40).optional(), script: z.string().trim().min(1).max(4000).optional() }),
-  z.object({ source: z.literal("recording"), baseVersion: z.number().int().min(1), assetId: Id }),
+  /** A recorded/uploaded voice. `consent` is required unless the asset already carries it (or was recorded in-app). */
+  z.object({ source: z.literal("recording"), baseVersion: z.number().int().min(1), assetId: Id, consent: ConsentInput.optional() }),
 ]);
 export type SoundVoiceoverRequest = z.infer<typeof SoundVoiceoverRequest>;
 

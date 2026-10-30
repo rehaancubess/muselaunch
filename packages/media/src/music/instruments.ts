@@ -23,6 +23,10 @@ export class Noise {
 
 const seedFrom = (n: number) => Math.floor(n * 4294967295) | 0;
 
+/** Linear fade over the last 10 ms of a voice, so no note ever stops on a click. */
+const TAIL = 480;
+const tail = (k: number, len: number) => (k >= len - TAIL ? Math.max(0, (len - k) / TAIL) : 1);
+
 function write(bus: Stereo, i: number, v: number, gl: number, gr: number): void {
   bus.L[i] += v * gl;
   bus.R[i] += v * gr;
@@ -63,6 +67,7 @@ export function kick(bus: Stereo, at: number, o: { vel: number; tone?: KickTone;
       v += (n - prevN) * 0.5 * p.click * eClick * o.vel;
       prevN = n;
     }
+    v *= tail(k, len);
     bus.L[at + k] += v;
     bus.R[at + k] += v;
   }
@@ -81,7 +86,7 @@ export function snare(bus: Stereo, at: number, o: { vel: number; lofi?: boolean;
     bp.tick(nz.next());
     const noise = (bp.bp * 0.9 + bp.hp * 0.35) * Math.exp(-t / nd) * 0.9;
     const v = lp.tick(body + noise) * Math.min(1, t / 0.0008) * o.vel;
-    write(bus, at + k, v, gl, gr);
+    write(bus, at + k, v * tail(k, len), gl, gr);
   }
 }
 
@@ -100,7 +105,7 @@ export function clap(bus: Stereo, at: number, o: { vel: number; seed: number; pa
     bp.tick(nz.next());
     hp.tick(bp.bp);
     const v = hp.hp * env * 1.6 * o.vel;
-    write(bus, at + k, v, gl, gr);
+    write(bus, at + k, v * tail(k, len), gl, gr);
   }
 }
 
@@ -115,7 +120,7 @@ export function hat(bus: Stereo, at: number, o: { vel: number; open?: boolean; s
     const t = k / SR;
     hp.tick(nz.next());
     const v = lp.tick(hp.hp) * Math.exp(-t / dec) * Math.min(1, t / 0.0006) * o.vel;
-    write(bus, at + k, v, gl, gr);
+    write(bus, at + k, v * tail(k, len), gl, gr);
   }
 }
 
@@ -128,7 +133,7 @@ export function shaker(bus: Stereo, at: number, o: { vel: number; seed: number; 
     const t = k / SR;
     bp.tick(nz.next());
     const env = t < 0.009 ? t / 0.009 : Math.exp(-(t - 0.009) / 0.035);
-    write(bus, at + k, bp.bp * env * o.vel, gl, gr);
+    write(bus, at + k, bp.bp * env * o.vel * tail(k, len), gl, gr);
   }
 }
 
@@ -153,7 +158,7 @@ export function tom(bus: Stereo, at: number, o: { vel: number; hz: number; seed:
     const t = k / SR;
     ph += (o.hz * (1 + 0.45 * Math.exp(-t / 0.045))) / SR;
     const v = fsin(TAU * ph) * Math.exp(-t / 0.3) + lp.tick(nz.next()) * Math.exp(-t / 0.025) * 0.35;
-    write(bus, at + k, softClip(v * 1.3) * o.vel * Math.min(1, t / 0.001), gl, gr);
+    write(bus, at + k, softClip(v * 1.3) * o.vel * Math.min(1, t / 0.001) * tail(k, len), gl, gr);
   }
 }
 
@@ -312,7 +317,7 @@ export function bell(bus: Stereo, at: number, midi: number, o: { vel: number; de
   for (let k = 0; k < len; k++) {
     eI *= kI;
     eA *= kA;
-    const v = fsin(w * k + fsin(wm * k) * (1.1 * eI + 0.08)) * eA * (k < attN ? k / attN : 1) * amp;
+    const v = fsin(w * k + fsin(wm * k) * (1.1 * eI + 0.08)) * eA * (k < attN ? k / attN : 1) * amp * tail(k, len);
     bus.L[at + k] += v * gl;
     bus.R[at + k] += v * gr;
   }
@@ -351,7 +356,7 @@ export function bass(bus: Stereo, at: number, lenSec: number, midi: number, o: {
     let env = Math.min(1, t / att) * (style === "round" ? 0.75 + 0.25 * Math.exp(-t / 0.25) : style === "pulse" ? 0.6 + 0.4 * Math.exp(-t / 0.08) : 1);
     if (k === holdN) relLevel = env;
     if (k >= holdN) env = relLevel * Math.exp(-(k - holdN) / relN);
-    const s = v * env * o.vel * 0.5;
+    const s = v * env * o.vel * 0.5 * tail(k, len);
     bus.L[at + k] += s;
     bus.R[at + k] += s;
   }
@@ -400,7 +405,7 @@ export function impact(bus: Stereo, at: number, o: { vel: number; seed: number }
     const sub = fsin(TAU * ph) * Math.exp(-t / 0.65);
     lp.set(300 + 1500 * Math.exp(-t / 0.2), 0.6);
     const noise = lp.tick(nz.next()) * Math.exp(-t / 0.28) * 0.5;
-    const v = softClip((sub + noise) * 1.4) * Math.min(1, t / 0.002) * o.vel;
+    const v = softClip((sub + noise) * 1.4) * Math.min(1, t / 0.002) * o.vel * tail(k, len);
     bus.L[at + k] += v;
     bus.R[at + k] += v;
   }
