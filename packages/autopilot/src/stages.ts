@@ -10,6 +10,7 @@ import { z } from "zod";
 import { decide } from "./decide";
 import { defaultGoal, dnaJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
+import { isWatchTag, watchRenders, watchStep } from "./watch";
 
 /** Who a delegated step will run on (providers/router.ts), named honestly in the Autopilot log. */
 function engine(env: LoopEnv, route: TextRoute): string {
@@ -598,7 +599,7 @@ interface RenderPlan {
  * version. A blocked review is only rendered when a person already overrode it for a final render
  * (the loop itself never overrides).
  */
-async function renderable(env: LoopEnv, comps: Composition[]): Promise<{ plan: RenderPlan[]; excluded: { compositionId: string; why: string }[] }> {
+export async function renderable(env: LoopEnv, comps: Composition[]): Promise<{ plan: RenderPlan[]; excluded: { compositionId: string; why: string }[] }> {
   const plan: RenderPlan[] = [];
   const excluded: { compositionId: string; why: string }[] = [];
   for (const c of comps) {
@@ -630,6 +631,8 @@ async function renderable(env: LoopEnv, comps: Composition[]): Promise<{ plan: R
 }
 
 const render: StageFn = async (env, step) => {
+  // After the final renders Spark watches them (watch.ts): one fix round + re-render for blockers.
+  if (step.phase !== "enter" && isWatchTag(step.tag)) return watchStep(env, step, renderable);
   const comps = await env.ws.collection("compositions").getMany(env.ap.compositionIds);
   if (step.phase === "resume" && step.tag === "render") {
     const jobs = await delegated(env, "render.final", (j) => env.ap.compositionIds.includes((j.payload as { compositionId: string }).compositionId));
@@ -638,8 +641,11 @@ const render: StageFn = async (env, step) => {
     const ok = [...latest.values()].filter((j) => j.status === "succeeded");
     for (const j of [...latest.values()].filter((x) => x.status !== "succeeded")) env.note("error", `Final render failed: ${jobError(j)}`, [ref("jobs", j.id)]);
     if (!ok.length) throw fail("PROVIDER_ERROR", "No final render succeeded", "Final rendering failed, so nothing can be scheduled. Check the render service and resume.");
-    env.note("observation", `Rendered ${ok.length} final MP4(s) with HyperFrames.`, ok.map((j) => ref("compositions", (j.payload as { compositionId: string }).compositionId)));
-    return { kind: "advance", to: "schedule" };
+    const rendered = `Rendered ${ok.length} final MP4(s) with HyperFrames.`;
+    const refs = ok.map((j) => ref("compositions", (j.payload as { compositionId: string }).compositionId));
+    // Re-entered after a budget approval for Spark's reviews: don't log the renders twice.
+    if (!env.fullLog.some((e) => e.summary === rendered && e.refs.map((r) => r.id).join() === refs.map((r) => r.id).join())) env.note("observation", rendered, refs);
+    return watchRenders(env, step);
   }
   const { plan, excluded } = await renderable(env, comps);
   for (const x of excluded) {
@@ -681,7 +687,12 @@ const schedule: StageFn = async (env, step) => {
     return { kind: "wait", jobIds: jobs.map((j) => j.id), tag: "schedule:copy", reason: "Writing post copy" };
   }
   const renders = await delegated(env, "render.final", (j) => j.status === "succeeded" && env.ap.compositionIds.includes((j.payload as { compositionId: string }).compositionId));
-  const rendered = new Map(renders.map((j) => [(j.payload as { compositionId: string }).compositionId, (j.payload as { version: number }).version]));
+  // Newest rendered version per video (a re-render after Spark's fix supersedes the first render).
+  const rendered = new Map<string, number>();
+  for (const j of renders) {
+    const { compositionId, version } = j.payload as { compositionId: string; version: number };
+    rendered.set(compositionId, Math.max(rendered.get(compositionId) ?? 0, version));
+  }
   const comps = (await env.ws.collection("compositions").getMany([...rendered.keys()])).filter((c) => c.campaignId === campaignId);
   const packs = (await env.ws.collection("copyPacks").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
   const existing = (await env.ws.collection("scheduledPosts").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;

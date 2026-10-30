@@ -362,3 +362,6 @@ export async function seedApp(p: Platform, workspaceId: string, opts: { name?: s
   const c3 = await claim("The #1 focus app for students", "needs_review", [e1.id]);
   return { appId: app.id, screenshotIds: shots.map((s) => s.id), iconId: icon.id, claimIds: { verified: [c1.id, c2.id], review: [c3.id] }, featureIds };
 }
+
+// Spark video review fixtures (a real tiny MP4 made from FFmpeg test sources).
+export { makeTestVideo, reviewTestDoc, seedRenderedVideo, type TestSegment } from "./review/testing";

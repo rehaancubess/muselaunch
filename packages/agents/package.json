@@ -16,6 +16,7 @@
     "@muselaunch/db": "workspace:*",
     "@muselaunch/platform": "workspace:*",
     "@muselaunch/providers": "workspace:*",
+    "@muselaunch/render": "workspace:*",
     "cheerio": "^1.2.0",
     "sharp": "^0.34.5",
     "zod": "^4.6.7"

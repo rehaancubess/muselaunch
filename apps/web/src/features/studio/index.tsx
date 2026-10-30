@@ -8,7 +8,7 @@
  * (undo/redo/restore); renders and exports run as background jobs with live progress.
  */
 import { Button, ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
-import { ScanSearch } from "lucide-react";
+import { ScanEye, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandGuardianPanel, useBrandReviews } from "@/features/guardian";
 import { wsPath } from "@/lib/api";
@@ -28,6 +28,7 @@ import { StudioTopbar } from "./topbar";
 import { TrackOverlay } from "./track-overlay";
 import type { LintIssue, MediaAsset, PatchOp } from "./types";
 import { usePreview, useStudio } from "./use-studio";
+import { openVideoBlockers, useVideoReviews, VideoReviewPanel } from "./video-review-panel";
 
 export interface StudioRootProps {
   compositionId: string;
@@ -104,6 +105,9 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   // on the timeline + inspector, and "Show" on a finding selects it without leaving the Brand tab.
   const brand = useBrandReviews(workspaceId, { entity: "compositions", id: compositionId }, data?.composition.currentVersion);
   const brandOpen = useMemo(() => (brand.latest?.findings ?? []).filter((f) => !f.resolution && f.severity !== "info"), [brand.latest]);
+  // Spark video review (Track 4): Spark watched the render of this version; blockers badge the tab.
+  const videoReviews = useVideoReviews(studio.base, data?.composition.currentVersion);
+  const videoBlockers = openVideoBlockers(videoReviews.data?.current);
   const lint = useMemo<LintIssue[]>(
     () => [...(data?.lint ?? []), ...brandOpen.filter((f) => f.location?.sceneId).map((f) => ({ level: f.severity === "block" ? ("error" as const) : ("warning" as const), sceneId: f.location!.sceneId, layerId: f.location!.layerId, message: `Brand: ${f.message}` }))],
     [data?.lint, brandOpen],
@@ -119,6 +123,17 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
       }
     },
     [doc, selectLayer, selectScene, seek],
+  );
+  const showInVideo = useCallback(
+    (sid: string | undefined, atSec: number | undefined) => {
+      if (sid) selectScene(sid);
+      if (atSec !== undefined) seek(atSec);
+      else if (sid && doc) {
+        const i = doc.scenes.findIndex((s) => s.id === sid);
+        if (i >= 0) seek((sceneStarts(doc)[i] ?? 0) + doc.scenes[i]!.durationSec / 2);
+      }
+    },
+    [doc, selectScene, seek],
   );
   const selectIssue = useCallback(
     (i: LintIssue) => {
@@ -214,22 +229,30 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             onTime={setTime}
             overlay={showTracks && objects.length ? <TrackOverlay doc={doc} time={time} objects={objects} tracks={clips.data?.tracks ?? {}} /> : null}
             controls={
-              objects.length ? (
-                <Button size="sm" variant={showTracks ? "secondary" : "ghost"} icon={<ScanSearch className="size-4" aria-hidden />} onClick={() => setShowTracks((v) => !v)} aria-pressed={showTracks}>
-                  Tracking
+              <>
+                {objects.length ? (
+                  <Button size="sm" variant={showTracks ? "secondary" : "ghost"} icon={<ScanSearch className="size-4" aria-hidden />} onClick={() => setShowTracks((v) => !v)} aria-pressed={showTracks}>
+                    Tracking
+                  </Button>
+                ) : null}
+                <Button size="sm" variant={rightTab === "review" ? "secondary" : "ghost"} icon={<ScanEye className="size-4" aria-hidden />} onClick={() => setRightTab("review")}>
+                  Review with Spark
                 </Button>
-              ) : null
+              </>
             }
           />
         </main>
         <aside className="flex min-h-[420px] flex-col border-l border-line bg-surface lg:min-h-0" aria-label="Edit panel">
           <Tabs value={rightTab} onValueChange={setRightTab} className="flex min-h-0 flex-1 flex-col">
-            <TabsList label="Edit panel" className="px-3">
+            <TabsList label="Edit panel" className="gap-4 overflow-x-auto px-3 [scrollbar-width:none] [&>*]:shrink-0 [&>*]:whitespace-nowrap">
               <TabsTrigger value="edit">Inspector</TabsTrigger>
               <TabsTrigger value="ai">Ask Muse</TabsTrigger>
               <TabsTrigger value="clip">Clip</TabsTrigger>
               <TabsTrigger value="brand" count={brandOpen.length || undefined}>
                 Brand
+              </TabsTrigger>
+              <TabsTrigger value="review" count={videoBlockers || undefined}>
+                Review
               </TabsTrigger>
               <TabsTrigger value="media" className="xl:hidden">
                 Media
@@ -280,6 +303,19 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
                 version={data.composition.currentVersion}
                 onApplied={(r) => studio.applyCommit({ composition: r.composition, version: r.version })}
                 onFocus={focusFinding}
+              />
+            </TabsContent>
+            <TabsContent value="review" className="min-h-0 flex-1">
+              <VideoReviewPanel
+                className="h-full"
+                workspaceId={workspaceId}
+                base={studio.base}
+                doc={doc}
+                version={data.composition.currentVersion}
+                onShow={showInVideo}
+                onApplied={studio.applyCommit}
+                onUndo={() => void studio.undo()}
+                disabled={disabled}
               />
             </TabsContent>
             <TabsContent value="media" className="min-h-0 flex-1 xl:hidden">

@@ -7,6 +7,7 @@ import { brandReviewHandler } from "./guardian";
 import { appImportHandler } from "./import/handler";
 import { memoryIngestHandler } from "./memory";
 import { researchRunHandler } from "./research/handler";
+import { videoReviewHandler } from "./review";
 import { storyboardHandler } from "./storyboard";
 import { strategyRunHandler } from "./strategy";
 
@@ -28,6 +29,7 @@ export { productMediaOptions } from "./media-options";
 export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";
 export { paletteFromImages, dominantColors } from "./dna/palette";
 export * from "./guardian";
+export * from "./review";
 
 /** Job handlers owned by this module (INTERFACES.md). Registered by apps/worker. */
 export const handlers: HandlerRegistry = {
@@ -41,4 +43,5 @@ export const handlers: HandlerRegistry = {
   "copy.generate": copyGenerateHandler,
   "memory.ingest": memoryIngestHandler,
   "brand.review": brandReviewHandler,
+  "video.review": videoReviewHandler,
 };

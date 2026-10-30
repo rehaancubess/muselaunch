@@ -28,7 +28,7 @@ interface Turn {
   error: string | null;
 }
 
-function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: { base: string; patchId: string; doc: CompositionDoc; onApplied: (r: CommitResponse) => void; onUndo: () => void; disabled?: boolean }) {
+export function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: { base: string; patchId: string; doc: CompositionDoc; onApplied: (r: CommitResponse) => void; onUndo: () => void; disabled?: boolean }) {
   const toast = useToast();
   const detail = useApiQuery<PatchDetailResponse>(`${base}/patches/${patchId}`, { refetchInterval: (q) => (q.state.data?.patch.status === "proposed" && !q.state.data.patch.ops.length ? 2500 : false) });
   const [busy, setBusy] = useState<"apply" | "reject" | null>(null);

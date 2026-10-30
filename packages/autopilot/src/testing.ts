@@ -4,7 +4,7 @@
  * uses C's real builder; render.final writes a labelled stub MP4; brand.review follows a plan).
  * FIXTURES ONLY — never used by product code.
  */
-import { handlers as agentHandlers } from "@muselaunch/agents";
+import { handlers as agentHandlers, videoVerdictOf } from "@muselaunch/agents";
 import {
   fixtureJson,
   installFakeMeta,
@@ -22,14 +22,20 @@ import {
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
-import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc } from "@muselaunch/contracts";
-import { createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
+import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
+import { AppError, createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
 import { setAutopilotClock } from "./state";
 
 /** Scripted Brand Guardian outcome for a review (`doc` = the reviewed composition version, when the subject is a composition). */
 export type ReviewPlan = (review: BrandReview, doc?: CompositionDoc) => { status: BrandReview["status"]; findings: BrandFinding[] } | "fail";
+
+/**
+ * Scripted Spark video review of a rendered version (`doc` = that version): findings to store, or
+ * "fail" (Spark unavailable: the review is stored as failed and the job fails, like the real handler).
+ */
+export type VideoReviewPlan = (input: { compositionId: string; version: number; doc: CompositionDoc }) => { score: number; findings: Omit<VideoReviewFinding, "id" | "source">[] } | "fail";
 
 export interface AutopilotHarness {
   p: ReturnType<typeof createTestPlatform>;
@@ -39,6 +45,8 @@ export interface AutopilotHarness {
   clock: { now: number };
   rendered: string[];
   reviews: string[];
+  /** Spark video reviews run: `<compositionId>@v<version>:<verdict|fail>`. */
+  watched: string[];
 }
 
 const DECISIONS = () => fixtureJson<Record<string, unknown>>("wonder-autopilot-decisions.json");
@@ -123,13 +131,17 @@ export interface PlatformOptions {
   reviewPlan?: ReviewPlan;
   routes?: MetaRoute[];
   reviewHandler?: boolean;
+  /** Spark's video review outcome (default: no findings). */
+  videoReviewPlan?: VideoReviewPlan;
 }
 
 /** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review), hooks and fake Meta. */
 export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHarness, "wid" | "appId" | "screenshotIds"> {
   const rendered: string[] = [];
   const reviews: string[] = [];
+  const watched: string[] = [];
   const reviewPlan: ReviewPlan = opts.reviewPlan ?? (() => ({ status: "passed", findings: [] }));
+  const videoReviewPlan: VideoReviewPlan = opts.videoReviewPlan ?? (() => ({ score: 8, findings: [] }));
   const p = createTestPlatform({ META_API_KEY: "test-key" }, {
     ...agentHandlers,
     ...analyticsHandlers,
@@ -163,6 +175,23 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
       rendered.push(comp.id);
       return { refs: [{ entity: "mediaAssets", id }], creditsUsed: 8 };
     },
+    // Stand-in for Spark watching the render (the stub render above is not a real MP4); follows a scripted plan.
+    "video.review": async (ctx: JobContext<"video.review">) => {
+      const { compositionId, version, reviewId } = ctx.payload;
+      const repo = ctx.ws.collection("videoReviews");
+      const review = await repo.getOrThrow(reviewId!);
+      const plan = videoReviewPlan({ compositionId, version, doc: (await getVersion(ctx.ws, compositionId, version)).doc });
+      if (plan === "fail") {
+        watched.push(`${compositionId}@v${version}:fail`);
+        await repo.update(review.id, { status: "failed", error: "Muse Spark is unavailable (test)" }, { actor: ctx.actor });
+        throw new AppError("PROVIDER_UNAVAILABLE", "Muse Spark is unavailable (test)", { retryable: false, userMessage: "Muse Spark is unavailable (test)" });
+      }
+      const findings = plan.findings.map((f, i) => ({ ...f, id: `vf_test_${i + 1}`, source: "spark" as const }));
+      const verdict = videoVerdictOf(findings);
+      watched.push(`${compositionId}@v${version}:${verdict}`);
+      await repo.update(review.id, { status: "succeeded", verdict, score: plan.score, summary: `${findings.length} finding(s) (fixture)`, findings, reviewer: { model: "muse-spark-1.3", label: "Muse Spark" }, checkedAt: new Date().toISOString() }, { actor: ctx.actor });
+      return { refs: [{ entity: "videoReviews", id: review.id }], creditsUsed: 6 };
+    },
     ...(opts.reviewHandler === false
       ? {}
       : {
@@ -185,7 +214,7 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
   const clock = { now: Date.now() };
   setAutopilotClock(p, () => clock.now);
   installFakeMeta(p, standardRoutes(opts.routes));
-  return { p, clock, rendered, reviews };
+  return { p, clock, rendered, reviews, watched };
 }
 
 /** Platform + a workspace with a seeded app (App DNA, claims, real screenshot files). */

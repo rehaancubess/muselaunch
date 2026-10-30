@@ -54,6 +54,7 @@ const APP_SCOPED: EntityName[] = [
   "recordingSegments",
   "brandReviews",
   "autopilots",
+  "videoReviews",
 ];
 
 const CAMPAIGN_SCOPED: EntityName[] = ["campaignBriefs", "campaignVariants", "storyboards", "compositions", "copyPacks", "scheduledPosts", "mediaAssets", "publications", "metricObservations"];
@@ -79,6 +80,7 @@ export const INDEXES: IndexDef[] = [
   byCreated("transcripts", "sourceAssetId"),
   byCreated("clipAnalyses", "sourceAssetId"),
   byCreated("brandReviews", "subject.id"),
+  byCreated("videoReviews", "compositionId"),
   byCreated("autopilots", "appId", "status"),
   byCreated("approvals", "status"),
   byCreated("trackedCreators", "kind"),

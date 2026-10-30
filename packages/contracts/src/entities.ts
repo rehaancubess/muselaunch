@@ -8,6 +8,7 @@ import { Composition, CompositionPatch, CompositionVersion } from "./composition
 import { Job, JobEvent } from "./jobs";
 import { ClipAnalysis, MediaAsset, RecordingSegment, Segmentation, Transcript } from "./media";
 import { BrandReview } from "./guardian";
+import { VideoReview } from "./video-review";
 import { Autopilot } from "./autopilot";
 import { Approval, ConnectedAccount, OutreachDraft, OutreachProspect, Publication, ScheduledPost } from "./publishing";
 import { AudienceSegment, Opportunity, ResearchFinding, ResearchRun } from "./research";
@@ -69,6 +70,7 @@ export const ENTITY_SCHEMAS = {
   clipAnalyses: ClipAnalysis,
   recordingSegments: RecordingSegment,
   brandReviews: BrandReview,
+  videoReviews: VideoReview,
   autopilots: Autopilot,
   youtubeAnalyses: YouTubeChannelAnalysis,
 } as const;
@@ -128,6 +130,7 @@ export const ID_PREFIX: Record<EntityName, string> = {
   clipAnalyses: "cla",
   recordingSegments: "rsg",
   brandReviews: "brv",
+  videoReviews: "vrv",
   autopilots: "apl",
   youtubeAnalyses: "yta",
 };

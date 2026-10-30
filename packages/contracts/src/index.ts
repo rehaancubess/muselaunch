@@ -13,6 +13,7 @@ export * from "./analytics";
 export * from "./billing";
 export * from "./usage";
 export * from "./guardian";
+export * from "./video-review";
 export * from "./autopilot";
 export * from "./entities";
 export * from "./api";

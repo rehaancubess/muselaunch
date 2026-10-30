@@ -56,6 +56,8 @@ export const JobPayloads = {
   "brand.review": z.object({ appId: Id, reviewId: Id }),
   /** Advance the Growth Autopilot loop by one stage. */
   "autopilot.step": z.object({ autopilotId: Id }),
+  /** Muse Spark watches frames of a rendered MP4 and reviews what a viewer sees (VideoReview). */
+  "video.review": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), renderAssetId: Id, reviewId: Id.optional() }),
 } as const;
 
 export type JobType = keyof typeof JobPayloads;
@@ -101,6 +103,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "media.analyze_clip": "media",
   "brand.review": "agents",
   "autopilot.step": "agents",
+  "video.review": "agents",
 };
 
 export const JobProgress = z.object({
