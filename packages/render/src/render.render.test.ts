@@ -189,7 +189,8 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     await p.storage.downloadToFile(asset.storagePath, file);
     const info = await probe(file);
     expect(Math.abs(info.durationSec! - sb.targetDurationSec)).toBeLessThan(0.25);
-    const times = [1.6, 10.5, 13.5, 16, 24];
+    // Kinetic hook, phone tilt, focus zoom (ring), tap demo, second focus zoom.
+    const times = [1.6, 10.5, 15.2, 18.4, 26];
     const frames = times.map((t) => join(FIXTURES_DIR, "samples", `long-cut-${t}.png`));
     for (const [i, t] of times.entries()) await extractFrame(file, t, frames[i]!);
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...frames.flatMap((f) => ["-i", f]), "-filter_complex", `${frames.map((_, i) => `[${i}]scale=270:-1[f${i}]`).join(";")};${frames.map((_, i) => `[f${i}]`).join("")}hstack=${frames.length}`, "-frames:v", "1", "-update", "1", join(FIXTURES_DIR, "samples", "long-cut-sheet.png")]);
