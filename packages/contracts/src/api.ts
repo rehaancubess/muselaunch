@@ -90,7 +90,8 @@ export type CreateCampaignRequest = z.infer<typeof CreateCampaignRequest>;
 
 export const ProduceVariantRequest = z.object({
   aspectRatio: AspectRatio.default("9:16"),
-  targetDurationSec: z.number().positive().max(90).default(15),
+  /** Omitted = the concept's own length (30–60 s by default). */
+  targetDurationSec: z.number().positive().max(90).optional(),
 });
 
 export const ApplyPatchRequest = z.object({ baseVersion: z.number().int().min(1), ops: z.array(PatchOp).min(1).max(100), summary: z.string().max(500).default("Manual edit") });

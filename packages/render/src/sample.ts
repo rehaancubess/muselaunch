@@ -74,6 +74,44 @@ export function sampleAssets(wid: string, appId = "app_focusly", keyFor: (id: st
   })) as MediaAsset[];
 }
 
+/**
+ * A ~40 s editor-style storyboard over the same fixture screenshots: kinetic type, icon reveal,
+ * phone tilt, focus zooms (boxes point at real elements of the fixture screens), a tap demo, a
+ * full-screen shot and the store CTA.
+ */
+export function sampleLongStoryboard(wid: string, opts: { appId?: string; id?: string } = {}): Storyboard {
+  const appId = opts.appId ?? "app_focusly";
+  const shot = (id: string) => [{ kind: "screenshot" as const, assetId: id }];
+  const s = (id: string, purpose: string, durationSec: number, template: string, onScreenText: string, extra: Partial<Storyboard["scenes"][number]> = {}) =>
+    ({ id, order: 0, purpose, durationSec, onScreenText, narration: "", visual: template, template, assets: [], claimIds: [], ...extra }) as Storyboard["scenes"][number];
+  const scenes = [
+    s("l1", "hook", 2.2, "kinetic-type", "Mornings keep slipping away?"),
+    s("l2", "problem", 3, "hook-title", "Too many tabs. Zero focus."),
+    s("l3", "transition", 2.8, "icon-reveal", "Plan your day in focus blocks"),
+    s("l4", "demo", 4, "phone-tilt", "Your whole day, one screen", { assets: shot("ast_shot_today") }),
+    s("l5", "demo", 4, "focus-zoom", "Your focus goal, at a glance", { assets: shot("ast_shot_today"), focus: { x: 0.051, y: 0.173, w: 0.898, h: 0.129 } }),
+    s("l6", "feature", 3.6, "tap-demo", "Add a block in one tap", { assets: shot("ast_shot_today"), focus: { x: 0.796, y: 0.81, w: 0.148, h: 0.068 } }),
+    s("l7", "feature", 3.6, "device-demo", "See where your focus goes", { assets: shot("ast_shot_stats") }),
+    s("l8", "feature", 4, "focus-zoom", "Your best hours to focus", { assets: shot("ast_shot_stats"), focus: { x: 0.051, y: 0.451, w: 0.898, h: 0.177 } }),
+    s("l9", "other", 3.4, "fullscreen-showcase", "Built for calm mornings", { assets: shot("ast_shot_stats") }),
+    s("l10", "other", 3, "kinetic-type", "Less busy. More done."),
+    s("l11", "cta", 3.4, "store-cta", "Try Focusly free"),
+  ];
+  scenes.forEach((x, i) => (x.order = i));
+  return {
+    ...base(wid, opts.id ?? "sbd_sample_long"),
+    appId,
+    campaignId: "cpg_sample",
+    variantId: "var_sample",
+    title: "Focusly — calm mornings",
+    aspectRatio: "9:16",
+    targetDurationSec: scenes.reduce((n, x) => n + x.durationSec, 0),
+    scenes,
+    voiceover: { source: "none" },
+    music: {},
+  } as Storyboard;
+}
+
 export function sampleStoryboard(wid: string, opts: { appId?: string; scenes?: 3 | 5; id?: string } = {}): Storyboard {
   const appId = opts.appId ?? "app_focusly";
   const scenes: Storyboard["scenes"] = [

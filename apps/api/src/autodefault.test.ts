@@ -142,7 +142,8 @@ describe("Autopilot by default (apps.ts, autopilot.ts, needs-you.ts, workspace.t
 
     // Credits short: 402, nothing starts, the plan offers a smaller run.
     const bal = await p.credits.balance(wsA);
-    await p.credits.adjust(wsA, -(bal.available - 120), { reason: "test: low balance", idempotencyKey: "low-balance", actor: "system" });
+    // Budgets assume the longest automatic video (60 s): one variant fits in 170 credits, two don't.
+    await p.credits.adjust(wsA, -(bal.available - 170), { reason: "test: low balance", idempotencyKey: "low-balance", actor: "system" });
     const short = await alice.post(`${W()}/apps/${appId}/autopilot/auto`);
     expect(short.status).toBe(402);
     expect(short.body.error.details.plan).toMatchObject({ fits: false, shortfall: { kind: "credits" }, smaller: { variants: 1 } });

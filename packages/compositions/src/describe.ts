@@ -41,8 +41,16 @@ function describeLayerBase(l: Layer): string {
       return `${head} asset=${l.assetId} fit=${l.fit}${l.radiusPx ? ` radius=${l.radiusPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "video":
       return `${head} asset=${l.assetId} trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)} rate=${l.playbackRate}${l.muted ? " muted" : ""}${l.mask ? ` mask=${l.mask.mode}(seg ${l.mask.segmentationId}, fallback ${l.mask.fallback})` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
-    case "device":
-      return `${head} ${l.device}/${l.frameColor} screen=${l.screenKind}:${l.screenAssetId} (REAL product media) ${box(l)} ${t}${anim(l)}${flags}`;
+    case "device": {
+      const extra = [
+        l.screenKind === "video" ? ` trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)}${l.playbackRate && l.playbackRate !== 1 ? ` rate=${l.playbackRate}` : ""}` : "",
+        l.focus ? ` focus(x=${f(l.focus.x)},y=${f(l.focus.y)},w=${f(l.focus.w)},h=${f(l.focus.h)}${l.focus.zoom ? `,zoom=${f(l.focus.zoom)}` : ""} @${f(l.focus.atSec)}s${l.focus.ring ? " ring" : ""})` : "",
+        l.tap ? ` tap(x=${f(l.tap.x)},y=${f(l.tap.y)} @${f(l.tap.atSec)}s)` : "",
+        l.tilt ? ` tilt(x=${f(l.tilt.x, 1)}°,y=${f(l.tilt.y, 1)}°${l.tilt.swing ? " swing" : ""})` : "",
+        l.blurRegions?.length ? ` privacy-blur=${l.blurRegions.length}` : "",
+      ].join("");
+      return `${head} ${l.device}/${l.frameColor} screen=${l.screenKind}:${l.screenAssetId} (REAL product media)${extra} ${box(l)} ${t}${anim(l)}${flags}`;
+    }
     case "shape":
       return `${head} ${l.shape} fill=${l.fill}${l.gradientTo ? `→${l.gradientTo}` : ""}${l.blurPx ? ` blur=${l.blurPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "block":

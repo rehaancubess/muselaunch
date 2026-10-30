@@ -20,6 +20,8 @@ import {
   type ClipAnalysis,
   type Layer,
   type MediaAsset,
+  type RecordingSegment,
+  type Region01,
   type Scene,
   type Segmentation,
   type Storyboard,
@@ -27,7 +29,7 @@ import {
   type TemplateId,
   type Theme,
 } from "@muselaunch/contracts";
-import { luminance } from "./compile";
+import { deviceGeometry, luminance } from "./compile";
 import { estimateTextHeight } from "./lint";
 import { validateDoc } from "./validate";
 
@@ -39,6 +41,8 @@ export interface BuildInput {
   segmentations?: Segmentation[];
   /** SAM clip analyses (module D) for founder clips; enable the object-aware templates. */
   clipAnalyses?: ClipAnalysis[];
+  /** Walkthrough segments (scenes reference them with AssetHint.segmentId): trims, features, privacy regions. */
+  recordingSegments?: RecordingSegment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -244,15 +248,38 @@ function shape(id: string, kind: "rect" | "circle" | "pill" | "blob" | "line", b
 
 const USABLE = new Set(["ready", "uploaded"]);
 
+/** Real product media for one scene: an asset, optionally one walkthrough segment of it. */
+export interface ScreenMedia {
+  asset: MediaAsset;
+  segment?: RecordingSegment;
+  /** How many earlier scenes of this video already showed this item (0 = first use). */
+  use: number;
+}
+
+const isMarketing = (a: MediaAsset) => a.screenshotKind === "marketing" && a.sourceLabel !== "sam_ui_crop";
+
 class AssetPicker {
   private used = new Map<string, number>();
   readonly byId: Map<string, MediaAsset>;
+  readonly segments: Map<string, RecordingSegment>;
+  /** Newest SAM screen cut-out per marketing screenshot. */
+  private cropOf = new Map<string, MediaAsset>();
   constructor(
     readonly assets: MediaAsset[],
     readonly brand: BrandProfile | null,
     readonly app: App,
+    segments: RecordingSegment[] = [],
   ) {
     this.byId = new Map(assets.filter((a) => USABLE.has(a.status)).map((a) => [a.id, a]));
+    this.segments = new Map(segments.filter((s) => this.byId.get(s.assetId)?.kind === "video").map((s) => [s.id, s]));
+    for (const a of this.byId.values()) {
+      if (a.sourceLabel !== "sam_ui_crop" || !a.derivedFromAssetId || !a.isProductTruth || a.kind !== "image") continue;
+      const prev = this.cropOf.get(a.derivedFromAssetId);
+      if (!prev || a.createdAt > prev.createdAt) this.cropOf.set(a.derivedFromAssetId, a);
+    }
+  }
+  private key(a: MediaAsset, seg?: RecordingSegment) {
+    return seg ? `seg:${seg.id}` : a.id;
   }
   private pool(pred: (a: MediaAsset) => boolean) {
     return [...this.byId.values()].filter(pred).sort((a, b) => (this.used.get(a.id) ?? 0) - (this.used.get(b.id) ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
@@ -261,27 +288,73 @@ class AssetPicker {
     if (a) this.used.set(a.id, (this.used.get(a.id) ?? 0) + 1);
     return a;
   }
-  /** Real product media (screenshot/recording), honouring explicit hints and feature links. */
-  product(sb: StoryboardScene, prefer: "screenshot" | "app_recording" | "any" = "any", exclude: string[] = []): MediaAsset | undefined {
-    const truth = (a: MediaAsset) => a.isProductTruth && (a.role === "screenshot" || a.role === "app_recording") && !exclude.includes(a.id);
+  private takeMedia(a: MediaAsset, segment?: RecordingSegment): ScreenMedia {
+    const k = this.key(a, segment);
+    const use = this.used.get(k) ?? 0;
+    this.used.set(k, use + 1);
+    if (segment) this.used.set(a.id, (this.used.get(a.id) ?? 0) + 1);
+    return { asset: a, segment, use };
+  }
+  private truth(a: MediaAsset | undefined, exclude: string[]): a is MediaAsset {
+    return !!a && a.isProductTruth && (a.role === "screenshot" || a.role === "app_recording") && !exclude.includes(a.id);
+  }
+  /** What may go inside a device frame: never a designed marketing screenshot (its SAM screen cut-out instead). */
+  private framable(a: MediaAsset | undefined): MediaAsset | undefined {
+    if (!a) return undefined;
+    return isMarketing(a) ? this.cropOf.get(a.id) : a;
+  }
+  /**
+   * Real product media for a device frame, honouring explicit hints (walkthrough segment, screenshot,
+   * SAM cut-out, recording) and feature links; unhinted scenes get the least-used item.
+   */
+  screen(sb: StoryboardScene, prefer: "screenshot" | "app_recording" | "any" = "any", exclude: string[] = []): ScreenMedia | undefined {
     for (const h of sb.assets) {
+      if (h.segmentId) {
+        const seg = this.segments.get(h.segmentId);
+        const rec = seg ? this.byId.get(seg.assetId) : undefined;
+        if (seg && this.truth(rec, exclude)) return this.takeMedia(rec, seg);
+      }
       if ((h.kind === "screenshot" || h.kind === "app_recording") && h.assetId) {
-        const a = this.byId.get(h.assetId);
-        if (a && truth(a)) return this.take(a);
+        const a = this.framable(this.byId.get(h.assetId));
+        if (this.truth(a, exclude)) return this.takeMedia(a);
       }
     }
     const featureIds = sb.assets.map((h) => h.featureId).filter(Boolean) as string[];
     for (const fid of featureIds) {
       const feat = this.brand?.features.find((f) => f.id === fid);
-      for (const aid of feat?.assetIds ?? []) {
-        const a = this.byId.get(aid);
-        if (a && truth(a)) return this.take(a);
-      }
+      const linked = (feat?.assetIds ?? []).map((id) => this.framable(this.byId.get(id))).filter((a): a is MediaAsset => this.truth(a, exclude));
+      const segs = [...this.segments.values()].filter((s) => s.featureIds.includes(fid) && !exclude.includes(s.assetId));
+      const cands: { a: MediaAsset; seg?: RecordingSegment }[] = [...linked.map((a) => ({ a })), ...segs.map((seg) => ({ a: this.byId.get(seg.assetId)!, seg }))];
+      cands.sort((x, y) => (this.used.get(this.key(x.a, x.seg)) ?? 0) - (this.used.get(this.key(y.a, y.seg)) ?? 0));
+      if (cands[0]) return this.takeMedia(cands[0].a, cands[0].seg);
     }
     const wantsRecording = prefer === "app_recording" || sb.assets.some((h) => h.kind === "app_recording");
-    const recs = this.pool((a) => truth(a) && a.kind === "video");
-    const shots = this.pool((a) => truth(a) && a.kind === "image");
-    return this.take((wantsRecording ? (recs[0] ?? shots[0]) : (shots[0] ?? recs[0])) ?? undefined);
+    const recs = this.pool((a) => this.truth(a, exclude) && a.kind === "video");
+    const shots = this.pool((a) => this.truth(a, exclude) && a.kind === "image" && !isMarketing(a)).filter((a) => a.sourceLabel === "sam_ui_crop" || !this.cropOf.has(a.id));
+    const marketingCrops = this.pool((a) => this.truth(a, exclude) && isMarketing(a)).map((a) => this.cropOf.get(a.id)).filter((a): a is MediaAsset => !!a && !exclude.includes(a.id));
+    const stills = [...shots, ...marketingCrops.filter((c) => !shots.includes(c))].sort((a, b) => (this.used.get(a.id) ?? 0) - (this.used.get(b.id) ?? 0));
+    const a = wantsRecording ? (recs[0] ?? stills[0]) : (stills[0] ?? recs[0]);
+    return a ? this.takeMedia(a) : undefined;
+  }
+  /** Back-compat: the asset of `screen()`. */
+  product(sb: StoryboardScene, prefer: "screenshot" | "app_recording" | "any" = "any", exclude: string[] = []): MediaAsset | undefined {
+    return this.screen(sb, prefer, exclude)?.asset;
+  }
+  /**
+   * A designed marketing screenshot for a full-screen shot (never framed). Falls back to a raw
+   * screenshot when the app has no marketing images.
+   */
+  showcase(sb: StoryboardScene): ScreenMedia | undefined {
+    for (const h of sb.assets) {
+      if (h.kind !== "screenshot" || !h.assetId) continue;
+      let a = this.byId.get(h.assetId);
+      if (a?.sourceLabel === "sam_ui_crop" && a.derivedFromAssetId) a = this.byId.get(a.derivedFromAssetId) ?? a;
+      if (this.truth(a, []) && a.kind === "image") return this.takeMedia(a);
+    }
+    const marketing = this.pool((a) => this.truth(a, []) && a.kind === "image" && isMarketing(a));
+    const raw = this.pool((a) => this.truth(a, []) && a.kind === "image" && !isMarketing(a));
+    const a = marketing[0] ?? raw[0];
+    return a ? this.takeMedia(a) : undefined;
   }
   founderClip(sb: StoryboardScene): MediaAsset | undefined {
     for (const h of sb.assets) if (h.kind === "founder_clip" && h.assetId && this.byId.get(h.assetId)?.kind === "video") return this.take(this.byId.get(h.assetId));
@@ -315,28 +388,6 @@ function deviceFor(app: App, asset: MediaAsset): { device: "iphone" | "android" 
   return { device: androidOnly ? "android" : "iphone", aspect: androidOnly ? 0.47 : 0.4885 };
 }
 
-function deviceLayer(id: string, app: App, asset: MediaAsset, b: ReturnType<typeof box>, o: { enter?: TextOpts["enter"]; loop?: string; start?: number; rotation?: number } = {}): Layer {
-  const { device } = deviceFor(app, asset);
-  return {
-    id,
-    type: "device",
-    device,
-    screenAssetId: asset.id,
-    screenKind: asset.kind === "video" ? "video" : "image",
-    trimInSec: 0,
-    frameColor: "black",
-    shadow: true,
-    box: { ...b, rotation: o.rotation ?? 0 },
-    timing: { start: o.start ?? 0 },
-    animation: {
-      enter: o.enter ? { preset: o.enter.preset, durationSec: o.enter.durationSec ?? 1, delaySec: o.enter.delaySec ?? 0, easing: o.enter.easing ?? "smooth" } : undefined,
-      loop: o.loop ?? "float",
-    },
-    locked: false,
-    hidden: false,
-  } as Layer;
-}
-
 /** Device box (fractions) of a given pixel height, centred at cx, top at y. */
 function deviceBox(f: Frame, app: App, asset: MediaAsset, cx: number, y: number, heightFrac: number, maxWidthFrac = 0.9, z = 2) {
   const { device, aspect } = deviceFor(app, asset);
@@ -358,6 +409,112 @@ function deviceBox(f: Frame, app: App, asset: MediaAsset, cx: number, y: number,
     hPx = wPx / aspect;
   }
   return box(cx - wPx / f.W / 2, y, wPx / f.W, hPx / f.H, z);
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/**
+ * A region of the media (fractions of the screenshot / recording frame Spark saw) → fractions of the
+ * device's visible screen. The screen shows the media `cover`-fitted and top-aligned (object-position
+ * 50% 0%), so a taller image loses its bottom and a wider one its sides.
+ */
+export function mediaToScreen(r: Region01, mediaAspect: number, screenAspect: number): Region01 {
+  let { x, y, w, h } = r;
+  if (mediaAspect < screenAspect) {
+    const k = mediaAspect / screenAspect;
+    y /= k;
+    h /= k;
+  } else if (mediaAspect > screenAspect) {
+    const k = screenAspect / mediaAspect;
+    x = (x - (1 - k) / 2) / k;
+    w /= k;
+  }
+  const x0 = clamp01(x);
+  const y0 = clamp01(y);
+  return { x: r4(x0), y: r4(y0), w: r4(Math.max(0, clamp01(x + w) - x0)), h: r4(Math.max(0, clamp01(y + h) - y0)) };
+}
+
+/** Different crops of the same screen when an item has to appear more than once. */
+const DEFAULT_FOCUS: Region01[] = [
+  { x: 0.06, y: 0.14, w: 0.88, h: 0.3 },
+  { x: 0.06, y: 0.42, w: 0.88, h: 0.28 },
+  { x: 0.06, y: 0.66, w: 0.88, h: 0.24 },
+];
+
+type FocusOpt = Region01 & { zoom?: number; atSec?: number; ring?: boolean };
+
+/**
+ * Device layer for real product media: walkthrough segments are trimmed into the screen (sped up to at
+ * most 1.5× when longer than the scene), whole recordings continue across scenes, flagged personal
+ * information is blurred, and focus/tap/tilt come in as fractions of the media and leave as fractions
+ * of the visible screen.
+ */
+function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<typeof box>, o: { enter?: TextOpts["enter"]; loop?: string; start?: number; rotation?: number; focus?: FocusOpt; tap?: { x: number; y: number; atSec?: number }; tilt?: { x: number; y: number; swing?: boolean } } = {}): Layer {
+  const { f, app } = ctx;
+  const asset = m.asset;
+  const { device } = deviceFor(app, asset);
+  const video = asset.kind === "video";
+  let trimIn = 0;
+  let trimOut: number | undefined;
+  let rate: number | undefined;
+  const slot = Math.max(0.5, ctx.durationSec - (o.start ?? 0));
+  if (video && m.segment) {
+    trimIn = m.segment.startSec;
+    trimOut = m.segment.endSec;
+    const len = m.segment.endSec - m.segment.startSec;
+    if (len > slot * 1.02) rate = Math.round(Math.min(1.5, len / slot) * 100) / 100;
+  } else if (video) {
+    // A whole recording shown again continues where the previous scene stopped.
+    const cur = ctx.clipCursor.get(asset.id) ?? 0;
+    trimIn = cur + 1 < (asset.durationSec ?? Infinity) ? cur : 0;
+    ctx.clipCursor.set(asset.id, trimIn + slot);
+  }
+  const g = deviceGeometry(device, b.w * f.W, b.h * f.H);
+  const screenAspect = g.screen.width / Math.max(1, g.screen.height);
+  const mediaAspect = asset.width && asset.height ? asset.width / asset.height : screenAspect;
+  const toScreen = (r: Region01) => mediaToScreen(r, mediaAspect, screenAspect);
+  const usable = (r: Region01) => r.w >= 0.02 && r.h >= 0.01;
+  const blur = m.segment?.privacy.flagged ? m.segment.privacy.regions.map(toScreen).filter(usable) : [];
+  let focus: Extract<Layer, { type: "device" }>["focus"];
+  if (o.focus) {
+    const r = toScreen(o.focus);
+    const region = usable(r) ? r : DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!;
+    focus = { ...region, ...(o.focus.zoom ? { zoom: o.focus.zoom } : {}), atSec: r4(o.focus.atSec ?? 0.6), ring: o.focus.ring ?? true };
+  }
+  let tap: Extract<Layer, { type: "device" }>["tap"];
+  if (o.tap) {
+    const p = toScreen({ x: o.tap.x, y: o.tap.y, w: 0, h: 0 });
+    tap = { x: p.x, y: p.y, atSec: r4(o.tap.atSec ?? 1) };
+  }
+  return {
+    id,
+    type: "device",
+    device,
+    screenAssetId: asset.id,
+    screenKind: video ? "video" : "image",
+    trimInSec: r4(trimIn),
+    ...(trimOut !== undefined ? { trimOutSec: r4(trimOut) } : {}),
+    ...(rate ? { playbackRate: rate } : {}),
+    frameColor: "black",
+    shadow: true,
+    ...(focus ? { focus } : {}),
+    ...(tap ? { tap } : {}),
+    ...(o.tilt ? { tilt: { x: o.tilt.x, y: o.tilt.y, swing: o.tilt.swing ?? true } } : {}),
+    ...(blur.length ? { blurRegions: blur.slice(0, 8) } : {}),
+    box: { ...b, rotation: o.rotation ?? 0 },
+    timing: { start: o.start ?? 0 },
+    animation: {
+      enter: o.enter ? { preset: o.enter.preset, durationSec: o.enter.durationSec ?? 1, delaySec: o.enter.delaySec ?? 0, easing: o.enter.easing ?? "smooth" } : undefined,
+      loop: o.loop ?? "float",
+    },
+    locked: false,
+    hidden: false,
+  } as Layer;
+}
+
+/** The scene's focus region (Spark's box) or a different default crop per reuse of the item. */
+function sceneFocus(ctx: SceneCtx, m: ScreenMedia): Region01 {
+  return ctx.sb.focus ?? DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,46 +625,79 @@ function textOverMedia(ctx: SceneCtx, textValue: string, media: MediaAsset): Bui
   return { template: "text-over-media", layers, background: { kind: "solid", color: "#000000", angle: 180, dim: 0 } };
 }
 
-function deviceDemo(ctx: SceneCtx, textValue: string, asset: MediaAsset): Built {
+interface ShotOpts {
+  template?: TemplateId;
+  focus?: FocusOpt;
+  tap?: { x: number; y: number; atSec?: number };
+  /** Background-coloured band behind the headline so a pushed-in screen never runs under the text. */
+  scrim?: boolean;
+  deviceEnter?: TextOpts["enter"];
+  loop?: string;
+}
+
+/** Headline + real screen in a device: the wide shot, and (with focus/tap) the close-ups. */
+function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpts = {}): Built {
   const { f, sceneId, theme, app } = ctx;
+  const asset = m.asset;
   const layers: Layer[] = [];
+  const bg = softBackground(ctx, ctx.index);
+  const bgTop = (bg.colors?.[0] ?? theme.background).slice(0, 7);
+  const bgBottom = (bg.colors?.[1] ?? theme.background).slice(0, 7);
+  // An item shown again gets a different crop (a gentle push-in on another part of the screen).
+  const focus = o.focus ?? (m.use > 0 ? { ...DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!, zoom: 1.55, ring: false, atSec: 0.2 } : undefined);
+  const scrim = o.scrim ?? !!focus;
+  const devOpts = { enter: o.deviceEnter ?? { preset: "slide-up", durationSec: 1.1, delaySec: 0.15, easing: "smooth" }, loop: o.loop ?? (focus ? "none" : "float"), focus, tap: o.tap };
+  const scrimIn = { preset: "fade", durationSec: 0.5, delaySec: r4(Math.max(0, Math.min(ctx.durationSec - 0.6, focus?.atSec ?? 0.6))), easing: "smooth" };
+  let headBox: ReturnType<typeof box>;
   if (f.landscape) {
     const tw = 0.42;
     const fit = fitText(f, textValue, 92 * f.u, tw, { maxLines: 4 });
+    headBox = box(0.07, 0.5 - fit.h / 2, tw, fit.h, 6);
     layers.push(glow(ctx, `${sceneId}_glow`, 0.72, 0.5, 0.75, theme.accent));
-    layers.push(
-      text(`${sceneId}_headline`, textValue, box(0.07, 0.5 - fit.h / 2, tw, fit.h, 3), {
-        size: fit.size,
-        align: "left",
-        enter: ENTER_HEAD,
-        highlight: { words: ctx.emphasis(textValue), color: "theme.accent" },
-        claimIds: ctx.sb.claimIds,
-      }),
-    );
-    layers.push(deviceLayer(`${sceneId}_device`, app, asset, deviceBox(f, app, asset, 0.72, 0.09, 0.86, 0.46), { enter: { preset: "slide-up", durationSec: 1.1, delaySec: 0.15, easing: "smooth" }, loop: "float" }));
+    layers.push(text(`${sceneId}_headline`, textValue, headBox, { size: fit.size, align: "left", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: "theme.accent" }, claimIds: ctx.sb.claimIds }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.72, 0.09, 0.86, 0.46), devOpts));
+    if (scrim) layers.push({ ...shape(`${sceneId}_scrim`, "rect", box(0, 0, 0.5, 1, 5), `${bgTop}F5`, { gradientTo: `${bgBottom}F5`, enter: scrimIn }), name: "Headline backdrop" } as Layer);
   } else {
     const tw = 1 - f.safe.left - f.safe.right - 0.04;
     const fit = fitText(f, textValue, (f.portrait ? 84 : 72) * f.u, tw, { maxLines: f.portrait ? 3 : 2 });
     const headTop = f.safe.top + (f.portrait ? 0.01 : 0);
+    headBox = box(0.5 - tw / 2, headTop, tw, fit.h, 6);
     layers.push(glow(ctx, `${sceneId}_glow`, 0.5, f.portrait ? 0.62 : 0.66, 0.85, theme.accent));
-    layers.push(
-      text(`${sceneId}_headline`, textValue, box(0.5 - tw / 2, headTop, tw, fit.h, 3), {
-        size: fit.size,
-        enter: ENTER_HEAD,
-        highlight: { words: ctx.emphasis(textValue), color: "theme.accent" },
-        claimIds: ctx.sb.claimIds,
-      }),
-    );
+    layers.push(text(`${sceneId}_headline`, textValue, headBox, { size: fit.size, enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: "theme.accent" }, claimIds: ctx.sb.claimIds }));
     const devTop = headTop + fit.h + (f.portrait ? 0.035 : 0.03);
     const devH = f.portrait ? Math.min(0.66, 1.0 - devTop + 0.02) : 1 - devTop + 0.06; // may bleed past the bottom edge
-    layers.push(deviceLayer(`${sceneId}_device`, app, asset, deviceBox(f, app, asset, 0.5, devTop, devH, 0.86), { enter: { preset: "slide-up", durationSec: 1.1, delaySec: 0.15, easing: "smooth" }, loop: "float" }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.5, devTop, devH, 0.86), devOpts));
+    if (scrim) {
+      // Solid behind the headline, a short fade below it; both appear as the screen pushes in under them.
+      const headBottom = Math.min(0.45, headTop + fit.h + 0.012);
+      layers.push({ ...shape(`${sceneId}_scrim`, "rect", box(0, 0, 1, headBottom, 5), `${bgTop}F7`, { enter: scrimIn }), name: "Headline backdrop" } as Layer);
+      layers.push({ ...shape(`${sceneId}_scrimfade`, "rect", box(0, headBottom, 1, 0.07, 5), `${bgTop}F7`, { gradientTo: `${bgTop}00`, enter: scrimIn }), name: "Headline backdrop fade" } as Layer);
+    }
   }
-  for (const l of layers) if (l.type === "shape") l.box.opacity = 0.35;
-  return { template: "device-demo", layers, background: softBackground(ctx, ctx.index) };
+  for (const l of layers) if (l.type === "shape" && l.id.endsWith("_glow")) l.box.opacity = 0.35;
+  return { template: o.template ?? "device-demo", layers, background: bg };
 }
 
-function featureCallout(ctx: SceneCtx, textValue: string, asset: MediaAsset): Built {
+/** Close-up: the device pushes in on the region that matters, with a soft highlight ring. */
+function focusZoom(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const d = ctx.durationSec;
+  const region = sceneFocus(ctx, m);
+  return deviceDemo(ctx, textValue, m, { template: "focus-zoom", focus: { ...region, atSec: Math.max(0.3, Math.min(0.9, d * 0.28)), ring: true }, deviceEnter: { preset: "fade", durationSec: 0.6, delaySec: 0, easing: "smooth" } });
+}
+
+/** The action: a finger dot taps the control (centre of the focus region), with a gentle push-in. */
+function tapDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const d = ctx.durationSec;
+  const region = ctx.sb.focus;
+  const point = region ? { x: region.x + region.w / 2, y: region.y + region.h / 2 } : { x: 0.5, y: 0.5 };
+  const atSec = Math.max(0.9, Math.min(1.6, d * 0.45));
+  const focus = region ? { ...region, zoom: 1.3, ring: false, atSec: 0.25 } : undefined;
+  return deviceDemo(ctx, textValue, m, { template: "tap-demo", focus, tap: { ...point, atSec }, scrim: !!focus, loop: "none" });
+}
+
+function featureCallout(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
   const { f, sceneId, theme, app, brand, sb } = ctx;
+  const asset = m.asset;
   const parts = splitParts(textValue);
   const head = parts[0] ?? textValue;
   const featureNames = sb.assets
@@ -519,7 +709,7 @@ function featureCallout(ctx: SceneCtx, textValue: string, asset: MediaAsset): Bu
   const fit = fitText(f, head, (f.portrait ? 80 : 72) * f.u, tw, { maxLines: f.portrait ? 3 : 2 });
   if (f.landscape) {
     layers.push(text(`${sceneId}_headline`, head, box(0.07, 0.14, tw, fit.h, 3), { size: fit.size, align: "left", enter: ENTER_HEAD, claimIds: sb.claimIds }));
-    layers.push(deviceLayer(`${sceneId}_device`, app, asset, deviceBox(f, app, asset, 0.72, 0.08, 0.86, 0.44), { enter: { preset: "slide-left", durationSec: 1, easing: "smooth" }, loop: "tilt" }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.72, 0.08, 0.86, 0.44), { enter: { preset: "slide-left", durationSec: 1, easing: "smooth" }, loop: "tilt" }));
     chips.forEach((c, i) => {
       const chipH = 0.085;
       layers.push(
@@ -532,7 +722,7 @@ function featureCallout(ctx: SceneCtx, textValue: string, asset: MediaAsset): Bu
     const devTop = headTop + fit.h + 0.04;
     const devH = f.portrait ? 0.6 : 1 - devTop - 0.02;
     const devBox = deviceBox(f, app, asset, chips.length ? 0.36 : 0.5, devTop, devH, chips.length ? 0.56 : 0.8);
-    layers.push(deviceLayer(`${sceneId}_device`, app, asset, devBox, { enter: { preset: "slide-up", durationSec: 1.05, easing: "smooth" }, loop: "float" }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, devBox, { enter: { preset: "slide-up", durationSec: 1.05, easing: "smooth" }, loop: "float" }));
     const chipH = f.portrait ? 0.042 : 0.07;
     const chipW = 0.46;
     chips.forEach((c, i) => {
@@ -572,7 +762,7 @@ function blockChip(id: string, label: string, b: ReturnType<typeof box>, delay: 
   } as Layer;
 }
 
-function founderCutout(ctx: SceneCtx, textValue: string, clip: MediaAsset, backdrop: MediaAsset | undefined): Built {
+function founderCutout(ctx: SceneCtx, textValue: string, clip: MediaAsset, backdrop: ScreenMedia | undefined): Built {
   const { f, sceneId, segs, app } = ctx;
   const seg = segs.find((s) => s.sourceAssetId === clip.id && s.status === "succeeded" && s.cutoutAssetId && (s.trackingQuality ?? 1) >= 0.5);
   const layers: Layer[] = [];
@@ -580,8 +770,8 @@ function founderCutout(ctx: SceneCtx, textValue: string, clip: MediaAsset, backd
   const fit = fitText(f, textValue, (f.portrait ? 72 : 64) * f.u, f.landscape ? 0.42 : tw, { maxLines: 3 });
   if (seg) {
     if (backdrop) {
-      const b = f.landscape ? deviceBox(f, app, backdrop, 0.74, 0.1, 0.8, 0.4) : deviceBox(f, app, backdrop, 0.68, f.portrait ? 0.2 : 0.16, f.portrait ? 0.5 : 0.62, 0.5);
-      layers.push(deviceLayer(`${sceneId}_device`, app, backdrop, { ...b, z: 2 }, { enter: { preset: "scale-in", durationSec: 0.9 }, loop: "float", rotation: 6 }));
+      const b = f.landscape ? deviceBox(f, app, backdrop.asset, 0.74, 0.1, 0.8, 0.4) : deviceBox(f, app, backdrop.asset, 0.68, f.portrait ? 0.2 : 0.16, f.portrait ? 0.5 : 0.62, 0.5);
+      layers.push(screenLayer(ctx, `${sceneId}_device`, backdrop, { ...b, z: 2 }, { enter: { preset: "scale-in", durationSec: 0.9 }, loop: "float", rotation: 6 }));
     }
     layers.push({
       id: `${sceneId}_founder`,
@@ -635,7 +825,10 @@ function founderCutout(ctx: SceneCtx, textValue: string, clip: MediaAsset, backd
   return { template: "founder-cutout", layers, background: seg ? { kind: "gradient", colors: [mix(ctx.theme.accent, "#000000", 0.55), mix(ctx.theme.accent, "#000000", 0.85)], angle: 160, dim: 0 } : softBackground(ctx, ctx.index) };
 }
 
-function beforeAfter(ctx: SceneCtx, textValue: string, before: MediaAsset, after: MediaAsset): Built {
+/** One pane of a two-up: real product media in a device, or a supporting image/video card (stock, generated, upload). */
+type Pane = { screen: ScreenMedia } | { media: MediaAsset };
+
+function beforeAfter(ctx: SceneCtx, textValue: string, before: Pane, after: Pane, template: "before-after" | "split-screen" = "before-after"): Built {
   const { f, sceneId, app } = ctx;
   const parts = splitParts(textValue);
   const head = parts[0] ?? textValue;
@@ -646,9 +839,9 @@ function beforeAfter(ctx: SceneCtx, textValue: string, before: MediaAsset, after
   const labelSize = Math.round(34 * f.u);
   const top = f.safe.top + fit.h + 0.05;
   const devH = f.portrait ? 0.5 : 0.62;
-  [before, after].forEach((a, i) => {
+  [before, after].forEach((pane, i) => {
     const cx = i === 0 ? 0.28 : 0.72;
-    const b = deviceBox(f, app, a, cx, top + (labelSize * 2) / f.H, devH, 0.42);
+    const y = top + (labelSize * 2) / f.H;
     layers.push(
       text(`${sceneId}_label${i + 1}`, labels[i]!, box(cx - 0.2, top, 0.4, (labelSize * 1.5) / f.H, 3), {
         role: "label",
@@ -660,18 +853,26 @@ function beforeAfter(ctx: SceneCtx, textValue: string, before: MediaAsset, after
         enter: { preset: "fade", durationSec: 0.5, delaySec: 0.3 + i * 0.5 },
       }),
     );
-    layers.push(deviceLayer(`${sceneId}_device${i + 1}`, app, a, b, { enter: { preset: "slide-up", durationSec: 0.9, delaySec: 0.2 + i * 0.5 }, loop: "none" }));
+    const enter = { preset: "slide-up", durationSec: 0.9, delaySec: 0.2 + i * 0.5, easing: "smooth" };
+    if ("screen" in pane) {
+      layers.push(screenLayer(ctx, `${sceneId}_device${i + 1}`, pane.screen, deviceBox(f, app, pane.screen.asset, cx, y, devH, 0.42), { enter, loop: "none" }));
+    } else {
+      // Supporting media (never the app UI) as a rounded card the same height as a device.
+      const wFrac = 0.42;
+      const hFrac = Math.min(devH, (wFrac * f.W * 1.9) / f.H);
+      const b = box(cx - wFrac / 2, y, wFrac, hFrac, 2);
+      const common = { id: `${sceneId}_media${i + 1}`, assetId: pane.media.id, fit: "cover", radiusPx: Math.round(36 * f.u), box: b, timing: { start: 0 }, animation: { enter: { ...enter, durationSec: 0.9 }, loop: "slow-zoom" }, locked: false, hidden: false };
+      layers.push((pane.media.kind === "video" ? { ...common, type: "video", trimInSec: 0, playbackRate: 1, muted: true, volume: 1 } : { ...common, type: "image", shadow: true }) as Layer);
+    }
   });
-  return { template: "before-after", layers, background: softBackground(ctx, ctx.index) };
+  return { template, layers, background: softBackground(ctx, ctx.index) };
 }
 
-function splitScreen(ctx: SceneCtx, textValue: string, a: MediaAsset, b: MediaAsset | undefined): Built {
-  const { f, sceneId, app } = ctx;
-  if (!b) return deviceDemo(ctx, textValue, a);
-  const built = beforeAfter(ctx, textValue, a, b);
-  void app;
-  void f;
-  return { ...built, template: "split-screen", layers: built.layers.map((l) => (l.id === `${sceneId}_label1` || l.id === `${sceneId}_label2` ? { ...l, hidden: splitParts(textValue).length < 3 } : l)) };
+function splitScreen(ctx: SceneCtx, textValue: string, a: Pane, b: Pane | undefined): Built {
+  const { sceneId } = ctx;
+  if (!b) return "screen" in a ? deviceDemo(ctx, textValue, a.screen) : textOverMedia(ctx, textValue, a.media);
+  const built = beforeAfter(ctx, textValue, a, b, "split-screen");
+  return { ...built, layers: built.layers.map((l) => (l.id === `${sceneId}_label1` || l.id === `${sceneId}_label2` ? { ...l, hidden: splitParts(textValue).length < 3 } : l)) };
 }
 
 function quoteProof(ctx: SceneCtx, textValue: string): Built {
@@ -713,7 +914,7 @@ function statCard(ctx: SceneCtx, textValue: string): Built {
   return { template: "stat-card", layers, background: softBackground(ctx, 0) };
 }
 
-function ctaEndcard(ctx: SceneCtx, textValue: string): Built {
+function ctaEndcard(ctx: SceneCtx, textValue: string, store = false): Built {
   const { f, sceneId, app, picker, brand, theme } = ctx;
   const logo = picker.logo();
   const cta = (textValue || brand?.preferredCtas[0] || "Download now").slice(0, 60);
@@ -722,7 +923,8 @@ function ctaEndcard(ctx: SceneCtx, textValue: string): Built {
   const nameSize = Math.round((f.portrait ? 76 : 68) * f.u);
   const ctaSize = Math.round((f.portrait ? 44 : 40) * f.u);
   const ctaFit = fitText(f, cta, ctaSize, 0.8, { maxLines: 2 });
-  const blockH = (logo ? icon + 60 * f.u : 0) + nameSize * 1.3 + 40 * f.u + ctaFit.h * f.H + 60 * f.u + 140 * f.u;
+  const stackedPills = store && f.portrait && [app.platforms.includes("ios") || !!app.storeUrls.ios, app.platforms.includes("android") || !!app.storeUrls.android].filter(Boolean).length > 1;
+  const blockH = (logo ? icon + 60 * f.u : 0) + nameSize * 1.3 + 40 * f.u + ctaFit.h * f.H + 60 * f.u + (store ? (stackedPills ? 250 : 140) : 140) * f.u;
   let y = 0.47 - blockH / f.H / 2;
   layers.push(glow(ctx, `${sceneId}_glow`, 0.5, 0.42, 0.9, theme.accent));
   if (logo) {
@@ -764,23 +966,211 @@ function ctaEndcard(ctx: SceneCtx, textValue: string): Built {
   const android = app.platforms.includes("android") || !!app.storeUrls.android;
   const web = !ios && !android && (app.platforms.includes("web") || !!app.websiteUrl);
   if (ios || android || web) {
+    const stack = store && f.portrait && [ios, android, web].filter(Boolean).length > 1;
+    const pillsH = store ? (stack ? 230 : 120) * f.u : 96 * f.u;
     layers.push({
       id: `${sceneId}_stores`,
       type: "block",
       blockId: "store-badges",
-      params: { ios, android, web },
-      box: box(0.1, y, 0.8, (96 * f.u) / f.H, 3),
+      params: store ? { ios, android, web, full: true, stack } : { ios, android, web },
+      box: box(0.1, Math.min(y, 1 - f.safe.bottom - pillsH / f.H), 0.8, pillsH / f.H, 3),
       timing: { start: 0 },
-      animation: { enter: { preset: "fade", durationSec: 0.6, delaySec: 0.8, easing: "smooth" }, loop: "none" },
+      animation: { enter: { preset: store ? "slide-up" : "fade", durationSec: 0.6, delaySec: store ? 0.6 : 0.8, easing: "smooth" }, loop: "none" },
       locked: false,
       hidden: false,
     } as Layer);
   }
   for (const l of layers) if (l.type === "shape") l.box.opacity = 0.2;
-  return { template: "cta-endcard", layers, background: { kind: "solid", color: "theme.background", angle: 180, dim: 0 } };
+  return { template: store ? "store-cta" : "cta-endcard", layers, background: store ? { kind: "gradient", colors: [theme.background, mix(theme.accent, "#FFFFFF", 0.86)], angle: 180, dim: 0 } : { kind: "solid", color: "theme.background", angle: 180, dim: 0 } };
 }
 
-function carouselSlide(ctx: SceneCtx, textValue: string, asset: MediaAsset | undefined): Built {
+/** Wide hero: the real screen in a device turning in 3D over a parallax background. */
+function phoneTilt(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const { f, sceneId, theme, app } = ctx;
+  const d = ctx.durationSec;
+  const dark = mix(theme.accent, "#05050A", 0.78);
+  const darker = mix(theme.accent, "#000000", 0.93);
+  const layers: Layer[] = [];
+  // Parallax: two soft glows drifting against the device's turn (depth without extra media).
+  const drift = (l: Layer, dx: number) => {
+    const b = l.box;
+    l.animation = { ...l.animation, loop: "none", keyframes: [{ t: 0, x: r4(b.x + dx), y: b.y }, { t: r4(d), x: r4(b.x - dx), y: b.y, easing: "linear" }] };
+    return l;
+  };
+  const g1 = drift(glow(ctx, `${sceneId}_glow1`, 0.26, f.portrait ? 0.36 : 0.3, 0.75, theme.accent), 0.07);
+  const g2 = drift(glow(ctx, `${sceneId}_glow2`, 0.8, f.portrait ? 0.78 : 0.75, 0.6, theme.accent2 ?? theme.accent), -0.04);
+  g1.box.opacity = 0.55;
+  g2.box.opacity = 0.42;
+  layers.push(g1, g2);
+  const tilt = { x: 9, y: -22, swing: true };
+  if (f.landscape) {
+    const tw = 0.42;
+    const fit = fitText(f, textValue, 92 * f.u, tw, { maxLines: 3 });
+    layers.push(text(`${sceneId}_headline`, textValue, box(0.07, 0.5 - fit.h / 2, tw, fit.h, 6), { size: fit.size, align: "left", color: "#FFFFFF", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.4) }, claimIds: ctx.sb.claimIds }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.72, 0.1, 0.82, 0.44), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
+  } else {
+    const tw = 1 - f.safe.left - f.safe.right - 0.04;
+    const fit = fitText(f, textValue, (f.portrait ? 86 : 74) * f.u, tw, { maxLines: 2 });
+    const headTop = f.safe.top + 0.01;
+    layers.push(text(`${sceneId}_headline`, textValue, box(0.5 - tw / 2, headTop, tw, fit.h, 6), { size: fit.size, color: "#FFFFFF", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.4) }, claimIds: ctx.sb.claimIds }));
+    const devTop = headTop + fit.h + 0.05;
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.5, devTop, Math.min(f.portrait ? 0.62 : 0.66, 1 - devTop - 0.02), 0.8), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
+  }
+  return { template: "phone-tilt", layers, background: { kind: "gradient", colors: [dark, darker], angle: 160, dim: 0 } };
+}
+
+/**
+ * Lines of ≤ 3 words for kinetic type: break at sentence punctuation first, then split each phrase
+ * into balanced lines (4 words → 2 + 2, never a lone orphan word); at most 4 lines.
+ */
+function kineticLines(t: string): string[] {
+  const phrases = t.split(/(?<=[.!?:;—–])\s+/).map((p) => p.split(/\s+/).filter(Boolean)).filter((p) => p.length);
+  const lines: string[] = [];
+  for (const words of phrases) {
+    const n = Math.ceil(words.length / 3);
+    const per = Math.floor(words.length / n);
+    let extra = words.length % n;
+    let i = 0;
+    for (let k = 0; k < n; k++) {
+      const len = per + (extra-- > 0 ? 1 : 0);
+      lines.push(words.slice(i, i + len).join(" "));
+      i += len;
+    }
+  }
+  while (lines.length > 4) {
+    // Merge the shortest neighbouring pair.
+    let best = 0;
+    for (let k = 1; k < lines.length - 1; k++) if (lines[k]!.length + lines[k + 1]!.length < lines[best]!.length + lines[best + 1]!.length) best = k;
+    lines.splice(best, 2, `${lines[best]} ${lines[best + 1]}`);
+  }
+  return lines.length ? lines : [t];
+}
+
+/** Punchy type only: each line appears word by word at ~3 words per second; the last line is the punchline. */
+function kineticType(ctx: SceneCtx, textValue: string): Built {
+  const { f, sceneId, theme } = ctx;
+  const lines = kineticLines(textValue);
+  const tw = 1 - f.safe.left - f.safe.right - 0.04;
+  const base = (f.portrait ? 132 : f.landscape ? 112 : 116) * f.u;
+  // One size for every line so the block reads as one statement.
+  const size = Math.min(...lines.map((l) => fitText(f, l, base, tw, { maxLines: 1, min: base * 0.5 }).size));
+  const lineH = (size * 1.08) / f.H;
+  const gap = (size * 0.12) / f.H;
+  const blockH = lines.length * lineH + (lines.length - 1) * gap;
+  let y = 0.5 - blockH / 2;
+  let wordsBefore = 0;
+  const layers: Layer[] = [];
+  const pace = 1 / 3; // seconds per word: about 3 words per second
+  lines.forEach((line, i) => {
+    const words = line.split(/\s+/).filter(Boolean).length;
+    const start = Math.min(Math.max(0, ctx.durationSec - 1), r4(0.15 + wordsBefore * pace));
+    const last = i === lines.length - 1 && lines.length > 1;
+    layers.push(
+      text(`${sceneId}_line${i + 1}`, line, box(0.5 - tw / 2, y, tw, lineH, 3), {
+        size,
+        weight: 820,
+        color: last ? mix(theme.accent, "#FFFFFF", 0.3) : "#FFFFFF",
+        lineHeight: 1.02,
+        letterSpacing: -0.045,
+        align: f.landscape ? "left" : "center",
+        start,
+        enter: { preset: "words", durationSec: r4(Math.min(5, words * pace)), easing: "snappy" },
+        claimIds: ctx.sb.claimIds,
+      }),
+    );
+    wordsBefore += words;
+    y += lineH + gap;
+  });
+  return { template: "kinetic-type", layers, background: { kind: "gradient", colors: [mix(theme.accent, "#08080C", 0.88), "#050507"], angle: 165, dim: 0 } };
+}
+
+/** Brand beat: the real app icon scales in with a glow, then the name (and an optional short line). */
+function iconReveal(ctx: SceneCtx, textValue: string): Built {
+  const { f, sceneId, theme, app, picker } = ctx;
+  const logo = picker.logo();
+  if (!logo) return kineticType(ctx, textValue || app.name);
+  const icon = Math.round((f.portrait ? 340 : 280) * f.u);
+  const nameSize = Math.round((f.portrait ? 92 : 80) * f.u);
+  const sub = textValue && textValue.trim().toLowerCase() !== app.name.trim().toLowerCase() ? textValue : "";
+  const subFit = sub ? fitText(f, sub, 50 * f.u, 0.84, { maxLines: 2, lineHeight: 1.2 }) : null;
+  const blockH = icon / f.H + (70 * f.u) / f.H + (nameSize * 1.25) / f.H + (subFit ? subFit.h + 0.015 : 0);
+  let y = 0.48 - blockH / 2;
+  const halo = Math.min(f.W, f.H) * 0.95;
+  const layers: Layer[] = [
+    shape(`${sceneId}_glow`, "circle", box(0.5 - halo / f.W / 2, y + icon / f.H / 2 - halo / f.H / 2, halo / f.W, halo / f.H, 1), theme.accent, { blurPx: Math.round(120 * f.u), enter: { preset: "scale-in", durationSec: 1.2, delaySec: 0, easing: "smooth" }, loop: "pulse" }),
+  ];
+  layers[0]!.box.opacity = 0.45;
+  layers.push({
+    id: `${sceneId}_icon`,
+    type: "image",
+    assetId: logo.id,
+    fit: "cover",
+    radiusPx: Math.round(icon * 0.225),
+    shadow: true,
+    box: box(0.5 - icon / f.W / 2, y, icon / f.W, icon / f.H, 3),
+    timing: { start: 0 },
+    animation: { enter: { preset: "pop", durationSec: 0.8, delaySec: 0.1, easing: "spring" }, loop: "float" },
+    locked: false,
+    hidden: false,
+  } as Layer);
+  y += icon / f.H + (70 * f.u) / f.H;
+  layers.push(text(`${sceneId}_name`, app.name, box(0.08, y, 0.84, (nameSize * 1.25) / f.H, 4), { size: nameSize, weight: 780, color: "#FFFFFF", enter: { preset: "blur-in", durationSec: 0.7, delaySec: 0.55 } }));
+  y += (nameSize * 1.25) / f.H + 0.015;
+  if (sub && subFit) layers.push(text(`${sceneId}_sub`, sub, box(0.08, y, 0.84, subFit.h, 4), { role: "subhead", size: subFit.size, weight: 560, font: "body", color: "#FFFFFFCC", lineHeight: 1.2, letterSpacing: -0.01, enter: { preset: "fade", durationSec: 0.6, delaySec: 0.9 }, claimIds: ctx.sb.claimIds }));
+  return { template: "icon-reveal", layers, background: { kind: "gradient", colors: [mix(theme.accent, "#07070B", 0.72), "#060608"], angle: 180, dim: 0 } };
+}
+
+/**
+ * A designed marketing screenshot, full screen with a slow push. It already carries its own device
+ * frame and headline, so it is never framed again; it sits on a blurred copy of itself when its
+ * shape differs from the video's.
+ */
+function fullscreenShowcase(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const { f, sceneId } = ctx;
+  const a = m.asset;
+  const ma = a.width && a.height ? a.width / a.height : f.W / f.H;
+  const cover = Math.abs(ma - f.W / f.H) / (f.W / f.H) < 0.08;
+  const layers: Layer[] = [
+    {
+      id: `${sceneId}_media`,
+      type: "image",
+      assetId: a.id,
+      fit: cover ? "cover" : "contain",
+      radiusPx: 0,
+      shadow: !cover,
+      box: box(0, 0, 1, 1, 2),
+      timing: { start: 0 },
+      animation: { enter: { preset: "fade", durationSec: 0.5, delaySec: 0, easing: "smooth" }, loop: m.use % 2 ? "ken-burns" : "slow-zoom" },
+      locked: false,
+      hidden: false,
+    } as Layer,
+  ];
+  // Short caption only: the screenshot already has its own headline.
+  const caption = textValue.trim();
+  if (caption && caption.split(/\s+/).length <= 8) {
+    const tw = 1 - f.safe.left - f.safe.right - 0.08;
+    const fit = fitText(f, caption, (f.portrait ? 46 : 40) * f.u, tw, { maxLines: 2, lineHeight: 1.15 });
+    const pad = Math.round(22 * f.u);
+    const h = fit.h + (pad * 2) / f.H;
+    layers.push(
+      text(`${sceneId}_caption`, caption, box(0.5 - tw / 2, 1 - f.safe.bottom - h - 0.01, tw, h, 4), {
+        role: "caption",
+        size: fit.size,
+        weight: 650,
+        font: "body",
+        color: "#FFFFFF",
+        lineHeight: 1.15,
+        letterSpacing: -0.01,
+        background: { color: "#000000B3", paddingPx: pad, radiusPx: 200 },
+        enter: { preset: "slide-up", durationSec: 0.5, delaySec: 0.5 },
+        claimIds: ctx.sb.claimIds,
+      }),
+    );
+  }
+  return { template: "fullscreen-showcase", layers, background: cover ? { kind: "solid", color: "#000000", angle: 180, dim: 0 } : { kind: "blur", assetId: a.id, color: "#000000", angle: 180, dim: 0.25 } };
+}
+
+function carouselSlide(ctx: SceneCtx, textValue: string, m: ScreenMedia | undefined): Built {
   const { f, sceneId, app } = ctx;
   const parts = splitParts(textValue);
   const head = parts[0] ?? textValue;
@@ -794,7 +1184,7 @@ function carouselSlide(ctx: SceneCtx, textValue: string, asset: MediaAsset | und
     layers.push(text(`${sceneId}_body`, bodyText, box(0.5 - tw / 2, y, tw, bf.h, 3), { role: "body", size: bf.size, weight: 500, font: "body", color: "theme.textMuted", lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
     y += bf.h + 0.02;
   }
-  if (asset) layers.push(deviceLayer(`${sceneId}_device`, app, asset, deviceBox(f, app, asset, 0.5, y + 0.02, 1 - y + 0.04, 0.8), { loop: "none" }));
+  if (m) layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.5, y + 0.02, 1 - y + 0.04, 0.8), { loop: "none" }));
   return { template: "carousel-slide", layers, background: softBackground(ctx, ctx.index) };
 }
 
@@ -811,14 +1201,19 @@ function emphasisWords(t: string): string[] {
   return [words[words.length - 1]!];
 }
 
-function transitionFor(prev: TemplateId | undefined, next: TemplateId, durationSec: number): Scene["transitionIn"] {
+/** Editor-style cuts: hard cuts into punchy type and close-ups, softer moves into wide shots and end cards. */
+function transitionFor(prev: TemplateId | undefined, next: TemplateId, durationSec: number, index = 0): Scene["transitionIn"] {
   if (!prev) return { kind: "cut", durationSec: 0 };
   const cap = (d: number) => Math.min(d, durationSec / 2 - 0.01);
-  if (prev === "hook-title") return { kind: "zoom", durationSec: cap(0.5) };
-  if (next === "cta-endcard") return { kind: "fade", durationSec: cap(0.5) };
+  if (next === "kinetic-type") return { kind: "cut", durationSec: 0 };
+  if (prev === "hook-title" || prev === "kinetic-type") return { kind: "zoom", durationSec: cap(0.5) };
+  if (next === "cta-endcard" || next === "store-cta") return { kind: "fade", durationSec: cap(0.5) };
+  if (next === "icon-reveal") return { kind: "zoom", durationSec: cap(0.5) };
+  if (next === "focus-zoom" || next === "tap-demo") return { kind: "cut", durationSec: 0 };
   if (next === "stat-card" || next === "quote-proof") return { kind: "blur", durationSec: cap(0.45) };
-  if (next === "founder-cutout" || next === "text-over-media") return { kind: "fade", durationSec: cap(0.4) };
-  return { kind: "slide-up", durationSec: cap(0.55) };
+  if (next === "founder-cutout" || next === "text-over-media" || next === "fullscreen-showcase") return { kind: "fade", durationSec: cap(0.4) };
+  if (next === "phone-tilt") return { kind: "slide-left", durationSec: cap(0.55) };
+  return { kind: index % 2 ? "slide-left" : "slide-up", durationSec: cap(0.55) };
 }
 
 function captionCues(storyboard: Storyboard, starts: number[]): CaptionCue[] {
@@ -850,7 +1245,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   const ar = input.aspectRatio ?? storyboard.aspectRatio;
   const f = frameFor(ar);
   const theme = themeFromBrand(brand);
-  const picker = new AssetPicker(input.assets, brand, app);
+  const picker = new AssetPicker(input.assets, brand, app, input.recordingSegments ?? []);
   const segs = input.segmentations ?? [];
   const kind = input.kind ?? "video";
   const ordered = [...storyboard.scenes].sort((a, b) => a.order - b.order);
@@ -873,7 +1268,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
       purpose: sb.purpose,
       durationSec: r4(durationSec),
       background: built.background,
-      transitionIn: kind === "video" ? transitionFor(prevTemplate, built.template, durationSec) : { kind: "cut", durationSec: 0 },
+      transitionIn: kind === "video" ? transitionFor(prevTemplate, built.template, durationSec, index) : { kind: "cut", durationSec: 0 },
       layers: built.layers,
       storyboardSceneId: sb.id,
       notes: sb.visual.slice(0, 1000),
@@ -916,12 +1311,14 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   return v.doc;
 }
 
-const NAMES: Record<string, string> = { glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", cta: "Call to action", stores: "Store badges", body: "Body" };
+const NAMES: Record<string, string> = { glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", media1: "Media 1", media2: "Media 2", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", sub: "Subline", cta: "Call to action", stores: "Store badges", body: "Body", caption: "Caption" };
 
 function layerName(suffix: string, l: Layer): string {
   if (NAMES[suffix]) return NAMES[suffix]!;
   const m = /^chip(\d+)$/.exec(suffix);
   if (m) return `Callout ${m[1]}`;
+  const line = /^line(\d+)$/.exec(suffix);
+  if (line) return `Line ${line[1]}`;
   return l.type[0]!.toUpperCase() + l.type.slice(1);
 }
 
@@ -958,42 +1355,70 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
       return media ? textOverMedia(ctx, textOr(ctx.app.name), media) : hookTitle(ctx, textOr(ctx.app.name));
     }
     case "device-demo": {
-      const a = picker.product(sb, sb.assets.some((h) => h.kind === "app_recording") ? "app_recording" : "any");
+      const a = picker.screen(sb, sb.assets.some((h) => h.kind === "app_recording") ? "app_recording" : "any");
       return a ? deviceDemo(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
     }
+    case "focus-zoom": {
+      const a = picker.screen(sb);
+      return a ? focusZoom(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "tap-demo": {
+      const a = picker.screen(sb, sb.assets.some((h) => h.kind === "app_recording") ? "app_recording" : "any");
+      return a ? tapDemo(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "phone-tilt": {
+      const a = picker.screen(sb);
+      return a ? phoneTilt(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "fullscreen-showcase": {
+      const a = picker.showcase(sb);
+      return a ? fullscreenShowcase(ctx, txt, a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
     case "feature-callout": {
-      const a = picker.product(sb, "screenshot");
+      const a = picker.screen(sb, "screenshot");
       return a ? featureCallout(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
     }
     case "founder-cutout": {
       const clip = picker.founderClip(sb);
       if (!clip) {
-        const a = picker.product(sb);
+        const a = picker.screen(sb);
         return a ? deviceDemo(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
       }
-      return founderCutout(ctx, textOr(ctx.app.name), clip, picker.product(sb));
+      return founderCutout(ctx, textOr(ctx.app.name), clip, picker.screen(sb));
     }
     case "before-after":
     case "split-screen": {
-      const a = picker.product(sb, "screenshot");
-      const b = a ? picker.product(sb, "screenshot", [a.id]) : undefined;
-      if (a && b) return t === "before-after" ? beforeAfter(ctx, textOr(ctx.app.name), a, b) : splitScreen(ctx, textOr(ctx.app.name), a, b);
+      const a = picker.screen(sb, "screenshot");
+      // Split screens may pair the app with supporting b-roll (stock/generated, never the app UI).
+      const support = t === "split-screen" && sb.assets.some((h) => h.assetId && SUPPORT_KINDS.has(h.kind)) ? picker.backdrop(sb) : undefined;
+      const second = support ? undefined : a ? picker.screen(sb, "screenshot", [a.asset.id]) : undefined;
+      const b: Pane | undefined = support ? { media: support } : second ? { screen: second } : undefined;
+      if (a && b) return t === "before-after" ? beforeAfter(ctx, textOr(ctx.app.name), { screen: a }, b) : splitScreen(ctx, textOr(ctx.app.name), { screen: a }, b);
+      if (!a && support) return textOverMedia(ctx, textOr(ctx.app.name), support);
       return a ? deviceDemo(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
     }
     case "quote-proof":
       return quoteProof(ctx, textOr(ctx.app.name));
     case "stat-card":
       return statCard(ctx, textOr(ctx.app.name));
+    case "kinetic-type":
+      return kineticType(ctx, textOr(ctx.app.name));
+    case "icon-reveal":
+      return iconReveal(ctx, txt);
     case "cta-endcard":
       return ctaEndcard(ctx, txt);
+    case "store-cta":
+      return ctaEndcard(ctx, txt, true);
     case "carousel-slide":
-      return carouselSlide(ctx, textOr(ctx.app.name), picker.product(sb));
+      return carouselSlide(ctx, textOr(ctx.app.name), picker.screen(sb));
     case "presenter-depth":
     case "object-spotlight":
     case "product-in-hand":
       return objectAware(ctx, t, textOr(ctx.app.name)) ?? buildScene(ctx, "founder-cutout", txt);
   }
 }
+
+const SUPPORT_KINDS = new Set(["stock_video", "stock_image", "generated_image"]);
 
 // ---------------------------------------------------------------------------
 // Object-aware templates (SAM tracks + cutouts of a real founder clip)
@@ -1141,7 +1566,8 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
   if (t === "presenter-depth") {
     if (!co.usable(co.person)) return null;
     const base = baseClip(ctx, co.clip);
-    const demo = ctx.picker.product(ctx.sb, "app_recording");
+    const demoMedia = ctx.picker.screen(ctx.sb, "app_recording");
+    const demo = demoMedia?.asset;
     const layers: Layer[] = [base, { ...shade(2, 0.9), name: "Depth shade" } as Layer, scrim(2)];
     const mean = co.person!.meanBbox ?? { x: 0.3, y: 0.2, w: 0.4, h: 0.8 };
     // Put the demo on the side away from the phone in hand (else away from the presenter's mass).
@@ -1188,7 +1614,7 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
       const extX = (raw.w * f.W * Math.cos(th) + raw.h * f.H * Math.sin(th)) / 2 / f.W;
       const cx = demoRight ? 1 - f.safe.right - extX : f.safe.left + extX;
       const devB = { ...raw, x: cx - raw.w / 2 };
-      layers.push(deviceLayer(`${sceneId}_device`, app, demo, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: rot }));
+      layers.push(screenLayer(ctx, `${sceneId}_device`, demoMedia!, { ...devB, z: 4 }, { enter: { preset: demoRight ? "slide-left" : "slide-right", durationSec: 1.1, delaySec: 0.25 }, loop: "tilt", rotation: rot }));
       layers[layers.length - 1]!.name = "App demo (behind presenter)";
     }
     if (co.cutoutReady(co.person)) layers.push(cutoutLayer(`${sceneId}_presenter`, "Presenter (cutout, in front)", base, co.person!, 6));
@@ -1232,5 +1658,5 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
 
 export { frameFor as _frameFor, mix as mixColor };
 export type { Frame as LayoutFrame };
-export const _test = { emphasisWords, splitParts, themeFromBrand };
+export const _test = { emphasisWords, splitParts, themeFromBrand, kineticLines };
 export type { CompositionDoc };

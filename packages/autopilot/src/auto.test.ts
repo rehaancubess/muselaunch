@@ -96,7 +96,8 @@ describe("Autopilot by default (auto.ts)", () => {
   });
 
   it("says so when credits are short and offers a smaller run; a per-run limit picks fewer videos; editors don't pre-approve renders", async () => {
-    const h = await setup({ credits: 140 });
+    // Budgets assume the longest automatic video (60 s): one variant fits in 180 credits, two don't.
+    const h = await setup({ credits: 180 });
     const { appId } = await h.addApp();
     const plan = await planAutoStart(h.p, h.wid, appId, { member: OWNER });
     expect(plan.fits).toBe(false);
@@ -114,11 +115,11 @@ describe("Autopilot by default (auto.ts)", () => {
     // One active run per app.
     expect(await tryStartAutoAutopilot(h.p, h.wid, appId, { variants: 1, member: OWNER, actor: "u1" })).toMatchObject({ started: false, code: "already_running" });
 
-    const limited = await setup({ settings: { maxCreditsPerRun: 130 } });
+    const limited = await setup({ settings: { maxCreditsPerRun: 150 } });
     const a2 = await limited.addApp();
     const p2 = await planAutoStart(limited.p, limited.wid, a2.appId, { member: OWNER });
     expect(p2).toMatchObject({ variants: 1, fits: true });
-    expect(p2.notes.join(" ")).toMatch(/1 video instead of 2 to stay within your 130-credit limit/);
+    expect(p2.notes.join(" ")).toMatch(/1 video instead of 2 to stay within your 150-credit limit/);
     const p3 = await planAutoStart(limited.p, limited.wid, a2.appId, { member: EDITOR });
     expect(p3.autoApproveCredits).toBe(0);
     expect(p3.notes.join(" ")).toMatch(/only members who manage billing/);

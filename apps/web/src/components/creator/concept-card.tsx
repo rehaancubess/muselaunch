@@ -30,7 +30,8 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
   const [busy, setBusy] = useState<"select" | "produce" | "reject" | null>(null);
   const [produceOpen, setProduceOpen] = useState(false);
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
-  const [duration, setDuration] = useState("15");
+  // "auto" = the concept's own length (picked with the concept, 30–60 s).
+  const [duration, setDuration] = useState("auto");
   const [expanded, setExpanded] = useState(false);
   const idem = useRef(newIdempotencyKey("produce"));
   const campaignPath = wsPath(workspaceId, `/campaigns/${campaignId}`);
@@ -54,7 +55,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
   const produce = async () => {
     setBusy("produce");
     try {
-      const r = await api.post<JobResponse>(`${campaignPath}/variants/${v.id}/produce`, { aspectRatio: aspect, targetDurationSec: Number(duration) }, { idempotencyKey: idem.current });
+      const r = await api.post<JobResponse>(`${campaignPath}/variants/${v.id}/produce`, { aspectRatio: aspect, ...(duration === "auto" ? {} : { targetDurationSec: Number(duration) }) }, { idempotencyKey: idem.current });
       onJob(r.job);
       setProduceOpen(false);
       idem.current = newIdempotencyKey("produce");
@@ -78,6 +79,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
     >
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <Badge tone="neutral">{ANGLE_LABEL[v.angleType]}</Badge>
+        {v.targetDurationSec ? <Badge tone="neutral">{v.targetDurationSec} s video</Badge> : null}
         {produced.length ? <StatusPill status="success">Produced</StatusPill> : v.status === "rejected" ? <StatusPill status="cancelled">Set aside</StatusPill> : v.status !== "proposed" ? <StatusPill status={statusKindOf(v.status)}>{humanizeStatus(v.status)}</StatusPill> : null}
         {v.memoryRefs.length ? (
           <Tooltip content={`Shaped by ${v.memoryRefs.length} of your saved preferences (Muse Glimmer memory).`}>
@@ -205,13 +207,22 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
             <p className="text-footnote font-medium">Format</p>
             <SegmentedControl<AspectRatio> label="Aspect ratio" value={aspect} onChange={setAspect} items={(["9:16", "1:1", "4:5", "16:9"] as const).map((a) => ({ value: a, label: a }))} />
           </div>
-          <div className="w-40 space-y-2">
+          <div className="w-48 space-y-2">
             <label htmlFor={`dur-${v.id}`} className="text-footnote font-medium">
               Length
             </label>
-            <Select id={`dur-${v.id}`} value={duration} onChange={(e) => setDuration(e.target.value)} options={[6, 10, 15, 20, 30, 45, 60].map((s) => ({ value: String(s), label: `${s} seconds` }))} />
+            <Select
+              id={`dur-${v.id}`}
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              options={[{ value: "auto", label: v.targetDurationSec ? `${v.targetDurationSec} seconds (suggested)` : "30–60 seconds (suggested)" }, ...[15, 20, 30, 45, 60].map((s) => ({ value: String(s), label: `${s} seconds` }))]}
+            />
           </div>
-          <WorkspaceCostEstimate operation="storyboard.generate" note="Includes the storyboard. The preview render costs a few more credits; final renders are estimated when you export." />
+          <WorkspaceCostEstimate
+            operation="storyboard.generate"
+            params={{ targetDurationSec: duration === "auto" ? (v.targetDurationSec ?? 60) : Number(duration) }}
+            note="Includes the storyboard; SAM focus lookups are charged only when used. The preview render costs a few more credits; final renders are estimated when you export."
+          />
         </div>
       </Dialog>
     </article>

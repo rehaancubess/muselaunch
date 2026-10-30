@@ -1,0 +1,134 @@
+{
+  "_fixture": "Muse Spark Storyboard content for a 30-60 s video (editor-style scene variety: kinetic type, icon reveal, phone tilt, focus zoom, tap demo, store CTA). NOT live output. $IMAGE<n> = n-th attached real screenshot.",
+  "title": "One tap to deep work",
+  "scenes": [
+    {
+      "purpose": "hook",
+      "durationSec": 2,
+      "onScreenText": "Your phone wins. Again.",
+      "narration": "",
+      "visual": "Punchy white type on near-black, word by word",
+      "template": "kinetic-type",
+      "assets": [],
+      "claimIds": []
+    },
+    {
+      "purpose": "problem",
+      "durationSec": 3,
+      "onScreenText": "Every ping steals your focus",
+      "narration": "",
+      "visual": "Student at a desk, phone lighting up; headline on a scrim",
+      "template": "text-over-media",
+      "assets": [{ "kind": "stock_image", "query": "student at a desk distracted by a glowing phone, evening light" }],
+      "claimIds": []
+    },
+    {
+      "purpose": "transition",
+      "durationSec": 2.5,
+      "onScreenText": "Calm focus, one tap away",
+      "narration": "",
+      "visual": "App icon scales in with a soft glow, then the name",
+      "template": "icon-reveal",
+      "assets": [],
+      "claimIds": []
+    },
+    {
+      "purpose": "demo",
+      "durationSec": 4,
+      "onScreenText": "Start a focus session",
+      "narration": "",
+      "visual": "Real timer screen in an iPhone turning in 3D over a parallax glow",
+      "template": "phone-tilt",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE1", "featureId": "feat_timer" }],
+      "claimIds": []
+    },
+    {
+      "purpose": "demo",
+      "durationSec": 3.5,
+      "onScreenText": "Pick your session length",
+      "narration": "",
+      "visual": "Push in on the session length control with a highlight ring",
+      "template": "focus-zoom",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE1", "featureId": "feat_timer" }],
+      "claimIds": [],
+      "focus": { "x": 0.1, "y": 0.32, "w": 0.8, "h": 0.18 }
+    },
+    {
+      "purpose": "feature",
+      "durationSec": 3.5,
+      "onScreenText": "Block distracting apps",
+      "narration": "",
+      "visual": "Finger taps the start button",
+      "template": "tap-demo",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE1", "featureId": "feat_block" }],
+      "claimIds": ["$ID:clm:0"],
+      "focusQuery": "start button"
+    },
+    {
+      "purpose": "feature",
+      "durationSec": 4,
+      "onScreenText": "Weekly focus reports",
+      "narration": "",
+      "visual": "Real reports screen in a device frame, gentle float",
+      "template": "device-demo",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE0", "featureId": "feat_reports" }],
+      "claimIds": []
+    },
+    {
+      "purpose": "feature",
+      "durationSec": 3.5,
+      "onScreenText": "Watch your streak grow",
+      "narration": "",
+      "visual": "Close-up on the streak row of the report",
+      "template": "focus-zoom",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE0", "featureId": "feat_reports" }],
+      "claimIds": [],
+      "focus": { "x": 0.08, "y": 0.55, "w": 0.84, "h": 0.2 }
+    },
+    {
+      "purpose": "feature",
+      "durationSec": 4,
+      "onScreenText": "Plan it | Today | This week",
+      "narration": "",
+      "visual": "Timer and report side by side",
+      "template": "before-after",
+      "assets": [
+        { "kind": "screenshot", "assetId": "$IMAGE1" },
+        { "kind": "screenshot", "assetId": "$IMAGE0" }
+      ],
+      "claimIds": []
+    },
+    {
+      "purpose": "other",
+      "durationSec": 3,
+      "onScreenText": "Less scrolling. More done.",
+      "narration": "",
+      "visual": "Kinetic type, punchline in the accent colour",
+      "template": "kinetic-type",
+      "assets": [],
+      "claimIds": []
+    },
+    {
+      "purpose": "transition",
+      "durationSec": 3,
+      "onScreenText": "Focus that feels calm",
+      "narration": "",
+      "visual": "Reports screen in a tilted phone",
+      "template": "phone-tilt",
+      "assets": [{ "kind": "screenshot", "assetId": "$IMAGE0" }],
+      "claimIds": []
+    },
+    {
+      "purpose": "cta",
+      "durationSec": 3.5,
+      "onScreenText": "Start your first focus session",
+      "narration": "",
+      "visual": "Icon, name, CTA and plain-text store pills",
+      "template": "store-cta",
+      "assets": [],
+      "claimIds": []
+    }
+  ],
+  "voiceover": { "source": "none" },
+  "music": { "mood": "calm lo-fi" }
+}

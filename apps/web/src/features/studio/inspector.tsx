@@ -8,7 +8,7 @@ import { TEMPLATE_LABELS, textLayer } from "./ops";
 import { layerLabel } from "./timeline";
 import type { CompositionDoc, Layer, LintIssue, PatchOp, Scene } from "./types";
 
-const ENTER = ["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-in", "pop", "blur-in", "typewriter", "mask-reveal"];
+const ENTER = ["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-in", "pop", "blur-in", "typewriter", "mask-reveal", "words"];
 const EXIT = ["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-out", "blur-out"];
 const LOOP = ["none", "float", "pulse", "ken-burns", "slow-zoom", "tilt"];
 const EASING = ["smooth", "snappy", "spring", "linear"];
@@ -314,17 +314,27 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
       ) : null}
 
       {layer.type === "device" ? (
-        <Group title="Device">
-          <div className="grid grid-cols-2 gap-2">
-            <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={opts(["iphone", "android", "ipad", "browser", "macbook"])} onChange={(e) => set({ device: e.target.value }, "Change device")} />
-            <Select selectSize="sm" aria-label="Frame colour" value={layer.frameColor} disabled={disabled} options={opts(["black", "silver", "natural", "white"])} onChange={(e) => set({ frameColor: e.target.value }, "Frame colour")} />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-footnote text-ink-2">Soft shadow</span>
-            <Switch checked={layer.shadow} onCheckedChange={(v) => set({ shadow: v }, "Device shadow")} disabled={disabled} label="Shadow" />
-          </div>
-          <p className="text-caption text-ink-3">Swap the screen from the media drawer. Only real screenshots and recordings can appear inside a device.</p>
-        </Group>
+        <>
+          <Group title="Device">
+            <div className="grid grid-cols-2 gap-2">
+              <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={opts(["iphone", "android", "ipad", "browser", "macbook"])} onChange={(e) => set({ device: e.target.value }, "Change device")} />
+              <Select selectSize="sm" aria-label="Frame colour" value={layer.frameColor} disabled={disabled} options={opts(["black", "silver", "natural", "white"])} onChange={(e) => set({ frameColor: e.target.value }, "Frame colour")} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-footnote text-ink-2">Soft shadow</span>
+              <Switch checked={layer.shadow} onCheckedChange={(v) => set({ shadow: v }, "Device shadow")} disabled={disabled} label="Shadow" />
+            </div>
+            {layer.screenKind === "video" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <NumberInput label="In" suffix="s" step={0.1} min={0} value={layer.trimInSec} onCommit={(v) => set({ trimInSec: v }, "Screen recording start")} disabled={disabled} />
+                <NumberInput label="Rate" step={0.05} min={0.25} max={4} value={layer.playbackRate ?? 1} onCommit={(v) => set({ playbackRate: v }, "Screen recording speed")} disabled={disabled} />
+              </div>
+            ) : null}
+            {layer.blurRegions?.length ? <p className="text-caption text-ink-3">{layer.blurRegions.length} area{layer.blurRegions.length === 1 ? "" : "s"} blurred for privacy (personal information in the recording).</p> : null}
+            <p className="text-caption text-ink-3">Swap the screen from the media drawer. Only real screenshots and recordings can appear inside a device.</p>
+          </Group>
+          <DeviceMotionGroup layer={layer} set={set} disabled={disabled} />
+        </>
       ) : null}
 
       {layer.type === "image" || layer.type === "video" ? (
@@ -406,6 +416,120 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
         </div>
       </Group>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Device close-ups: focus zoom region, tap point, 3D tilt (all in % of the device screen)
+// ---------------------------------------------------------------------------
+
+type DeviceL = Extract<Layer, { type: "device" }>;
+const pct1 = (v: number) => Math.round(v * 1000) / 10;
+const frac = (v: number) => Math.max(0, Math.min(1, v / 100));
+
+function DeviceMotionGroup({ layer, set, disabled }: { layer: DeviceL; set: (s: Record<string, unknown>, summary: string) => void; disabled?: boolean }) {
+  const f = layer.focus;
+  const t = layer.tap;
+  const tilt = layer.tilt;
+  // Keep the region inside the screen when one edge moves.
+  const setFocus = (patch: Partial<NonNullable<DeviceL["focus"]>>, summary: string) => {
+    if (!f) return;
+    const next: Record<string, unknown> = { ...f, ...patch, w: Math.min(patch.w ?? f.w, 1 - (patch.x ?? f.x)), h: Math.min(patch.h ?? f.h, 1 - (patch.y ?? f.y)) };
+    // null clears the zoom (the patch merges one level deep).
+    if ("zoom" in patch && patch.zoom === undefined) next.zoom = null;
+    set({ focus: next }, summary);
+  };
+  return (
+    <>
+      <Group
+        title="Focus zoom"
+        action={
+          f ? (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ focus: null }, "Remove focus zoom")}>
+              Remove
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ focus: { x: 0.08, y: 0.2, w: 0.84, h: 0.3, atSec: 0.6, ring: true } }, "Add focus zoom")}>
+              Add
+            </Button>
+          )
+        }
+      >
+        {f ? (
+          <>
+            <p className="text-caption text-ink-3">Region of the screen to push in on (% of the screen).</p>
+            <div className="grid grid-cols-2 gap-2">
+              <NumberInput label="X" step={1} min={0} max={100} suffix="%" value={pct1(f.x)} onCommit={(v) => setFocus({ x: frac(v) }, "Move focus region")} disabled={disabled} />
+              <NumberInput label="Y" step={1} min={0} max={100} suffix="%" value={pct1(f.y)} onCommit={(v) => setFocus({ y: frac(v) }, "Move focus region")} disabled={disabled} />
+              <NumberInput label="W" step={1} min={2} max={100} suffix="%" value={pct1(f.w)} onCommit={(v) => setFocus({ w: frac(v) }, "Resize focus region")} disabled={disabled} />
+              <NumberInput label="H" step={1} min={1} max={100} suffix="%" value={pct1(f.h)} onCommit={(v) => setFocus({ h: frac(v) }, "Resize focus region")} disabled={disabled} />
+              <NumberInput label="Zm" step={0.1} min={1} max={4} suffix="×" value={f.zoom ?? 0} onCommit={(v) => setFocus({ zoom: v >= 1 ? v : undefined }, "Focus zoom level")} disabled={disabled} />
+              <NumberInput label="At" step={0.1} min={0} max={60} suffix="s" value={f.atSec} onCommit={(v) => setFocus({ atSec: v }, "Focus zoom timing")} disabled={disabled} />
+            </div>
+            <p className="text-caption text-ink-3">Zoom 0 = fitted automatically.</p>
+            <div className="flex items-center justify-between">
+              <span className="text-footnote text-ink-2">Highlight ring</span>
+              <Switch checked={f.ring} onCheckedChange={(v) => setFocus({ ring: v }, v ? "Show highlight ring" : "Hide highlight ring")} disabled={disabled} label="Highlight ring" />
+            </div>
+          </>
+        ) : (
+          <p className="text-caption text-ink-3">Push in on one part of the real screen, with a soft highlight ring.</p>
+        )}
+      </Group>
+      <Group
+        title="Tap"
+        action={
+          t ? (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ tap: null }, "Remove tap")}>
+              Remove
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ tap: { x: f ? f.x + f.w / 2 : 0.5, y: f ? f.y + f.h / 2 : 0.5, atSec: 1 } }, "Add tap")}>
+              Add
+            </Button>
+          )
+        }
+      >
+        {t ? (
+          <div className="grid grid-cols-2 gap-2">
+            <NumberInput label="X" step={1} min={0} max={100} suffix="%" value={pct1(t.x)} onCommit={(v) => set({ tap: { ...t, x: frac(v) } }, "Move tap point")} disabled={disabled} />
+            <NumberInput label="Y" step={1} min={0} max={100} suffix="%" value={pct1(t.y)} onCommit={(v) => set({ tap: { ...t, y: frac(v) } }, "Move tap point")} disabled={disabled} />
+            <NumberInput label="At" step={0.1} min={0} max={60} suffix="s" value={t.atSec} onCommit={(v) => set({ tap: { ...t, atSec: v } }, "Tap timing")} disabled={disabled} />
+          </div>
+        ) : (
+          <p className="text-caption text-ink-3">A finger dot and ripple on the control being used.</p>
+        )}
+      </Group>
+      <Group
+        title="3D tilt"
+        action={
+          tilt ? (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ tilt: null }, "Remove tilt")}>
+              Remove
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ tilt: { x: 8, y: -20, swing: true } }, "Add 3D tilt")}>
+              Add
+            </Button>
+          )
+        }
+      >
+        {tilt ? (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <NumberInput label="Tip" step={1} min={-45} max={45} suffix="°" value={tilt.x} onCommit={(v) => set({ tilt: { ...tilt, x: v } }, "Tilt angle")} disabled={disabled} />
+              <NumberInput label="Yaw" step={1} min={-60} max={60} suffix="°" value={tilt.y} onCommit={(v) => set({ tilt: { ...tilt, y: v } }, "Turn angle")} disabled={disabled} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-footnote text-ink-2">Ease toward the camera</span>
+              <Switch checked={tilt.swing} onCheckedChange={(v) => set({ tilt: { ...tilt, swing: v } }, v ? "Tilt eases in" : "Hold tilt")} disabled={disabled} label="Swing" />
+            </div>
+          </>
+        ) : (
+          <p className="text-caption text-ink-3">Turn the device in 3D for a hero shot.</p>
+        )}
+      </Group>
+    </>
   );
 }
 

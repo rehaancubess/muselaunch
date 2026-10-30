@@ -13,6 +13,7 @@ import {
   type CompositionDoc,
   type CompositionVersion,
   type MediaAsset,
+  type RecordingSegment,
   type Segmentation,
 } from "@muselaunch/contracts";
 import { adaptToAspect, buildFromStoryboard, collectAssetRefs, compileToHtml, docHash, lintDoc, posterTimeSec, type LintIssue } from "@muselaunch/compositions";
@@ -55,6 +56,18 @@ export async function loadAppClipAnalyses(ws: WorkspaceDb, appId: string): Promi
 
 export async function loadAppSegmentations(ws: WorkspaceDb, appId: string): Promise<Segmentation[]> {
   return listAll((cursor) => ws.collection("segmentations").list({ where: [["appId", "==", appId]], limit: 200, cursor }));
+}
+
+/** Walkthrough segments of the app's recordings (storyboard scenes play them by AssetHint.segmentId). */
+export async function loadAppRecordingSegments(ws: WorkspaceDb, appId: string): Promise<RecordingSegment[]> {
+  return listAll((cursor) => ws.collection("recordingSegments").list({ where: [["appId", "==", appId]], limit: 300, cursor }), 600);
+}
+
+/** Render wall-clock limit: the configured base, stretched for long videos (30–60 s by default). */
+export function renderTimeoutMs(quality: "preview" | "final", durationSec: number): number {
+  const base = quality === "preview" ? PREVIEW_TIMEOUT_MS : FINAL_TIMEOUT_MS;
+  const perSec = quality === "preview" ? 12_000 : 40_000;
+  return Math.min(55 * 60_000, Math.max(base, Math.ceil(durationSec) * perSec));
 }
 
 /** Assets + segmentations a doc needs (ids resolved in this workspace only). */
@@ -111,7 +124,8 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
     version = await getVersion(ctx.ws, compositionId, existing.currentVersion);
   } else {
     const clipAnalyses = await loadAppClipAnalyses(ctx.ws, appId);
-    const doc = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses });
+    const recordingSegments = await loadAppRecordingSegments(ctx.ws, appId);
+    const doc = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses, recordingSegments });
     ({ composition, version } = await createComposition(
       ctx.ws,
       { id: compositionId, appId, campaignId: storyboard.campaignId, variantId: storyboard.variantId, storyboardId, title: storyboard.title, doc },
@@ -236,7 +250,7 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
       quality: quality === "preview" ? "draft" : "high",
       format: still ? "png-sequence" : "mp4",
       signal: ctx.signal,
-      timeoutMs: quality === "preview" ? PREVIEW_TIMEOUT_MS : FINAL_TIMEOUT_MS,
+      timeoutMs: renderTimeoutMs(quality, compiled.durationSec),
       onProgress: (pct, msg) => ctx.progress(10 + pct * 0.78, quality === "preview" ? "rendering preview" : "rendering video", msg),
     });
     ctx.throwIfCancelled();
@@ -461,7 +475,7 @@ async function compositionVariants(ctx: JobContext<"composition.variants">) {
         if (sb) {
           const app = await ctx.ws.collection("apps").getOrThrow(appId);
           const brand = await ctx.ws.collection("brandProfiles").get(app.brandProfileId ?? appId);
-          rebuilt = buildFromStoryboard({ storyboard: sb, app, brand, assets: await loadAppAssets(ctx.ws, appId), segmentations: await loadAppSegmentations(ctx.ws, appId), clipAnalyses: await loadAppClipAnalyses(ctx.ws, appId), aspectRatio: ar.data, kind: ver.doc.kind });
+          rebuilt = buildFromStoryboard({ storyboard: sb, app, brand, assets: await loadAppAssets(ctx.ws, appId), segmentations: await loadAppSegmentations(ctx.ws, appId), clipAnalyses: await loadAppClipAnalyses(ctx.ws, appId), recordingSegments: await loadAppRecordingSegments(ctx.ws, appId), aspectRatio: ar.data, kind: ver.doc.kind });
         }
       }
       const doc = adaptToAspect(ver.doc, ar.data, rebuilt);

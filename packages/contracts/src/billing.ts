@@ -27,7 +27,8 @@ export const DEFAULT_PLANS: Record<PlanId, Plan> = {
     id: "free",
     name: "Free beta",
     monthlyCredits: 300,
-    limits: { apps: 2, members: 2, concurrentJobs: 2, maxVideoSec: 30, finalRendersPerDay: 5, researchRunsPerDay: 3 },
+    // 60 s: videos default to 30–60 s for everyone (storyboards clamp to the plan's maxVideoSec).
+    limits: { apps: 2, members: 2, concurrentJobs: 2, maxVideoSec: 60, finalRendersPerDay: 5, researchRunsPerDay: 3 },
   },
   starter: {
     id: "starter",
@@ -113,6 +114,10 @@ export const DEFAULT_CREDIT_PRICES = {
   "strategy.run": 30,
   "campaign.generate_concepts": 15,
   "storyboard.generate": 8,
+  /** Storyboards for videos longer than 30 s: per started 15 s beyond 30 s (more scenes, more Spark output). */
+  "storyboard.generate_per_extra_15s": 2,
+  /** SAM 3.1 finds a focus region named in text on a real screenshot (per lookup; at most 3 per storyboard, charged only when used). */
+  "storyboard.focus_lookup": 1,
   "composition.build": 2,
   "composition.edit": 3,
   "copy.generate": 4,

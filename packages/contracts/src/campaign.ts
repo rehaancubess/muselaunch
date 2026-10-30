@@ -138,8 +138,13 @@ export const CampaignVariant = BaseEntity.extend({
   /** Glimmer-retrieved preference ids that influenced this concept. */
   memoryRefs: z.array(Id).default([]),
   generatedByRunId: Id.optional(),
+  /** Video length chosen for this concept (seconds): the founder's choice, else Spark's pick in AUTO_VIDEO_DURATION. */
+  targetDurationSec: z.number().positive().max(180).optional(),
 });
 export type CampaignVariant = z.infer<typeof CampaignVariant>;
+
+/** Videos default to 30–60 s; each concept gets its own length in this range unless the founder picks one (15 s still allowed). */
+export const AUTO_VIDEO_DURATION = { min: 30, max: 60 } as const;
 
 export const ScenePurpose = z.enum(["hook", "problem", "demo", "feature", "proof", "founder", "transition", "cta", "other"]);
 
@@ -165,6 +170,10 @@ export const StoryboardScene = z.object({
   template: z.string().max(60),
   assets: z.array(AssetHint).max(6).default([]),
   claimIds: z.array(Id).default([]),
+  /** focus-zoom / tap-demo: the region to push in on (fractions of the real screenshot / recording frame shown). */
+  focus: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
+  /** What to focus on when no box was given (resolved to `focus` with SAM 3.1 on the real image). */
+  focusQuery: z.string().max(120).optional(),
 });
 export type StoryboardScene = z.infer<typeof StoryboardScene>;
 
