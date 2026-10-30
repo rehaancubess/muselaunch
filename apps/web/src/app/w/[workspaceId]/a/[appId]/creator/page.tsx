@@ -11,6 +11,7 @@ import { AppIcon } from "@/components/app-icon";
 import { AgentRunsList } from "@/features/agents";
 import { AutopilotHome } from "@/features/autopilot/home";
 import { STATUS_COPY, statusKind } from "@/features/autopilot/types";
+import { WalkthroughPrompt } from "@/features/media/walkthrough";
 import { useActiveAutopilot } from "@/components/shell/autopilot-chip";
 import { wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
@@ -153,6 +154,7 @@ export default function CreatorPage() {
 
 function HomePage() {
   const { app, appId, workspaceId } = useCurrentApp();
+  const { can } = useWorkspace();
   return (
     <PageContainer>
       <div className="mx-auto max-w-4xl space-y-8 pb-14 pt-2 md:pt-6">
@@ -169,6 +171,7 @@ function HomePage() {
           </div>
         </header>
         <AutopilotHome appId={appId} />
+        <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} />
       </div>
     </PageContainer>
   );
@@ -220,6 +223,8 @@ function ManualCreator() {
           Campaigns only use product claims you’ve verified. Confirm your features, audiences and claims first for the best results.
         </Notice>
       ) : null}
+
+      <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} className="mb-10" />
 
       <Section
         title="Campaigns"

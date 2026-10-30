@@ -7,6 +7,7 @@ import { initialClaimState } from "../claims";
 import { RunRecorder } from "../runs";
 import { clip, hashId, normalizeText, nowIso, uniq } from "../util";
 import { paletteFromImages } from "./palette";
+import { queueScreenCutouts } from "./screens";
 
 const Ids = z.array(z.string().max(128)).max(20).default([]);
 
@@ -318,8 +319,10 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category }, { actor: ctx.actor });
     if (imp) await ws.collection("appImports").update(imp.id, { status: imp.warnings.length ? "partial" : "succeeded" }, { actor: ctx.actor });
     await run.finish("succeeded", { outputRefs: [{ entity: "brandProfiles", id: profile.id }] });
+    // Designed store screenshots → Muse Spark check + SAM 3.1 screen cut-outs, in the background.
+    const screenCutoutJobId = await queueScreenCutouts(ctx, appId);
     await ctx.progress(100, "App DNA ready for review");
-    return { refs: [{ entity: "brandProfiles", id: profile.id }, { entity: "agentRuns", id: run.id }], data: { version: profile.version, features: features.length, claimsCreated: created, dropped } };
+    return { refs: [{ entity: "brandProfiles", id: profile.id }, { entity: "agentRuns", id: run.id }], data: { version: profile.version, features: features.length, claimsCreated: created, dropped, screenCutoutJobId } };
   } catch (raw) {
     const err = toAppError(raw);
     const final = err.code === "CANCELLED" || !err.retryable || ctx.job.attempts >= ctx.job.maxAttempts;

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { MediaAsset } from "@muselaunch/contracts";
 import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { countVideoFrames, ffmpeg, probeMedia, type MediaProbe } from "./ffmpeg";
+import { autoAnalyzeRecording } from "./recording";
 import { sha256File, withWorkdir } from "./util";
 
 /**
@@ -80,7 +81,9 @@ export async function probeHandler(ctx: JobContext<"media.probe">) {
   await repo.update(asset.id, { status: "processing", error: undefined }, { actor: ctx.actor });
   try {
     const result = await withWorkdir((dir) => probeInto(ctx, asset, dir));
-    return { refs: [{ entity: "mediaAssets", id: asset.id }, ...(result.posterAssetId ? [{ entity: "mediaAssets", id: result.posterAssetId }] : [])], data: result };
+    // A screen recording of an app is cut into labelled clips right away (walkthrough breakdown).
+    const analyzeRecordingJobId = await autoAnalyzeRecording(ctx, await repo.getOrThrow(asset.id));
+    return { refs: [{ entity: "mediaAssets", id: asset.id }, ...(result.posterAssetId ? [{ entity: "mediaAssets", id: result.posterAssetId }] : [])], data: { ...result, analyzeRecordingJobId } };
   } catch (err) {
     const e = err instanceof AppError ? err : new AppError("INTERNAL", (err as Error).message, { retryable: false });
     if (!e.retryable || e.code === "CANCELLED") await repo.update(asset.id, { status: "failed", error: e.message.slice(0, 1000) }, { actor: ctx.actor }).catch(() => {});

@@ -19,16 +19,19 @@ import {
   useToast,
 } from "@muselaunch/ui";
 import { AudioLines, Download, FileText, FolderOpen, Mic, Play, Trash2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { PageContainer } from "@/components/page-container";
 import MaskSelector from "@/features/media/mask-selector";
 import VoiceRecorder from "@/features/media/voice-recorder";
+import { RecordingSegments, WalkthroughPrompt } from "@/features/media/walkthrough";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { ROLE_LABEL, formatBytes, formatDuration, relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useCurrentApp, useWorkspace } from "@/lib/workspace";
+import { ScreenCutoutSection, ScreenKindBadge } from "./screen-cutout";
 import { Uploader } from "./uploader";
 import { UseCutoutDialog } from "./use-cutout";
 
@@ -73,6 +76,9 @@ function Tile({ asset, workspaceId, onOpen }: { asset: MediaAsset; workspaceId: 
         <span className="absolute left-2 top-2">
           <ProvenanceBadge kind={provenanceOfOrigin(asset.origin)} className="bg-white/90 backdrop-blur" />
         </span>
+        <span className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)]">
+          <ScreenKindBadge asset={asset} className="bg-white/90 backdrop-blur" />
+        </span>
       </span>
       <span className="min-w-0 px-0.5">
         <span className="block truncate text-footnote font-medium text-ink">{asset.title ?? asset.originalFilename ?? ROLE_LABEL[asset.role]}</span>
@@ -98,7 +104,21 @@ function Preview({ asset, workspaceId }: { asset: MediaAsset; workspaceId: strin
   );
 }
 
-function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsset | null; workspaceId: string; onClose: () => void; canEdit: boolean }) {
+function AssetSheet({
+  asset,
+  workspaceId,
+  onClose,
+  canEdit,
+  items,
+  onOpen,
+}: {
+  asset: MediaAsset | null;
+  workspaceId: string;
+  onClose: () => void;
+  canEdit: boolean;
+  items: MediaAsset[];
+  onOpen: (assetId: string) => void;
+}) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const [confirm, setConfirm] = useState(false);
@@ -144,9 +164,16 @@ function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsse
         <Preview asset={asset} workspaceId={workspaceId} />
         <div className="flex flex-wrap gap-1.5">
           <ProvenanceBadge kind={provenanceOfOrigin(asset.origin)} />
+          <ScreenKindBadge asset={asset} />
           {asset.status !== "ready" ? <StatusPill status={statusKindOf(asset.status)}>{asset.status === "uploaded" ? "Waiting for processing" : humanizeStatus(asset.status)}</StatusPill> : null}
           {asset.license?.consent ? <Badge tone="success">Consent recorded</Badge> : null}
         </div>
+        <ScreenCutoutSection asset={asset} items={items} workspaceId={workspaceId} canEdit={canEdit} onOpen={onOpen} />
+        {asset.kind === "video" && asset.role === "app_recording" && asset.appId && asset.status === "ready" ? (
+          <div className="border-t border-line pt-6">
+            <RecordingSegments workspaceId={workspaceId} appId={asset.appId} asset={asset} />
+          </div>
+        ) : null}
         <dl className="divide-y divide-line rounded-xl bg-mist/60 text-body-sm">
           {rows.map(([k, v]) => (
             <div key={k} className="flex justify-between gap-4 px-4 py-2.5">
@@ -228,8 +255,10 @@ function AssetSheet({ asset, workspaceId, onClose, canEdit }: { asset: MediaAsse
 export function LibraryPage() {
   const { appId, workspaceId, app } = useCurrentApp();
   const { can } = useWorkspace();
+  const params = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
-  const [openId, setOpenId] = useState<string | null>(null);
+  // `?asset=<id>` opens that file (e.g. "View" on the walkthrough prompt).
+  const [openId, setOpenId] = useState<string | null>(() => params.get("asset"));
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [recordOpen, setRecordOpen] = useState(false);
   const q = useApiQuery<Page<MediaAsset>>(wsPath(workspaceId, "/assets"), {
@@ -254,6 +283,7 @@ export function LibraryPage() {
         }
       />
       <div className="space-y-10">
+        {canEdit && q.data && !q.data.items.some((a) => a.role === "app_recording" && a.status !== "deleted") ? <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="inline" /> : null}
         {canEdit ? <Uploader workspaceId={workspaceId} appId={appId} /> : null}
         <div className="space-y-5">
           <div className="overflow-x-auto pb-1">
@@ -300,7 +330,7 @@ export function LibraryPage() {
           ) : null}
         </div>
       </div>
-      <AssetSheet asset={open} workspaceId={workspaceId} onClose={() => setOpenId(null)} canEdit={canEdit} />
+      <AssetSheet asset={open} workspaceId={workspaceId} onClose={() => setOpenId(null)} canEdit={canEdit} items={q.data?.items ?? []} onOpen={setOpenId} />
       <Dialog open={recordOpen} onOpenChange={setRecordOpen} title="Record a founder brief" description="Talk through your app. Muse transcribes it and uses it as a brief and for captions.">
         <VoiceRecorder appId={appId} purpose="founder_brief" />
       </Dialog>

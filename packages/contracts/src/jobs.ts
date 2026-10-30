@@ -58,6 +58,16 @@ export const JobPayloads = {
   "autopilot.step": z.object({ autopilotId: Id }),
   /** Muse Spark watches frames of a rendered MP4 and reviews what a viewer sees (VideoReview). */
   "video.review": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), renderAssetId: Id, reviewId: Id.optional() }),
+  /**
+   * Walkthrough breakdown: shot detection + Muse Spark labels on sampled frames (+ narration via Muse
+   * Voice Transcribe when consent is recorded) → RecordingSegments for one app_recording (replaces earlier ones).
+   */
+  "media.analyze_recording": z.object({ appId: Id, assetId: Id, transcribe: z.boolean().default(true) }),
+  /**
+   * Screenshots: Muse Spark classifies raw UI vs designed store image (screenshotKind); SAM 3.1 cuts the
+   * app screen out of designed images into a derived `sam_ui_crop` asset. Omit assetIds for all of the app's screenshots.
+   */
+  "media.extract_ui": z.object({ appId: Id, assetIds: z.array(Id).max(50).optional() }),
 } as const;
 
 export type JobType = keyof typeof JobPayloads;
@@ -104,6 +114,8 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "brand.review": "agents",
   "autopilot.step": "agents",
   "video.review": "agents",
+  "media.analyze_recording": "media",
+  "media.extract_ui": "media",
 };
 
 export const JobProgress = z.object({
