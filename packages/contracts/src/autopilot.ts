@@ -142,14 +142,23 @@ export const AutopilotAutoStart = z.object({
 export type AutopilotAutoStart = z.infer<typeof AutopilotAutoStart>;
 
 /**
- * "Needs you": the approvals that really need a person (publish a post, send outreach, spend beyond a
- * budget, continue a loop), ready for one-tap decisions. `approve`/`reject` name the existing decision
- * routes (relative to the workspace), which keep their own permission and snapshot checks.
+ * "Needs you": everything that is waiting on a person, ready for one-tap decisions:
+ *  - approvals (publish a post, send outreach, spend beyond a budget, continue a loop):
+ *    `approve`/`reject` name the existing decision routes (relative to the workspace), which keep
+ *    their own permission and snapshot checks;
+ *  - `app_dna`: App DNA ("About your app") is waiting for review (apps.dnaStatus = needs_review);
+ *  - `brand_check`: a video's current version is blocked by the Brand Guardian (latest review of
+ *    that version is `blocked`, not overridden).
+ * The last two have no one-tap route (`approve`/`reject` are null): the decision is made where
+ * `reviewPath` points (About your app, or the video in the Studio), with that page's own checks.
  */
+export const NeedsYouKind = z.enum(["post", "outreach", "spend", "decision", "app_dna", "brand_check"]);
+export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
+
 export const NeedsYouItem = z.object({
-  /** The approval id. */
+  /** The approval id (approvals), the app id (`app_dna`) or the brand review id (`brand_check`). */
   id: Id,
-  kind: z.enum(["post", "outreach", "spend", "decision"]),
+  kind: NeedsYouKind,
   action: z.string().max(40),
   appId: Id.optional(),
   title: z.string().max(200),
@@ -176,6 +185,10 @@ export const NeedsYouItem = z.object({
       compositionTitle: z.string().max(200).optional(),
       to: z.string().max(320).optional(),
       subjectLine: z.string().max(300).optional(),
+      /** `app_dna`: claims still waiting for review ("facts to check"). */
+      factsToCheck: z.number().int().nonnegative().optional(),
+      /** `brand_check`: open blocking findings on the reviewed version. */
+      blockingIssues: z.number().int().nonnegative().optional(),
     })
     .optional(),
 });
