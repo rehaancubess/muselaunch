@@ -118,7 +118,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
             ))}
           </ul>
           <p className="text-caption text-ink-3">
-            Primary metric: {humanizeStatus(exp.primaryMetric)}
+            Measured by {humanizeStatus(exp.primaryMetric).toLowerCase()}
             {exp.launchWindow?.end ? ` · measured until ${new Date(exp.launchWindow.end).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
           </p>
         </section>
