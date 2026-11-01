@@ -19,7 +19,7 @@ import { useInvalidate, useMutation } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 import { NeedsYouCard, NeedsYouList } from "./needs-you";
-import { isWorking, type AutopilotDetail } from "./types";
+import { isActive, isWorking, type AutopilotDetail } from "./types";
 
 type Step = AutopilotProgressStep;
 type Source = AutopilotProgress["source"];
@@ -258,11 +258,13 @@ function FinishedVideo({ video: v, detail, needs, canPost, workspaceId }: { vide
   const post = detail.posts.find((x) => x.compositionId === v.compositionId);
   const item = needs.find((n) => n.kind === "post" && (n.subject.id === post?.id || n.preview?.compositionId === v.compositionId));
   const posted = post && ["scheduled", "published", "manually_posted", "manual_post_needed", "publishing"].includes(post.status);
-  const writing = !post && ap.stage === "schedule" && isWorking(ap.status);
+  // The run drafts this video's post itself (schedule stage): until then "Post it" would only make a duplicate.
+  const upcoming = !post && isActive(ap.status) && ["produce", "verify", "render", "schedule"].includes(ap.stage);
+  const writing = upcoming;
   const ratio = v.aspectRatio === "16:9" ? "aspect-video" : v.aspectRatio === "1:1" ? "aspect-square" : v.aspectRatio === "4:5" ? "aspect-[4/5]" : "aspect-[9/16]";
   let postNote: ReactNode = null;
   if (posted) postNote = post.status === "published" || post.status === "manually_posted" ? "Posted." : post.status === "manual_post_needed" ? "Approved: ready for you to post." : `Approved${post.scheduledAt ? `: goes out ${new Date(post.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}.`;
-  else if (writing) postNote = "Writing the post…";
+  else if (writing) postNote = ap.stage === "schedule" ? "Writing the post…" : "Autopilot drafts the post once the videos are checked. You approve it before it goes out.";
   else if (post && !item && post.status !== "cancelled")
     postNote = (
       <>
@@ -408,21 +410,28 @@ export function RunProgress({
   const hasVideo = detail.progress.videos.length > 0;
   return (
     <div className="space-y-10">
+      {/* Phones: headline → video → the rest. Desktop: headline and the rest on the left, the video beside them. */}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-8">
-          <header className="space-y-2">
-            <H className={cn("font-semibold text-balance", headingLevel === 1 ? "text-title-1" : "text-title-2")}>{title}</H>
-            <p className="max-w-xl text-body text-ink-2 text-pretty" aria-live="polite">
-              {sub}
-            </p>
-            {can("content.write") && (ap.status === "failed" || ap.status === "paused") ? (
-              <div className="pt-2">
-                <Button icon={ap.status === "failed" ? <RotateCcw className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />} loading={act.isPending} onClick={() => act.mutate(ap.status === "failed" ? "retry" : "resume")}>
-                  {ap.status === "failed" ? "Try again" : "Resume"}
-                </Button>
-              </div>
-            ) : null}
-          </header>
+        <header className="min-w-0 space-y-2 lg:col-start-1 lg:row-start-1">
+          <H className={cn("font-semibold text-balance", headingLevel === 1 ? "text-title-1" : "text-title-2")}>{title}</H>
+          <p className="max-w-xl text-body text-ink-2 text-pretty" aria-live="polite">
+            {sub}
+          </p>
+          {can("content.write") && (ap.status === "failed" || ap.status === "paused") ? (
+            <div className="pt-2">
+              <Button icon={ap.status === "failed" ? <RotateCcw className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />} loading={act.isPending} onClick={() => act.mutate(ap.status === "failed" ? "retry" : "resume")}>
+                {ap.status === "failed" ? "Try again" : "Resume"}
+              </Button>
+            </div>
+          ) : null}
+        </header>
+
+        <aside className="min-w-0 space-y-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:pt-1" aria-label={hasVideo ? "Your videos" : "Your video"}>
+          <VideoPanel detail={detail} needs={mine} />
+          {aside}
+        </aside>
+
+        <div className="min-w-0 space-y-8 lg:col-start-1 lg:row-start-2">
 
           {mine.length ? (
             <section className="space-y-3" aria-labelledby={`needs-${ap.id}`}>
@@ -465,11 +474,6 @@ export function RunProgress({
             </section>
           ) : null}
         </div>
-
-        <aside className={cn("min-w-0 space-y-4 lg:pt-1", hasVideo && "order-first lg:order-none")} aria-label={hasVideo ? "Your videos" : "Your video"}>
-          <VideoPanel detail={detail} needs={mine} />
-          {aside}
-        </aside>
       </div>
 
       <div className="space-y-4 border-t border-line pt-5">
