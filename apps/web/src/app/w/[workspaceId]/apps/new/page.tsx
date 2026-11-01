@@ -1,26 +1,34 @@
 "use client";
-import { PageHeader } from "@muselaunch/ui";
+import { PageHeader, useToast } from "@muselaunch/ui";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AddAppForm, ImportProgress, type CreatedApp } from "@/components/onboarding/add-app";
+import { AddAppForm, ImportProgress, afterAdd, type CreatedApp } from "@/components/onboarding/add-app";
 import { PageContainer } from "@/components/page-container";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 
 /**
- * Add another app: paste a link → Go. With "Let MuseLaunch run it" (the workspace default) it opens the
- * app's Home, where Growth Autopilot is already waiting for the import; "I'll do it myself" shows the
- * import progress and App DNA review as before.
+ * Add another app: paste a link → Go. With Autopilot on (the workspace default) it opens the new
+ * run's progress screen, which waits for the import and makes the first videos; when the workspace
+ * turned Autopilot off in Settings it shows the import progress and the hands-on next steps.
  */
 export default function NewAppPage() {
   const { workspaceId, workspace, apps } = useWorkspace();
   const router = useRouter();
+  const toast = useToast();
   const [created, setCreated] = useState<CreatedApp | null>(null);
+  const autopilotOn = workspace?.settings.autopilot?.enabled ?? true;
   return (
     <PageContainer width="narrow">
       <PageHeader
         title={created ? `Importing ${created.app.name === "New app" ? "your app" : created.app.name}` : apps.length ? "Add another app" : "Add your first app"}
-        description={created ? "This usually takes under a minute." : "Paste its store link and MuseLaunch reads the public listing to learn the product. Nothing is posted anywhere."}
+        description={
+          created
+            ? "This usually takes under a minute."
+            : autopilotOn
+              ? "Paste its store or website link. MuseLaunch learns the app and makes its first videos."
+              : "Paste its store or website link and MuseLaunch reads the public listing to learn the product."
+        }
       />
       <div className="max-w-md">
         {created ? (
@@ -34,8 +42,13 @@ export default function NewAppPage() {
         ) : (
           <AddAppForm
             workspaceId={workspaceId}
-            autopilotDefault={workspace?.settings.autopilot?.enabled ?? true}
-            onCreated={(c) => (c.choice === "auto" ? router.push(routes.app(workspaceId, c.app.id).creator) : setCreated(c))}
+            promise={autopilotOn ? "Nothing is posted and no extra credits are spent without your OK." : "Nothing is posted anywhere."}
+            onCreated={(c) => {
+              const to = afterAdd(c);
+              if (!to) return setCreated(c);
+              if (c.autopilot && !c.autopilot.started) toast.toast({ title: "Autopilot didn’t start yet", description: c.autopilot.reason ?? "See what fits on the next page.", tone: "neutral" });
+              router.push(to);
+            }}
           />
         )}
       </div>

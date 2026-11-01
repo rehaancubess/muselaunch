@@ -208,10 +208,10 @@ describe("media.voiceover (OpenAI TTS → Muse Voice Transcribe check)", () => {
 });
 
 describe("build-pipeline sound pass (prepareSoundtrack)", () => {
-  it("gives every new video original music + effects by default; narration waits for the workspace's AI-voice switch", async () => {
+  it("gives every new video original music + effects + AI voice by default; a workspace that switched the voice off gets no narration", async () => {
     const p = createTestPlatform({ OPENAI_API_KEY: "sk-test", META_API_KEY: "test-meta-key" }, handlers);
     const wid = "ws_build";
-    await makeWorkspace(p, wid);
+    await makeWorkspace(p, wid, { music: true, sfx: true, aiVoiceover: false });
     const { tts } = await wire(p, ["Meet Focusly. Plan your whole day in three taps, and get twenty percent more done."]);
     const r = await prepareSoundtrack(ctxFor(p, wid, "job_b1"), { doc: videoDoc(), compositionId: "cmp_b", appId: "app_1", storyboard: storyboard("tts"), app: { name: "Focusly" } });
     expect(tts).toHaveLength(0);
@@ -226,9 +226,9 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     const html = compileToHtml(r.doc, { assetUrl: (id) => `assets/${id}.m4a`, mode: "render", gsapSource: "inline" }).html;
     expect(html.match(/<audio /g)).toHaveLength(3);
 
-    // AI voice on (workspace setting) → the storyboard's narration is spoken, credits held + settled
-    await makeWorkspace(p, wid, { music: true, sfx: true, aiVoiceover: true });
-    expect(soundSettings(await p.db.top("workspaces").get(wid))).toMatchObject({ aiVoiceover: true });
+    // AI voice on (the default: no sound settings saved) → the storyboard's narration is spoken, credits held + settled
+    await makeWorkspace(p, wid);
+    expect(soundSettings(await p.db.top("workspaces").get(wid))).toEqual({ music: true, sfx: true, aiVoiceover: true });
     await p.credits.ensureAccount(wid, { grant: 10, reason: "test" });
     const v = await prepareSoundtrack(ctxFor(p, wid, "job_b2"), { doc: videoDoc(), compositionId: "cmp_v", appId: "app_1", storyboard: storyboard("tts", "calm ambient"), app: { name: "Focusly" } });
     expect(tts).toHaveLength(1);
@@ -321,6 +321,25 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     const doc = { ...base, captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
     const r = await prepareSoundtrack(ctxFor(p, wid, "job_nv"), { doc, compositionId: "cmp_nv", appId: "app_1", storyboard: storyboard("none"), app: null });
     expect(r.doc.captions).toMatchObject({ enabled: false, cues: [{ text: "Meet Focusly." }] });
+  });
+
+  it("AI voice on by default but no external TTS key: no voice, no charge, captions off, said so", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_nokey";
+    await makeWorkspace(p, wid); // defaults: AI voice on
+    expect(soundSettings(await p.db.top("workspaces").get(wid)).aiVoiceover).toBe(true);
+    await p.credits.ensureAccount(wid, { grant: 10, reason: "test" });
+    const base = videoDoc();
+    const doc = { ...base, captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
+    // The storyboard planned no voice (storyboard.ts checks the key): nothing is spoken, script captions go off.
+    const none = await prepareSoundtrack(ctxFor(p, wid, "job_nk1"), { doc, compositionId: "cmp_nk", appId: "app_1", storyboard: storyboard("none"), app: null });
+    expect(none.doc.audio.some((a) => a.kind === "voiceover")).toBe(false);
+    expect(none.doc.captions.enabled).toBe(false);
+    // Even a storyboard that asked for TTS doesn't break the build: an honest warning, no credits spent.
+    const tts = await prepareSoundtrack(ctxFor(p, wid, "job_nk2"), { doc, compositionId: "cmp_nk2", appId: "app_1", storyboard: storyboard("tts"), app: null });
+    expect(tts.warnings.join(" ")).toMatch(/external TTS isn't connected/);
+    expect(tts.doc.audio.some((a) => a.kind === "voiceover")).toBe(false);
+    expect((await p.credits.balance(wid)).available).toBe(10);
   });
 
   it("reads the narration script from the storyboard", () => {

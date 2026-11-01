@@ -1,9 +1,9 @@
 "use client";
 /**
- * Growth Autopilot route (module B owns the body). `?goal=` is passed from the Creator home card and
- * the ⌘K palette and pre-fills the start card; `?loop=<id>` opens a specific loop.
+ * Autopilot route (module B owns the body: features/autopilot). Onboarding lands here after Go
+ * (`?loop=<id>`: the run's calm progress screen). `?goal=` (from the Creator and the ⌘K palette)
+ * pre-fills a new run; `?loop=<id>` opens a specific run; `?details=1` opens its details.
  */
-import { PageHeader } from "@muselaunch/ui";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { PageContainer } from "@/components/page-container";
@@ -19,10 +19,11 @@ export default function AutopilotPage() {
   const { appId } = useCurrentApp();
   return (
     <PageContainer width="wide">
-      <PageHeader title="Growth Autopilot" description="A bounded, approval-gated marketing loop: research, hypothesis, creative, checks, posting drafts and measurement, with every decision logged and cited." />
-      <Suspense>
-        <AutopilotBody appId={appId} />
-      </Suspense>
+      <div className="pb-14 pt-2 md:pt-6">
+        <Suspense>
+          <AutopilotBody appId={appId} />
+        </Suspense>
+      </div>
     </PageContainer>
   );
 }

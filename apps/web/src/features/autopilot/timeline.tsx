@@ -171,7 +171,7 @@ function EntryRow({ entry, ctx }: { entry: LogEntry; ctx: Ctx }) {
 
 const SEVERITY_TONE = { block: "danger", warn: "warning", info: "neutral" } as const;
 
-/** Brand Guardian results for the loop's videos (findings, fixes, human overrides). */
+/** Brand check results (Brand Guardian) for the run’s videos: findings, fixes, human overrides. */
 export function GuardianPanel({ ctx }: { ctx: Ctx }) {
   const { detail } = ctx;
   const latest = new Map<string, AutopilotDetail["reviews"][number]>();
@@ -182,7 +182,7 @@ export function GuardianPanel({ ctx }: { ctx: Ctx }) {
   if (!latest.size) return null;
   return (
     <div className="space-y-2 rounded-lg bg-mist/60 p-3">
-      <p className="text-footnote font-medium text-ink">Brand Guardian</p>
+      <p className="text-footnote font-medium text-ink">Brand check</p>
       {[...latest.values()].map((r) => {
         const comp = detail.compositions.find((c) => c.id === r.subject.id);
         const open = r.findings.filter((f) => f.resolution?.state !== "dismissed" && f.resolution?.state !== "applied");

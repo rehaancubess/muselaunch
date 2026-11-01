@@ -37,7 +37,7 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await page.getByRole("button", { name: "Plan campaign" }).click();
     await page.waitForURL(/\/creator\/new/);
     await shot(page, "new-campaign");
-    await page.getByRole("button", { name: "Generate concepts" }).click();
+    await page.getByRole("button", { name: "Write ideas" }).click();
     await page.waitForURL(/\/creator\/campaigns\//);
     await expect(page.getByRole("button", { name: "Select" }).nth(2)).toBeVisible({ timeout: 120_000 });
     await shot(page, "concepts", true);

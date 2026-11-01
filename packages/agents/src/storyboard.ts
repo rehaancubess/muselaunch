@@ -532,12 +532,16 @@ const VOICE_LINE: Record<StoryboardVoice, string> = {
   none: "Voice: no voiceover for this video. Set voiceover.source to \"none\" and leave narration empty: the on-screen text carries the story.",
 };
 
-/** Who can speak this video's narration (workspace AI-voice switch + an external TTS key, or a founder clip). */
-async function storyboardVoice(p: Platform, workspaceId: string, hasFounderClip: boolean): Promise<StoryboardVoice> {
+/**
+ * Who can speak this video's narration (the workspace AI-voice switch, on by default, plus an
+ * external TTS key; or a founder clip), and why there is no AI voice when there isn't one.
+ */
+async function storyboardVoice(p: Platform, workspaceId: string, hasFounderClip: boolean): Promise<{ voice: StoryboardVoice; noAiVoice: string }> {
   const ws = await p.db.top("workspaces").get(workspaceId).catch(() => null);
   const sound = WorkspaceSoundSettings.safeParse((ws?.settings as { sound?: unknown } | undefined)?.sound ?? {});
-  if (sound.success && sound.data.aiVoiceover && p.cfg.OPENAI_API_KEY) return "ai";
-  return hasFounderClip ? "founder" : "none";
+  const on = sound.success && sound.data.aiVoiceover;
+  if (on && p.cfg.OPENAI_API_KEY) return { voice: "ai", noAiVoice: "" };
+  return { voice: hasFounderClip ? "founder" : "none", noAiVoice: on ? "external TTS isn't connected on this deployment" : "workspace AI voice is off" };
 }
 
 /** Images Spark can look at to point at UI (raw screenshots, cut-outs, walkthrough keyframes). 8 = Muse Spark Open's cap, so the route can still fall back. */
@@ -659,7 +663,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       imageNo.set(v.ref, parts.length);
     }
     const range = sceneRange(targetDurationSec);
-    const voice = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
+    const { voice, noAiVoice } = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
     const demoMedia = options.filter((o) => o.deviceFrameOk && !["founder_clip", "logo", "icon"].includes(o.kind)).length;
 
     const input = [
@@ -753,7 +757,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
         : voice === "ai" && lines.length && out.data.voiceover.source !== "founder_recording"
           ? { source: "tts", script: lines.join(" ") }
           : { source: "none" };
-    if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: "No AI voice for this video (workspace AI voice is off): narration kept in the storyboard, not spoken" });
+    if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: `No AI voice for this video (${noAiVoice || "no narration lines were written"}): narration kept in the storyboard, not spoken` });
     const storyboard = (
       await ws.collection("storyboards").createIfAbsent(
         { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music: out.data.music, generatedByRunId: rec.id },

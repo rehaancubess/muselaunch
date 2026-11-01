@@ -58,28 +58,40 @@ export async function signUp(page: Page, shot: (page: Page, name: string, fullPa
   });
 }
 
-/** One-step onboarding with the default ("Let MuseLaunch run it"): Go → the app's Home with Growth Autopilot running. */
+/** One-step onboarding: paste → Go (no other choice) → the run's progress screen, Autopilot working. */
 export async function onboardWithAutopilot(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { shots?: boolean } = {}) {
-  await test.step("onboarding: paste → Go (Autopilot is the default)", async () => {
-    await expect(page.getByRole("radio", { name: /Let MuseLaunch run it/ })).toHaveAttribute("aria-checked", "true");
+  await test.step("onboarding: paste → Go → the run's progress screen", async () => {
     if (opts.shots !== false) await shot(page, "onboarding");
     await page.getByRole("button", { name: "Go" }).click();
-    await page.waitForURL(/\/creator$/);
-    await expect(page.getByText(/^Now:/).first()).toBeVisible();
+    await page.waitForURL(/\/autopilot\?loop=/);
+    await expect(page.getByRole("list", { name: "What Autopilot is doing" })).toBeVisible();
   });
 }
 
-/** Hands-on path: sign up, "I'll do it myself" → import → verify a claim → confirm App DNA. */
+/** The automatic start is a workspace setting (Settings → Autopilot): create the workspace with it off, before Go. */
+async function workspaceWithAutopilotOff(page: Page) {
+  const token = await page.evaluate(() => (JSON.parse(localStorage.getItem("ml.devSession") ?? "{}") as { token?: string }).token);
+  const headers = { authorization: `Bearer ${token}` };
+  const created = await page.request.post(`${API}/v1/workspaces`, { headers, data: { name: "Maya’s studio" } });
+  expect(created.ok(), "create workspace").toBe(true);
+  const wid = ((await created.json()) as { workspace: { id: string } }).workspace.id;
+  expect((await page.request.patch(`${API}/v1/workspaces/${wid}`, { headers, data: { settings: { autopilot: { enabled: false } } } })).ok(), "turn the automatic start off").toBe(true);
+  expect((await page.request.patch(`${API}/v1/me`, { headers, data: { defaultWorkspaceId: wid } })).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByLabel("Your app’s link")).toHaveValue(SAMPLE_LISTING);
+}
+
+/** Hands-on path: sign up, a workspace with Autopilot's automatic start off → import → verify a claim → confirm App DNA. */
 export async function signUpAndImport(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { email: string; shots?: boolean }) {
   await signUp(page, shot, opts);
 
-  await test.step("onboarding: I'll do it myself → import", async () => {
-    await page.getByRole("radio", { name: /I’ll do it myself/ }).click();
+  await test.step("onboarding with Autopilot off (Settings) → import", async () => {
+    await workspaceWithAutopilotOff(page);
     if (opts.shots !== false) await shot(page, "onboarding-manual");
     await page.getByRole("button", { name: "Go" }).click();
     await expect(page.getByText("Listing imported")).toBeVisible();
     if (opts.shots !== false) await shot(page, "onboarding-imported");
-    await page.getByRole("button", { name: "Review App DNA" }).click();
+    await page.getByRole("button", { name: "Check what we learned" }).click();
   });
 
   await test.step("App DNA: verify a claim, confirm", async () => {

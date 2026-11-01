@@ -142,6 +142,74 @@ export const AutopilotAutoStart = z.object({
 export type AutopilotAutoStart = z.infer<typeof AutopilotAutoStart>;
 
 /**
+ * The run in plain steps (`GET /autopilots/:id` → `progress`), for the first-run progress screen and
+ * the Autopilot views. Derived from real state only: the loop's stage and status, the jobs it waits
+ * on (their own progress), and counts read from what was actually produced. Nothing is estimated:
+ * a fact that hasn't been measured is absent, and a step that hasn't started is "pending".
+ *
+ *   read (import) → learn (App DNA) → research (+ audience, what we're testing) → ideas
+ *   → make (plans + editable videos) → check (lint, facts, brand check) → finish (final MP4s,
+ *   Spark watches each) → ready (posts drafted, waiting for you)
+ */
+export const AUTOPILOT_PROGRESS_STEPS = ["read", "learn", "research", "ideas", "make", "check", "finish", "ready"] as const;
+export const AutopilotProgressStepKey = z.enum(AUTOPILOT_PROGRESS_STEPS);
+export type AutopilotProgressStepKey = z.infer<typeof AutopilotProgressStepKey>;
+
+export const AutopilotProgressStep = z.object({
+  key: AutopilotProgressStepKey,
+  /** needs_you = waiting on a decision; stopped = the run was cancelled before this step finished. */
+  state: z.enum(["pending", "active", "needs_you", "paused", "failed", "done", "skipped", "stopped"]),
+  /** Real counts behind the step's one-line result ("Found 9 features"); absent = not measured. */
+  facts: z
+    .object({
+      screenshots: z.number().int().nonnegative(),
+      features: z.number().int().nonnegative(),
+      audiences: z.number().int().nonnegative(),
+      /** Confirmed facts (verified claims) creative may use. */
+      facts: z.number().int().nonnegative(),
+      findings: z.number().int().nonnegative(),
+      ideas: z.number().int().nonnegative(),
+      picked: z.number().int().nonnegative(),
+      videos: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      withNotes: z.number().int().nonnegative(),
+      blocked: z.number().int().nonnegative(),
+      fixed: z.number().int().nonnegative(),
+      rendered: z.number().int().nonnegative(),
+      posts: z.number().int().nonnegative(),
+    })
+    .partial()
+    .default({}),
+  /** While active: the jobs behind the step, with their own progress (message, %), never invented. */
+  live: z.object({ message: z.string().max(300).optional(), pct: z.number().min(0).max(100).optional(), done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }).optional(),
+});
+export type AutopilotProgressStep = z.infer<typeof AutopilotProgressStep>;
+
+/** A final MP4 this run rendered (the newest rendered version of each video). */
+export const AutopilotFinishedVideo = z.object({
+  compositionId: Id,
+  title: z.string().max(200),
+  version: z.number().int().min(1),
+  assetId: Id,
+  posterAssetId: Id.optional(),
+  aspectRatio: z.string().max(10),
+  durationSec: z.number().nonnegative().optional(),
+  renderedAt: IsoDateTime.optional(),
+});
+export type AutopilotFinishedVideo = z.infer<typeof AutopilotFinishedVideo>;
+
+export const AutopilotProgress = z.object({
+  /** Where the app was learned from (null: nothing to import, e.g. added by name only). */
+  source: z.enum(["app_store", "google_play", "website", "description"]).nullable(),
+  steps: z.array(AutopilotProgressStep),
+  /** Finished videos, first rendered first. */
+  videos: z.array(AutopilotFinishedVideo),
+  /** Models and labelled external services that actually ran for this app during this run (metered calls). */
+  madeWith: z.array(z.string().max(80)),
+});
+export type AutopilotProgress = z.infer<typeof AutopilotProgress>;
+
+/**
  * "Needs you": everything that is waiting on a person, ready for one-tap decisions:
  *  - approvals (publish a post, send outreach, spend beyond a budget, continue a loop):
  *    `approve`/`reject` name the existing decision routes (relative to the workspace), which keep

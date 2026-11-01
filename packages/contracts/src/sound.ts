@@ -100,18 +100,20 @@ export type SpeechRange = z.infer<typeof SpeechRange>;
 // ---------------------------------------------------------------------------
 
 /**
- * New videos (and Autopilot) get original music + sound effects automatically. AI voiceover is
- * off by default: when on, storyboards that ask for narration get an external-TTS voice (labelled).
+ * New videos (and Autopilot) get original music + sound effects automatically, and an AI voiceover
+ * by default: storyboards write one short spoken line per scene, voiced by an external TTS provider
+ * (OpenAI TTS, always labelled as an AI voice) and checked with Muse Voice Transcribe. A workspace
+ * can switch the voice off; without an external TTS key the storyboard plans no voice (captions off).
  */
 export const WorkspaceSoundSettings = z.object({
   music: z.boolean().default(true),
   sfx: z.boolean().default(true),
-  aiVoiceover: z.boolean().default(false),
+  aiVoiceover: z.boolean().default(true),
   /** Built-in TTS voice (never a clone). */
   voice: z.string().min(1).max(40).optional(),
 });
 export type WorkspaceSoundSettings = z.infer<typeof WorkspaceSoundSettings>;
-export const DEFAULT_SOUND_SETTINGS: WorkspaceSoundSettings = { music: true, sfx: true, aiVoiceover: false };
+export const DEFAULT_SOUND_SETTINGS: WorkspaceSoundSettings = { music: true, sfx: true, aiVoiceover: true };
 
 // ---------------------------------------------------------------------------
 // Studio sound API (apps/api/src/routes/sound.ts)
