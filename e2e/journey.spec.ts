@@ -115,8 +115,11 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
 
   await test.step("Studio: analyse the clip with SAM, app behind me, spotlight my phone", async () => {
     await page.goto(studioUrl);
-    await expect(page.getByRole("tab", { name: "Clip" })).toBeVisible({ timeout: 60_000 });
+    // The Studio opens simple; the clip tools are in the full editor (remembered for this browser).
+    await expect(page.getByLabel("Tell me what to change")).toBeVisible({ timeout: 60_000 });
     await shot(page, "studio");
+    await page.getByRole("button", { name: "Edit in detail" }).click();
+    await expect(page.getByRole("tab", { name: "Clip" })).toBeVisible();
     await page.getByRole("tab", { name: "Clip" }).click();
     await page.getByRole("button", { name: "Analyse", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Analyse clip" });

@@ -8,7 +8,7 @@ import type { Composition, Job } from "@muselaunch/contracts";
 import { Badge, Button, CostEstimateView, Dialog, JobProgress, Notice, SegmentedControl, Textarea, type EstimateResult } from "@muselaunch/ui";
 import { ArrowUpRight, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import type { Page } from "@/lib/api-types";
 import { useTextEngine } from "@/lib/engines";
@@ -96,7 +96,8 @@ function HookCard({ workspaceId, appId, hook, index }: { workspaceId: string; ap
   );
 }
 
-export function HooksDialog({ workspaceId, appId, base, composition }: { workspaceId: string; appId: string; base: string; composition: Composition }) {
+/** `trigger={null}`: no button of its own; it still opens from `requestHooks()` ("…and create three hooks"). */
+export function HooksDialog({ workspaceId, appId, base, composition, trigger }: { workspaceId: string; appId: string; base: string; composition: Composition; trigger?: ReactNode | null }) {
   const [open, setOpen] = useState(false);
   const engine = useTextEngine("composition.edit.scoped");
   const [mode, setMode] = useState<"auto" | "custom">("auto");
@@ -177,9 +178,13 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
       }}
       size="xl"
       trigger={
-        <Button size="sm" variant="ghost" icon={<Zap className="size-4" aria-hidden />}>
-          Hooks
-        </Button>
+        trigger === undefined ? (
+          <Button size="sm" variant="ghost" icon={<Zap className="size-4" aria-hidden />}>
+            Hooks
+          </Button>
+        ) : (
+          trigger
+        )
       }
       title="Try different hooks"
       description="Muse makes copies of this video and directs a new opening scene for each, using your clip's tracked objects. Everything after the opening stays exactly the same."
@@ -208,7 +213,7 @@ export function HooksDialog({ workspaceId, appId, base, composition }: { workspa
               ]}
             />
             {mode === "auto" ? (
-              <p className="text-footnote text-ink-2">Proven hook styles (outcome first, a sharp question, a pattern interrupt…), one per copy, written from your verified claims.</p>
+              <p className="text-footnote text-ink-2">Proven hook styles (outcome first, a sharp question, a pattern interrupt…), one per copy, written from your verified facts.</p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-3">
                 {briefs.map((b, i) => (
