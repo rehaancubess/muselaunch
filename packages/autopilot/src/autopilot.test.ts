@@ -260,7 +260,11 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
       const reviews = await ws.collection("brandReviews").list({ where: [["subject.id", "==", c.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 10 });
       expect(reviews.items.find((r) => r.subjectVersion === 1)!.findings[0]!.resolution?.state).toBe("applied");
       expect(reviews.items.find((r) => r.subjectVersion === 2)!.status).toBe("passed");
+      const versions = await ws.collection("compositionVersions").list({ where: [["compositionId", "==", c.id]], orderBy: { field: "version", dir: "desc" }, limit: 5 });
+      expect(versions.items[0]).toMatchObject({ version: 2, source: "ai_edit" });
     }
+    // The agent's own fix is not a team decision: nothing is remembered for future reviews.
+    expect((await ws.collection("brandPreferences").list({ limit: 50 })).items.filter((x) => x.text.startsWith("Accepted Brand Guardian fix"))).toHaveLength(0);
     // No Spark edit was needed, and only v2 was rendered
     expect((await ws.collection("jobs").list({ limit: 200 })).items.filter((j) => j.type === "composition.edit")).toHaveLength(0);
     expect(ap.log.filter((e) => e.summary.startsWith("Final render of") && e.summary.includes(" v2 "))).toHaveLength(2);

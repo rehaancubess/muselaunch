@@ -555,7 +555,7 @@ const verify: StageFn = async (env, step) => {
     const fixable = b.review && b.review.subjectVersion === b.version ? openBlocks(b.review).find((f) => f.suggestedOps?.length) : undefined;
     if (fixable) {
       try {
-        const out = await applyFinding(env.p, env.ctx.workspaceId, { reviewId: b.review!.id, findingId: fixable.id, actor: env.ctx.requestedBy });
+        const out = await applyFinding(env.p, env.ctx.workspaceId, { reviewId: b.review!.id, findingId: fixable.id, actor: env.ctx.requestedBy, automatic: true });
         if (out.reReview.job) waitIds.push(out.reReview.job.id);
         env.note("action", `${label(b, "applied the Brand Guardian's suggested fix to")} (${clip(fixable.suggestion ?? fixable.message, 160)}) → v${out.version.version}; re-reviewing.`, [
           ref("compositions", b.compositionId),

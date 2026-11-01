@@ -226,11 +226,14 @@ export async function dismissFinding(
 /**
  * Apply a composition finding's validated `suggestedOps` as a new version (source `user_edit`),
  * remember the accepted fix, and request a fresh review of the new version.
+ * `automatic` (Autopilot's own fix rounds): the version is an `ai_edit` and nothing is remembered,
+ * because team memory only learns from decisions a person made; otherwise the agent's own fixes
+ * would come back as "team preferences" and make the next review stricter.
  */
 export async function applyFinding(
   p: Platform,
   workspaceId: string,
-  input: { reviewId: string; findingId: string; actor: string },
+  input: { reviewId: string; findingId: string; actor: string; automatic?: boolean },
 ): Promise<{ review: BrandReview; composition: Composition; version: CompositionVersion; patch: CompositionPatch | null; reReview: { review: BrandReview; job: Job | null; reused: boolean } }> {
   const ws = p.db.ws(workspaceId);
   const { review, finding } = await loadFinding(ws, input.reviewId, input.findingId);
@@ -266,23 +269,25 @@ export async function applyFinding(
   if (assetProblems.length) throw new AppError("VALIDATION_FAILED", `Fix rejected: ${assetProblems.join("; ")}`, { userMessage: "This fix uses media that isn't a real screenshot or recording of your app." });
   const patches = ws.collection("compositionPatches");
   const patchId = patches.newId();
-  const summary = clip(`Brand Guardian fix: ${finding.suggestion ?? finding.message}`, 500);
-  const committed = await commitVersion(ws, compId, { baseVersion: cur.version, doc: result.doc, source: "user_edit", summary, patchId }, input.actor);
+  const summary = clip(`${input.automatic ? "Autopilot applied Brand Guardian fix" : "Brand Guardian fix"}: ${finding.suggestion ?? finding.message}`, 500);
+  const committed = await commitVersion(ws, compId, { baseVersion: cur.version, doc: result.doc, source: input.automatic ? "ai_edit" : "user_edit", summary, patchId }, input.actor);
   const patch = await patches.create(
-    { id: patchId, compositionId: compId, baseVersion: cur.version, resultVersion: committed.version.version, ops: finding.suggestedOps, summary, source: "user", affectedSceneIds: result.affectedSceneIds, status: "applied", validationErrors: [], memoryRefs: finding.evidence.preferenceIds },
+    { id: patchId, compositionId: compId, baseVersion: cur.version, resultVersion: committed.version.version, ops: finding.suggestedOps, summary, source: input.automatic ? "ai" : "user", affectedSceneIds: result.affectedSceneIds, status: "applied", validationErrors: [], memoryRefs: finding.evidence.preferenceIds },
     { actor: input.actor },
   );
-  const preference = await rememberPreference(p, {
-    workspaceId,
-    appId: review.appId,
-    kind: preferenceKind(finding.category) === "decision" ? "edit_instruction" : preferenceKind(finding.category),
-    text: clip(`Accepted Brand Guardian fix (${CATEGORY_LABEL[finding.category]}): ${finding.suggestion ?? finding.message}`, 1000),
-    source: { type: "user_edit", ref: { entity: "brandReviews", id: review.id } },
-    actor: input.actor,
-    tags: ["guardian"],
-  });
+  const preference = input.automatic
+    ? null
+    : await rememberPreference(p, {
+        workspaceId,
+        appId: review.appId,
+        kind: preferenceKind(finding.category) === "decision" ? "edit_instruction" : preferenceKind(finding.category),
+        text: clip(`Accepted Brand Guardian fix (${CATEGORY_LABEL[finding.category]}): ${finding.suggestion ?? finding.message}`, 1000),
+        source: { type: "user_edit", ref: { entity: "brandReviews", id: review.id } },
+        actor: input.actor,
+        tags: ["guardian"],
+      });
   const at = new Date().toISOString();
-  const findings = review.findings.map((f) => (f.id === finding.id ? { ...f, resolution: { state: "applied" as const, by: input.actor, at, preferenceId: preference.id, resultVersion: committed.version.version } } : f));
+  const findings = review.findings.map((f) => (f.id === finding.id ? { ...f, resolution: { state: "applied" as const, by: input.actor, at, ...(preference ? { preferenceId: preference.id } : {}), resultVersion: committed.version.version } } : f));
   const updated = await ws.collection("brandReviews").update(review.id, { findings, summary: clip(`${review.summary.replace(/\s*Applied fixes:.*$/, "")} Applied fixes: ${findings.filter((f) => f.resolution?.state === "applied").length}.`, 1500) }, { actor: input.actor });
   const reReview = await requestBrandReview(p, workspaceId, { subject: review.subject, version: committed.version.version, actor: input.actor });
   return { review: updated, composition: committed.composition, version: committed.version, patch, reReview };

@@ -50,6 +50,7 @@ Check the asset against the brand kit, the verified claim library and the team's
 - tone drift: copy that contradicts the brand voice or uses off-brand vocabulary,
 - claims that are unsupported by, or inconsistent with, the verified claims and the grounded features (features, numbers, rankings, comparisons, outcomes). Grounded features come from the app's real listing and screenshots: an everyday example taken from them (e.g. a booking, an address, a Wi-Fi password when a feature mentions them) is supported. Block invented specifics: speeds and times ("in 5 seconds"), numbers, rankings, results and features the app does not have,
 - contradictions with remembered preferences or past decisions (cite their ids),
+- claim tags ("claims clm_…" next to a text) only record which verified claim backs that copy. Copy may shorten, paraphrase or use part of a claim, or describe a grounded feature in everyday words; it never has to quote a claim verbatim. Judge what the text actually says: block it only if that statement goes beyond the verified claims and grounded features. A tag that points at a loosely related claim is bookkeeping: at most "info", never "block",
 - prohibited phrases, CTA problems, privacy problems, platform fit.
 Deterministic checks already ran (palette, contrast, safe zones, figures/superlatives, prohibited phrases); their results are listed — do not repeat them.
 
