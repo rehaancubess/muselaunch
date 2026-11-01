@@ -100,9 +100,9 @@ const DOING: Record<Step["key"], string> = {
 };
 
 /** The current step's line: what it's doing plus the real progress of the jobs behind it (done count, %). */
-function liveLine(step: Step, stage: string): string {
+function liveLine(step: Step, stage: string, waitingFor?: string): string {
   const l = step.live;
-  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : DOING[step.key];
+  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : waitingFor?.startsWith("[produce:screens]") ? "Finding the real app screens in your screenshots first" : DOING[step.key];
   if (!l) return what;
   const parts = [what, l.total > 1 ? `${l.done} of ${l.total} done` : null, typeof l.pct === "number" && l.pct > 0 && l.pct < 100 ? `${l.pct}%` : null].filter(Boolean);
   return parts.join(" · ");
@@ -144,7 +144,7 @@ export function RunSteps({ detail, className }: { detail: AutopilotDetail; class
         .map((s, i, all) => {
           const current = s.state !== "done" && s.state !== "pending";
           const result = s.state === "done" ? stepResult(s, source) : null;
-          const live = s.state === "active" ? liveLine(s, ap.stage) : null;
+          const live = s.state === "active" ? liveLine(s, ap.stage, ap.waitingOn.reason) : null;
           return (
             <li key={s.key} className="relative flex gap-3 pb-5 last:pb-0" aria-current={current ? "step" : undefined}>
               {i < all.length - 1 ? <span aria-hidden className={cn("absolute bottom-0 left-3 top-7 w-px", s.state === "done" ? "bg-ink/70" : "bg-line-strong")} /> : null}
@@ -224,7 +224,7 @@ function VideoPanel({ detail, needs }: { detail: AutopilotDetail; needs: NeedsYo
     const note = expected > 1 ? "Your first video shows up here as soon as it’s rendered." : "Your video shows up here as soon as it’s rendered.";
     const icon = making ? <Spinner className="size-4 shrink-0 text-ink-3" /> : <Play className="size-5 shrink-0 text-ink-3" aria-hidden />;
     return (
-      <div className="mx-auto w-full max-w-[300px]">
+      <div className="mx-auto w-full lg:max-w-[300px]">
         {/* Phones: a slim line instead of an empty 9:16 frame. */}
         <div className="flex items-center gap-3 rounded-2xl bg-mist/70 px-4 py-3 lg:hidden">
           {icon}
