@@ -30,7 +30,7 @@ import { QueryState } from "@/components/states";
 import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { AppDnaResponse, CampaignDetailResponse, JobResponse, Page } from "@/lib/api-types";
 import { isActive, useJob } from "@/lib/jobs";
-import { CHANNEL_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
+import { CHANNEL_LABEL, COPY_KIND_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
@@ -91,7 +91,7 @@ function CopyPacks({ data }: { data: CampaignDetailResponse }) {
               {p.items.slice(0, 4).map((it) => (
                 <li key={it.id} className="group flex items-start gap-2 rounded-lg bg-mist/70 px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-caption text-ink-3">{humanizeStatus(it.kind)}</p>
+                    <p className="text-caption text-ink-3">{COPY_KIND_LABEL[it.kind] ?? humanizeStatus(it.kind)}</p>
                     <p className="whitespace-pre-line text-footnote text-ink">{it.text}</p>
                     {p.validation?.issues.filter((x) => x.itemId === it.id).map((x, i) => (
                       <p key={i} className="mt-1 text-caption text-warning">

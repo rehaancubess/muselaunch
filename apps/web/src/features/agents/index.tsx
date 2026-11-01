@@ -122,7 +122,7 @@ function RunBody({ detail, workspaceId }: { detail: AgentRunDetail; workspaceId:
 
       {run.plan ? <PlanCard plan={run.plan} /> : null}
 
-      <Section title="Steps" description="Each model call and tool call, in order. Saved research must cite sources the agent actually retrieved.">
+      <Section title="Steps" description="Each model call and tool call, in order. Saved research must cite sources Muse actually retrieved.">
         <StepTimeline steps={steps} tools={detail.tools ?? []} />
       </Section>
 
@@ -144,7 +144,7 @@ export default function AgentRunView({ runId }: AgentRunViewProps) {
     },
   });
   return (
-    <QueryState query={query} feature="Agent run" skeleton={<RunSkeleton />}>
+    <QueryState query={query} feature="This AI run" skeleton={<RunSkeleton />}>
       {(detail) => <RunBody detail={detail} workspaceId={workspaceId} />}
     </QueryState>
   );
