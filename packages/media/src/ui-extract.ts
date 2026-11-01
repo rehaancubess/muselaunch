@@ -257,7 +257,7 @@ export function roundedAlpha(w: number, h: number, r: number): Uint8Array {
   return out;
 }
 
-async function cropScreen(src: string, out: string, pick: ScreenPick, dir: string, signal?: AbortSignal): Promise<{ width: number; height: number; radius: number }> {
+export async function cropScreen(src: string, out: string, pick: ScreenPick, dir: string, signal?: AbortSignal): Promise<{ width: number; height: number; radius: number }> {
   const bw = pick.box.right - pick.box.left;
   const bh = pick.box.bottom - pick.box.top;
   // Small inset so no bezel/background pixels remain at the edges.
@@ -268,11 +268,13 @@ async function cropScreen(src: string, out: string, pick: ScreenPick, dir: strin
   const h = Math.max(2, bh - 2 * inset);
   const radius = Math.max(0, Math.round(cornerRadius(pick.det, bw, bh) - inset));
   const matte = join(dir, `${Math.random().toString(36).slice(2)}-alpha.png`);
+  // RGBA before cropping: a JPEG (yuv420) is cropped to even sizes, which then no longer matches the
+  // matte (live run: App Store JPEGs, "Input frame sizes do not match (808x1752 vs 809x1753)").
   const writer = ffmpegWriter(["-f", "rawvideo", "-pix_fmt", "gray", "-s", `${w}x${h}`, "-i", "pipe:0", "-frames:v", "1", "-pix_fmt", "gray", matte], { signal });
   const alpha = roundedAlpha(w, h, radius);
   await writer.write(Buffer.from(alpha.buffer, alpha.byteOffset, alpha.byteLength));
   await writer.end();
-  await ffmpeg(["-i", src, "-i", matte, "-filter_complex", `[0:v]crop=${w}:${h}:${x}:${y},format=rgba[s];[1:v]format=gray[a];[s][a]alphamerge[v]`, "-map", "[v]", "-frames:v", "1", out], { signal });
+  await ffmpeg(["-i", src, "-i", matte, "-filter_complex", `[0:v]format=rgba,crop=${w}:${h}:${x}:${y}[s];[1:v]format=gray[a];[s][a]alphamerge[v]`, "-map", "[v]", "-frames:v", "1", out], { signal });
   return { width: w, height: h, radius };
 }
 

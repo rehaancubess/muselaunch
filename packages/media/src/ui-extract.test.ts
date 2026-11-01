@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { MediaAsset } from "@muselaunch/contracts";
 import { createTestPlatform, type Platform } from "@muselaunch/platform";
 import { parseSamOutput } from "@muselaunch/providers";
@@ -11,14 +11,14 @@ import { grayThumbnail } from "./frames";
 import { handlers } from "./index";
 import { samFrameSize } from "./masks";
 import { imageCountOf, installFakeMeta, loadFixture, makeMarketingScreenshot, makeRawScreenshot, samPromptOf, schemaOf, storeUpload, textOf, type RecordedCall } from "./testing";
-import { pickPhoneScreen, plainSideMargin, requestUiExtraction, roundedAlpha } from "./ui-extract";
+import { cropScreen, pickPhoneScreen, plainSideMargin, requestUiExtraction, roundedAlpha } from "./ui-extract";
 
 const dir = mkdtempSync(join(tmpdir(), "media-ui-extract-test-"));
 const screenFx = loadFixture<{ rawOutput: string }>("sam-image-phone-screen.json").rawOutput;
 const headlineFx = loadFixture<{ rawOutput: string }>("sam-image-headline-only.json").rawOutput;
 
 async function rgbaAt(file: string, w: number, points: [number, number][]): Promise<number[][]> {
-  const raw = join(dir, `${Math.random().toString(36).slice(2)}.rgba`);
+  const raw = join(dirname(file), `${Math.random().toString(36).slice(2)}.rgba`);
   await ffmpeg(["-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", raw]);
   const buf = await readFile(raw);
   return points.map(([x, y]) => [...buf.subarray((y * w + x) * 4, (y * w + x) * 4 + 4)]);
@@ -170,3 +170,37 @@ describe("media.extract_ui (Muse Spark sorts screenshots, SAM 3.1 cuts out the a
     expect((await p.credits.balance(wid)).available).toBe(before);
   });
 });
+
+async function ffmpegProbeSize(file: string): Promise<{ width: number; height: number }> {
+  const { probeMedia } = await import("./ffmpeg");
+  const info = await probeMedia(file);
+  return { width: info.width!, height: info.height! };
+}
+
+describe("cropScreen", () => {
+  // Own directory: the suite above removes the shared one in its afterAll.
+  const own = mkdtempSync(join(tmpdir(), "media-crop-test-"));
+  afterAll(() => rm(own, { recursive: true, force: true }));
+  it("cuts an odd-sized screen out of a JPEG (yuv420 would round the crop to even sizes)", async () => {
+    // Live run: App Store JPEGs at 2400 px gave "Input frame sizes do not match (808x1752 vs 809x1753)".
+    const dir = own;
+    const src = join(dir, "store-odd.jpg");
+    await makeMarketingScreenshot(join(dir, "store-odd.png"));
+    await ffmpeg(["-i", join(dir, "store-odd.png"), "-pix_fmt", "yuvj420p", src]);
+    const dets = parseSamOutput(screenFx, "image").detections;
+    const probe = await ffmpegProbeSize(src);
+    const found = pickPhoneScreen(dets, probe, samFrameSize(screenFx))!;
+    // Make both sides odd once the 2 px inset is taken off (w = right − left − 2·inset).
+    const box = { ...found.box };
+    if ((box.right - box.left) % 2 === 0) box.right -= 1;
+    if ((box.bottom - box.top) % 2 === 0) box.bottom -= 1;
+    const pick = { ...found, box };
+    const out = join(dir, "crop-odd.png");
+    const cut = await cropScreen(src, out, pick, dir);
+    expect([cut.width % 2, cut.height % 2]).toEqual([1, 1]);
+    const [corner, centre] = await rgbaAt(out, cut.width, [[0, 0], [Math.floor(cut.width / 2), Math.floor(cut.height / 2)]]);
+    expect(corner![3]).toBe(0);
+    expect(centre![3]).toBe(255);
+  });
+});
+
