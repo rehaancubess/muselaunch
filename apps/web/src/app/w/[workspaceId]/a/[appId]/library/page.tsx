@@ -1,12 +1,8 @@
-"use client";
-import { Suspense } from "react";
-import { LibraryPage } from "@/components/library/library-page";
+import { redirect } from "next/navigation";
+import { routes, withQuery } from "@/lib/routes";
 
-export default function LibraryRoute() {
-  // LibraryPage reads `?asset=` (useSearchParams): keep it inside a Suspense boundary.
-  return (
-    <Suspense>
-      <LibraryPage />
-    </Suspense>
-  );
+/** The Library moved into Creator → Videos. Old links (notifications, bookmarks) keep working, `?asset=` too. */
+export default async function LibraryRedirect({ params, searchParams }: { params: Promise<{ workspaceId: string; appId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { workspaceId, appId } = await params;
+  redirect(withQuery(routes.app(workspaceId, appId).videos, await searchParams));
 }

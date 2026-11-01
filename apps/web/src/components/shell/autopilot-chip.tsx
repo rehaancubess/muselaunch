@@ -37,7 +37,7 @@ export function AutopilotChip({ workspaceId, appId }: { workspaceId: string; app
     <Link
       href={home ? routes.app(workspaceId, appId).creator : `${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(active.id)}`}
       prefetch={false}
-      aria-label={`Growth Autopilot: ${label}`}
+      aria-label={`Autopilot: ${label}`}
       title={active.goal}
       className={cn(
         "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-footnote transition-colors focus-visible:outline-none focus-visible:shadow-focus",

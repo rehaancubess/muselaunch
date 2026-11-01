@@ -1,13 +1,13 @@
 "use client";
 import type { Campaign } from "@muselaunch/contracts";
 import { Button, EmptyState, List, ListRow, Notice, Section, Skeleton, StatusPill, statusKindOf } from "@muselaunch/ui";
-import { ArrowUp, Clapperboard, Dna, Plus, Rocket } from "lucide-react";
+import { ArrowUp, Clapperboard, Info, Plus, Rocket } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { PageContainer } from "@/components/page-container";
 import { QueryState } from "@/components/states";
 import { AppIcon } from "@/components/app-icon";
+import { CreatorFrame } from "@/components/creator/creator-tabs";
 import { AgentRunsList } from "@/features/agents";
 import { AutopilotHome } from "@/features/autopilot/home";
 import { STATUS_COPY, statusKind } from "@/features/autopilot/types";
@@ -25,7 +25,7 @@ function suggestions(appName: string) {
     { label: "Launch Reels", text: `Create five vertical Reels introducing ${appName}, with a premium, minimal Apple-style look.` },
     { label: "Feature demo", text: `Make a 20-second demo of ${appName}'s most useful feature, using real screen recordings on an animated iPhone.` },
     { label: "Founder story", text: `Plan a founder-story video for ${appName}: why I built it and who it's for.` },
-    { label: "Store screenshots", text: `Design a set of App Store screenshot graphics for ${appName} that highlight verified features.` },
+    { label: "Store screenshots", text: `Design a set of App Store screenshot graphics for ${appName} that highlight confirmed features.` },
   ];
 }
 
@@ -72,7 +72,7 @@ function Composer({ appName, href }: { appName: string; href: (text: string) => 
             key={s.label}
             type="button"
             onClick={() => setText(s.text)}
-            className="h-8 rounded-full border border-line bg-surface px-3 text-footnote text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
+            className="h-8 rounded-full border border-line bg-surface px-3 text-footnote text-ink-2 transition-colors hover:border-line-strong hover:text-ink focus-visible:outline-none focus-visible:shadow-focus"
           >
             {s.label}
           </button>
@@ -104,7 +104,7 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
   );
 }
 
-/** Growth Autopilot entry: start one, or jump back into the running loop (one per app). */
+/** Autopilot entry: start one, or jump back into the running loop (one per app). */
 function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: string }) {
   const r = routes.app(workspaceId, appId);
   const active = useActiveAutopilot(workspaceId, appId);
@@ -112,7 +112,7 @@ function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: str
   return (
     <Link
       href={active ? `${r.autopilot}?loop=${encodeURIComponent(active.id)}` : r.autopilot}
-      className="group mb-10 flex flex-col gap-4 rounded-2xl bg-mist/70 p-5 transition-colors hover:bg-mist sm:flex-row sm:items-center sm:p-6"
+      className="group mb-10 flex flex-col gap-4 rounded-2xl bg-mist/70 p-5 transition-colors hover:bg-mist focus-visible:outline-none focus-visible:shadow-focus sm:flex-row sm:items-center sm:p-6"
     >
       <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-white">
         <Rocket className="size-5" aria-hidden />
@@ -120,60 +120,59 @@ function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: str
       {active ? (
         <span className="min-w-0 flex-1 space-y-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-headline font-semibold text-ink">Growth Autopilot is running</span>
+            <span className="text-headline font-semibold text-ink">Autopilot is running</span>
             <StatusPill status={statusKind(active.status)}>{STATUS_COPY[active.status]}</StatusPill>
           </span>
           <span className="block truncate text-body-sm text-ink-2">{active.goal}</span>
-          <span className="block text-footnote text-ink-3 text-pretty">{needsYou ? "It’s waiting for your decision at a checkpoint." : (active.lastLog?.summary ?? "Working through the loop within your budget.")}</span>
+          <span className="block text-footnote text-ink-3 text-pretty">{needsYou ? "It’s waiting for a decision from you." : (active.lastLog?.summary ?? "Working within your budget.")}</span>
         </span>
       ) : (
         <span className="min-w-0 flex-1 space-y-1">
-          <span className="block text-headline font-semibold text-ink">Or let Growth Autopilot run the loop</span>
+          <span className="block text-headline font-semibold text-ink">Or let Autopilot do it</span>
           <span className="block text-body-sm text-ink-2 text-pretty">
-            Give Muse Wonder a goal. It researches, picks an audience with sources, tests a hypothesis, produces and checks the creative, and drafts posts for your approval, within a credit budget you set.
+            Give it a goal. It researches your audience with sources, picks what to test, makes and checks the videos, and drafts posts for your approval, within a credit budget you set.
           </span>
+          <span className="block text-caption text-ink-3">Planned by Muse Wonder, made with Muse Spark.</span>
         </span>
       )}
       <span className="inline-flex h-9 shrink-0 items-center gap-2 self-start rounded-full bg-ink px-4 text-body-sm font-medium text-white transition-colors group-hover:bg-ink/85 sm:self-center">
-        {active ? (needsYou ? "Review checkpoint" : "Open loop") : "Start Growth Autopilot"}
+        {active ? (needsYou ? "See the decision" : "Open Autopilot") : "Start Autopilot"}
       </span>
     </Link>
   );
 }
 
 /**
- * Creator tab. Autopilot on (the default): the app's Home — what Growth Autopilot is doing, what it
- * made, what needs you — with "Create a campaign myself" as the secondary path. Autopilot off ("I'll
- * do it myself"): the hands-on composer and campaign list.
+ * Creator → Make. Autopilot on (the default): the app's Home — what Autopilot is doing, what it
+ * made, what needs you. Autopilot off ("I'll do it myself"): the hands-on composer and campaign
+ * list. Videos and Scheduled are the other sub-tabs (creator/videos, creator/scheduled).
  */
 export default function CreatorPage() {
   const { workspace } = useWorkspace();
   const autopilotOn = workspace?.settings.autopilot?.enabled ?? true;
-  return autopilotOn ? <HomePage /> : <ManualCreator />;
+  return <CreatorFrame current="make">{autopilotOn ? <HomePage /> : <ManualCreator />}</CreatorFrame>;
 }
 
 function HomePage() {
   const { app, appId, workspaceId } = useCurrentApp();
   const { can } = useWorkspace();
   return (
-    <PageContainer>
-      <div className="mx-auto max-w-4xl space-y-8 pb-14 pt-2 md:pt-6">
-        <header className="flex items-center gap-3">
-          <AppIcon app={app} workspaceId={workspaceId} size={40} />
-          <div className="min-w-0">
-            <h1 className="truncate text-title-2 font-semibold">{app?.name && app.name !== "New app" ? app.name : "Your app"}</h1>
-            <p className="text-footnote text-ink-2">
-              Autopilot is on: MuseLaunch does the work, you approve what goes out.{" "}
-              <Link href={routes.settings.workspace(workspaceId)} className="font-medium text-accent hover:underline">
-                Settings
-              </Link>
-            </p>
-          </div>
-        </header>
-        <AutopilotHome appId={appId} />
-        <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} />
-      </div>
-    </PageContainer>
+    <div className="mx-auto max-w-4xl space-y-8 pb-6">
+      <header className="flex items-center gap-3">
+        <AppIcon app={app} workspaceId={workspaceId} size={40} />
+        <div className="min-w-0">
+          <h1 className="truncate text-title-2 font-semibold">{app?.name && app.name !== "New app" ? app.name : "Your app"}</h1>
+          <p className="text-footnote text-ink-2">
+            Autopilot is on: MuseLaunch does the work, you approve what goes out.{" "}
+            <Link href={routes.settings.workspace(workspaceId)} className="font-medium text-accent hover:underline">
+              Settings
+            </Link>
+          </p>
+        </div>
+      </header>
+      <AutopilotHome appId={appId} />
+      <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} />
+    </div>
   );
 }
 
@@ -188,8 +187,8 @@ function ManualCreator() {
   const dnaReady = app?.dnaStatus === "confirmed";
 
   return (
-    <PageContainer>
-      <div className="mx-auto max-w-3xl pb-14 pt-2 md:pt-8">
+    <div className="mx-auto max-w-[1120px]">
+      <div className="mx-auto max-w-3xl pb-14 pt-2 md:pt-4">
         <h1 className="mb-6 text-center text-title-1 font-semibold text-balance md:text-display">What should we make for {appName}?</h1>
         {can("content.write") ? (
           <Composer appName={appName} href={(t) => (t ? `${r.newCampaign}?request=${encodeURIComponent(t)}` : r.newCampaign)} />
@@ -203,24 +202,24 @@ function ManualCreator() {
       {!dnaReady ? (
         <Notice
           tone={app?.dnaStatus === "failed" ? "danger" : "info"}
-          icon={<Dna aria-hidden />}
+          icon={<Info aria-hidden />}
           className="mb-10"
           title={
             app?.dnaStatus === "needs_review"
-              ? "Your App DNA is ready to review"
+              ? "Check what we learned about your app"
               : app?.dnaStatus === "drafting" || app?.status === "importing"
-                ? "Muse is analysing your app"
+                ? "We’re learning about your app"
                 : app?.dnaStatus === "failed"
-                  ? "App analysis didn’t finish"
-                  : "Set up your App DNA"
+                  ? "We couldn’t finish learning about your app"
+                  : "Tell us about your app"
           }
           action={
             <Button size="sm" variant="secondary" asChild>
-              <Link href={r.brand}>{app?.dnaStatus === "needs_review" ? "Review" : "Open"}</Link>
+              <Link href={r.about}>{app?.dnaStatus === "needs_review" ? "Check it" : "Open"}</Link>
             </Button>
           }
         >
-          Campaigns only use product claims you’ve verified. Confirm your features, audiences and claims first for the best results.
+          Videos only say things you’ve confirmed. Check your features, audiences and facts first for the best results.
         </Notice>
       ) : null}
 
@@ -233,7 +232,7 @@ function ManualCreator() {
             <Button variant="ghost" size="sm" asChild>
               <Link href={r.autopilot}>
                 <Rocket className="size-3.5" aria-hidden />
-                Growth Autopilot
+                Autopilot
               </Link>
             </Button>
             {can("content.write") ? (
@@ -272,7 +271,7 @@ function ManualCreator() {
                 <EmptyState
                   icon={<Clapperboard aria-hidden />}
                   title="No campaigns yet"
-                  description="Describe what you want above. Muse researches the market, proposes distinct concepts, then writes, storyboards and renders the ones you choose."
+                  description="Describe what you want above. We research the market, suggest a few different ideas, then write, plan and make the videos you choose."
                 />
               </div>
             )
@@ -280,9 +279,9 @@ function ManualCreator() {
         </QueryState>
       </Section>
 
-      <Section title="Recent AI activity" description="What Muse Wonder and Muse Spark did for this app: plans, sources, tool calls and cost for each run." className="mt-14">
+      <Section title="Recent AI activity" description="What MuseLaunch did for this app: plans, sources, tool calls and cost for each run. Planned by Muse Wonder, written by Muse Spark." className="mt-14">
         <AgentRunsList workspaceId={workspaceId} appId={appId} limit={5} />
       </Section>
-    </PageContainer>
+    </div>
   );
 }
