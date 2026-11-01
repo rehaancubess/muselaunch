@@ -27,10 +27,12 @@ export const DnaDraft = z.object({
     )
     .max(24)
     .default([]),
+  // At least one feature and audience: a live Spark answer once came back with every list empty
+  // (padded, repeated keys), which must trigger the repair pass instead of an empty App DNA.
   features: z
     .array(z.object({ name: z.string().min(1).max(120), description: z.string().max(1000), evidenceIds: Ids, assetIds: Ids }))
-    .max(12)
-    .default([]),
+    .min(1)
+    .max(12),
   audiences: z
     .array(
       z.object({
@@ -41,8 +43,8 @@ export const DnaDraft = z.object({
         evidenceIds: Ids,
       }),
     )
-    .max(5)
-    .default([]),
+    .min(1)
+    .max(5),
   problems: z.array(z.object({ text: z.string().min(1).max(600), evidenceIds: Ids })).max(8).default([]),
   differentiators: z.array(z.object({ text: z.string().min(1).max(600), evidenceIds: Ids })).max(8).default([]),
   monetization: z.object({ model: Monetization.shape.model, notes: z.string().max(500).optional(), evidenceIds: Ids }),

@@ -77,6 +77,12 @@ describe("live Meta response quirks", () => {
     expect(trimStrings({ a: " x ", b: [" y", { c: "z " }], n: 3, t: true, u: null })).toEqual({ a: "x", b: ["y", { c: "z" }], n: 3, t: true, u: null });
   });
 
+  it("trimStrings trims padded keys and keeps the fullest value when they collide (live App DNA, 1 Nov)", () => {
+    // Reduced from the run-3 AppDna answer: padded, repeated keys next to the real ones.
+    const raw = JSON.parse('{"oneLiner": "Save it once ", "audiences ": [], "audiences": [{"name": "Students"}], "tone": {"voice": ["calm"], "vocabularyUse ": [], "vocabularyUse ": ["find"]}}');
+    expect(trimStrings(raw)).toEqual({ oneLiner: "Save it once", audiences: [{ name: "Students" }], tone: { voice: ["calm"], vocabularyUse: ["find"] } });
+  });
+
   it("drops zero-length voice turns (no speech) and rebuilds the transcript", () => {
     const silent = { sessionId: "s", transcript: "Yeah.", audioDurationMs: 3040, turns: [{ turnId: 0, startMs: 2540, endMs: 2540, transcript: "Yeah.", speaker: "A" }] };
     expect(dropEmptyTurns(silent)).toMatchObject({ transcript: "", turns: [] });

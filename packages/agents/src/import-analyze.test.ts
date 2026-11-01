@@ -5,7 +5,7 @@ import { fixture, fixtureJson, installFakeMeta, installFakeWeb, jsonRoute, png, 
 
 const IOS_URL = "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890";
 
-async function setup(opts: { meta?: boolean; missingShot?: number } = {}) {
+async function setup(opts: { meta?: boolean; missingShot?: number; firstDna?: unknown } = {}) {
   const p = createTestPlatform(opts.meta === false ? {} : { META_API_KEY: "test-key" }, handlers);
   const wid = "ws_import_a";
   await p.credits.ensureAccount(wid, { grant: 500, reason: "test" });
@@ -27,7 +27,11 @@ async function setup(opts: { meta?: boolean; missingShot?: number } = {}) {
     { match: "https://tidytimer.example.com/apple-touch-icon.png", contentType: "image/png", body: icon },
     { match: "https://tidytimer.example.com", contentType: "text/html", body: fixture("website.html") },
   ]);
-  const meta = opts.meta === false ? { requests: [] } : installFakeMeta(p, [jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req))]);
+  let dnaCalls = 0;
+  const meta =
+    opts.meta === false
+      ? { requests: [] }
+      : installFakeMeta(p, [jsonRoute("AppDna", (req) => (dnaCalls++ === 0 && opts.firstDna ? opts.firstDna : resolvePlaceholders(fixtureJson("spark-app-dna.json"), req)))]);
   const ws = p.db.ws(wid);
   return { p, wid, ws, web, meta };
 }
@@ -128,6 +132,23 @@ describe("app.import → app.analyze → App DNA", () => {
     expect(dna.tone.voice).toEqual(["playful"]);
     expect(dna.tone.vocabularyAvoid).toEqual(["hustle"]); // not edited → refreshed
     expect((await s.ws.collection("claims").getOrThrow(claim.id)).state).toBe("rejected");
+  });
+
+  it("an App DNA answer with every list empty (padded, repeated keys) goes through the repair pass, not into the profile", async () => {
+    // Reduced from the live run on 1 Nov: real oneLiner/description, then "audiences ": [] etc.
+    const degenerate = JSON.parse(
+      '{"category": "Productivity", "description": "A focus timer.", "monetization": {"model": "freemium", "evidenceIds ": []}, "oneLiner": "Focus timer ", "tone": {"voice": ["calm"], "vocabularyUse ": []}, "audiences ": [], "screenshotObservations ": [], "audiences ": []}',
+    );
+    const s = await setup({ firstDna: degenerate });
+    const { appId } = await startImport(s, [{ kind: "app_store", url: IOS_URL }]);
+    const dnaReqs = s.meta.requests.filter((r) => r.text?.format?.name === "AppDna");
+    expect(dnaReqs).toHaveLength(2);
+    const repair = JSON.stringify(dnaReqs[1]!.input);
+    expect(repair).toContain("did not match the schema");
+    expect(repair).toMatch(/features/);
+    const dna = await s.ws.collection("brandProfiles").getOrThrow(appId);
+    expect(dna.features.map((f) => f.name)).toEqual(["Pomodoro timer", "Distraction blocking", "Weekly focus reports"]);
+    expect(dna.audiences.length).toBeGreaterThan(0);
   });
 
   it("partial import: a failed screenshot download becomes a warning, never a placeholder", async () => {

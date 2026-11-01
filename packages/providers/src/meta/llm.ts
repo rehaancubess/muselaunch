@@ -356,12 +356,31 @@ function parseJson<S extends z.ZodTypeAny>(text: string, schema: S): { ok: true;
   return { ok: false, error: r.error.issues.slice(0, 12).map((i: z.core.$ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("\n") };
 }
 
-/** Muse Spark sometimes pads string values in JSON output ("Todoist ", "https://todoist.com "): trim them all. */
+/**
+ * Muse Spark sometimes pads JSON output: string values ("Todoist ", "https://todoist.com ") and, in
+ * longer answers, keys too, sometimes repeated ("audiences ": [], "audiences ": []). Trim both; when
+ * trimmed keys collide, keep the value that carries the most content.
+ */
 export function trimStrings(v: unknown): unknown {
   if (typeof v === "string") return v.trim();
   if (Array.isArray(v)) return v.map(trimStrings);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, trimStrings(x)]));
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) {
+      const key = k.trim();
+      const val = trimStrings(x);
+      if (!(key in out) || weight(val) > weight(out[key])) out[key] = val;
+    }
+    return out;
+  }
   return v;
+}
+
+function weight(v: unknown): number {
+  if (v === undefined || v === null || v === "") return 0;
+  if (Array.isArray(v)) return 1 + v.length;
+  if (typeof v === "object") return 1 + Object.keys(v as object).length;
+  return 1;
 }
 
 /** Build an input_image part from a signed/public URL or raw bytes. */
