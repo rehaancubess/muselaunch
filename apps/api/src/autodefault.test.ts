@@ -104,7 +104,7 @@ describe("Autopilot by default (apps.ts, autopilot.ts, needs-you.ts, workspace.t
     expect(after.body.items.map((i: J) => i.id)).toEqual([second.id]);
   });
 
-  it("autopilot: false (\"I'll do it myself\") and the workspace setting turn the automatic start off", async () => {
+  it("autopilot: false (API) and the workspace setting (Settings → Autopilot) turn the automatic start off", async () => {
     const manual = await alice.post(`${W()}/apps`, { websiteUrl: "https://tidy.example.com", autopilot: false });
     expect(manual.status).toBe(202);
     expect(manual.body.autopilot).toBeNull();

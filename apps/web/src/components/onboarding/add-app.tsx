@@ -1,14 +1,14 @@
 "use client";
 import type { App, AutopilotAutoStart, Job } from "@muselaunch/contracts";
-import { Button, Field, Input, JobProgress, Notice, Textarea, cn, useToast } from "@muselaunch/ui";
-import { ArrowRight, CheckCircle2, ChevronDown, Hand, Sparkles } from "lucide-react";
+import { Button, Field, Input, JobProgress, Notice, Textarea, useToast } from "@muselaunch/ui";
+import { ArrowRight, CheckCircle2, ChevronDown } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import { useJob } from "@/lib/jobs";
 import { useInvalidate } from "@/lib/query";
+import { routes } from "@/lib/routes";
 
 type Mode = "link" | "describe";
-export type AutopilotChoice = "auto" | "manual";
 
 function normaliseUrl(raw: string): string | null {
   const t = raw.trim();
@@ -40,76 +40,40 @@ function classify(raw: string): { url: string; kind: "ios" | "android" | "websit
 export interface CreatedApp {
   app: App;
   job: Job | null;
-  /** Outcome of the automatic Growth Autopilot start (null when "I'll do it myself"). */
+  /** Outcome of the automatic Autopilot start (null when the workspace turned Autopilot off in Settings). */
   autopilot: AutopilotAutoStart | null;
-  choice: AutopilotChoice;
   workspaceId: string;
+}
+
+/** Where to go after Go: the run's progress screen, the Autopilot start (it didn't start: says why), or null (Autopilot off). */
+export function afterAdd(c: CreatedApp): string | null {
+  const ap = routes.app(c.workspaceId, c.app.id).autopilot;
+  if (c.autopilot?.started && c.autopilot.autopilotId) return `${ap}?loop=${encodeURIComponent(c.autopilot.autopilotId)}`;
+  if (c.autopilot) return ap;
+  return null;
 }
 
 export interface AddAppFormProps {
   /** The workspace to add to; omit when it's created on submit (`ensureWorkspace`). */
   workspaceId?: string;
   /** Onboarding: create the workspace (and save the country) when the person presses Go. */
-  ensureWorkspace?: (choice: AutopilotChoice) => Promise<string>;
+  ensureWorkspace?: () => Promise<string>;
   initialUrl?: string;
   onCreated: (created: CreatedApp) => void;
   submitLabel?: string;
-  /** Default of the "Let MuseLaunch run it / I'll do it myself" choice (the workspace setting). */
-  autopilotDefault?: boolean;
+  /** One line under the button saying what happens next. */
+  promise?: ReactNode;
   /** Small print under the form (e.g. the country line). */
   footer?: ReactNode;
 }
 
-/** The two ways to work, shown under the primary button. Autopilot is the default. */
-function ChoiceCards({ value, onChange }: { value: AutopilotChoice; onChange: (v: AutopilotChoice) => void }) {
-  const opts: { value: AutopilotChoice; title: string; badge?: string; body: string; icon: ReactNode }[] = [
-    {
-      value: "auto",
-      title: "Let MuseLaunch run it",
-      badge: "Recommended",
-      body: "It learns your app, researches your market, makes 2 videos and drafts posts. Nothing is posted and no extra credits are spent without your OK.",
-      icon: <Sparkles aria-hidden />,
-    },
-    { value: "manual", title: "I’ll do it myself", body: "Review your App DNA, then plan campaigns and edit videos step by step.", icon: <Hand aria-hidden /> },
-  ];
-  return (
-    <div role="radiogroup" aria-label="How should MuseLaunch work?" className="grid gap-2">
-      {opts.map((o) => {
-        const on = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "flex items-start gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] focus-visible:outline-none focus-visible:shadow-focus",
-              on ? "bg-accent-soft/60 shadow-[0_0_0_1.5px_var(--ml-accent)]" : "bg-surface shadow-[0_0_0_1px_rgb(16_24_40/0.1)] hover:shadow-[0_0_0_1px_rgb(16_24_40/0.2)]",
-            )}
-          >
-            <span className={cn("mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border", on ? "border-accent bg-accent" : "border-line-strong bg-surface")} aria-hidden>
-              {on ? <span className="size-1.5 rounded-full bg-white" /> : null}
-            </span>
-            <span className="min-w-0 space-y-0.5">
-              <span className="flex flex-wrap items-center gap-2 text-body-sm font-semibold text-ink">
-                {o.title}
-                {o.badge ? <span className="rounded-full bg-accent px-1.5 py-px text-[11px] font-semibold text-white">{o.badge}</span> : null}
-              </span>
-              <span className="block text-footnote text-ink-2 text-pretty">{o.body}</span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 /**
  * Add an app in one step: paste a store link (or website), or describe it → Go. `POST /apps` imports
- * the listing; with "Let MuseLaunch run it" (the default) it also starts Growth Autopilot.
+ * the listing and, with Autopilot on (the default for every workspace), starts an Autopilot run with
+ * sensible defaults that waits for the import. No other choice is asked here: the hands-on tools stay
+ * on the Creator page, and Settings can turn the automatic start off.
  */
-export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated, submitLabel = "Go", autopilotDefault, footer }: AddAppFormProps) {
+export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated, submitLabel = "Go", promise, footer }: AddAppFormProps) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const [mode, setMode] = useState<Mode>("link");
@@ -119,11 +83,9 @@ export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated
   const [website, setWebsite] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [choice, setChoice] = useState<AutopilotChoice>(autopilotDefault === false ? "manual" : "auto");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const idem = useRef(newIdempotencyKey("app"));
-  const showChoice = autopilotDefault !== undefined;
 
   const detected = useMemo(() => classify(link), [link]);
   const linkHint = !link.trim()
@@ -160,13 +122,13 @@ export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated
     }
     setErrors(e);
     if (Object.keys(e).length) return;
-    if (showChoice) body.autopilot = choice === "auto";
     setSubmitting(true);
     try {
-      const wid = workspaceId ?? (await ensureWorkspace!(choice));
+      const wid = workspaceId ?? (await ensureWorkspace!());
+      // No `autopilot` flag: the workspace setting decides (on by default), so Go always starts it.
       const res = await api.post<{ app: App; job: Job | null; autopilot?: AutopilotAutoStart | null }>(wsPath(wid, "/apps"), body, { idempotencyKey: idem.current });
       await invalidate(wsPath(wid, "/apps"));
-      onCreated({ app: res.app, job: res.job, autopilot: res.autopilot ?? null, choice, workspaceId: wid });
+      onCreated({ app: res.app, job: res.job, autopilot: res.autopilot ?? null, workspaceId: wid });
     } catch (err) {
       toast.error("Couldn’t add the app", errorMessage(err));
       idem.current = newIdempotencyKey("app");
@@ -246,11 +208,12 @@ export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated
         </div>
       )}
 
-      <Button type="submit" size="lg" className="w-full" loading={submitting} trailing={<ArrowRight className="size-4" aria-hidden />}>
-        {submitLabel}
-      </Button>
-
-      {showChoice ? <ChoiceCards value={choice} onChange={setChoice} /> : null}
+      <div className="space-y-2.5">
+        <Button type="submit" size="lg" className="w-full" loading={submitting} trailing={<ArrowRight className="size-4" aria-hidden />}>
+          {submitLabel}
+        </Button>
+        {promise ? <p className="text-center text-footnote text-ink-2 text-pretty">{promise}</p> : null}
+      </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-footnote">
         <button
@@ -275,7 +238,10 @@ export function AddAppForm({ workspaceId, ensureWorkspace, initialUrl, onCreated
   );
 }
 
-/** Live import progress for a newly added app. */
+/**
+ * Live import progress for a newly added app when the workspace turned Autopilot off in Settings
+ * (the hands-on path: check what MuseLaunch learned, then make campaigns in the Creator).
+ */
 export function ImportProgress({ workspaceId, app, job, onContinue, onReview }: { workspaceId: string; app: App; job: Job | null; onContinue: () => void; onReview: () => void }) {
   const toast = useToast();
   const live = useJob(workspaceId, job?.id, { initial: job });
@@ -287,11 +253,11 @@ export function ImportProgress({ workspaceId, app, job, onContinue, onReview }: 
     return (
       <div className="space-y-6">
         <Notice tone="success" icon={<CheckCircle2 aria-hidden />} title={`${app.name} is ready`}>
-          There’s no public listing to import, so add screenshots or a screen recording in the Library and review your App DNA.
+          There’s no public listing to import, so add screenshots or a screen recording in the Library and fill in About your app.
         </Notice>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button size="lg" className="flex-1" onClick={onReview}>
-            Set up App DNA
+            Fill in About your app
           </Button>
           <Button size="lg" variant="secondary" className="flex-1" onClick={onContinue}>
             Go to Creator
@@ -315,15 +281,15 @@ export function ImportProgress({ workspaceId, app, job, onContinue, onReview }: 
         {live.connection === "polling" ? <p className="mt-3 text-caption text-ink-3">Live updates are reconnecting; checking every few seconds.</p> : null}
       </div>
       {done ? (
-        <p className="text-body-sm text-ink-2">Next, Muse Spark analyses the listing into your App DNA: features with screenshot evidence, audiences and claims for you to verify. That runs in the background.</p>
+        <p className="text-body-sm text-ink-2">Next, Muse Spark learns what your app does from the listing: features with screenshot evidence, audiences, and facts for you to confirm. That runs in the background.</p>
       ) : failed ? (
-        <p className="text-body-sm text-ink-2">You can retry, or continue and add details manually. Nothing was made up in the meantime.</p>
+        <p className="text-body-sm text-ink-2">You can retry, or continue and add details yourself. Nothing was made up in the meantime.</p>
       ) : (
         <p className="text-body-sm text-ink-2">Reading the public listing and saving screenshots to your Library. You can leave this page; progress continues in the Activity tray.</p>
       )}
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button size="lg" className="flex-1" onClick={onReview} disabled={!done && !failed}>
-          Review App DNA
+          Check what we learned
         </Button>
         <Button size="lg" variant="secondary" className="flex-1" onClick={onContinue}>
           {done || failed ? "Go to Creator" : "Continue in background"}

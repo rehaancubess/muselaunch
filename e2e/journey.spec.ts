@@ -6,11 +6,11 @@ import { CSV, PRESENTER_CLIP, RESULTS, expectFixtureMode, mobileShots, nav, onbo
  * The phase-2 demo, end to end through the real UI and API in FIXTURE MODE (labelled fixtures for
  * model calls; real jobs, storage, Brand Guardian rules, tracks/cutouts and HyperFrames renders):
  *
- *  1. Paste the sample listing → Go (one-step onboarding; "Let MuseLaunch run it" is the default).
- *     With no other input, Growth Autopilot waits for the import, accepts App DNA, sets the goal from
+ *  1. Paste the sample listing → Go (one-step onboarding, no other choice) → the run's progress
+ *     screen. With no other input, Autopilot waits for the import, accepts App DNA, sets the goal from
  *     it, researches (cited audience), sets a hypothesis, produces 2 videos, runs the Brand Guardian,
- *     renders within its budget and drafts posts — which land in "Needs you" (Home + top-bar badge)
- *     for one-tap approval. Nothing is published by the loop.
+ *     renders within its budget and drafts posts — which land in "Needs you" (progress screen + top-bar
+ *     badge) for one-tap approval. Nothing is published by the loop.
  *  2. Upload a founder clip (synthetic presenter fixture), analyse it with SAM, then in the Studio
  *     Clip tab: "Put the app behind me", "Spotlight my phone", tracking overlay on.
  *  3. Ask Muse for a professional Apple-style commercial with the app behind me, emphasising search,
@@ -55,22 +55,23 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
   let studioUrl = "";
   let campaignUrl = "";
 
-  await test.step("Home: Growth Autopilot works on its own (App DNA accepted, goal from it)", async () => {
-    homeUrl = page.url();
-    await expect(page.getByText("Get more installs of Tidy Timer from students")).toBeVisible({ timeout: 300_000 });
-    await expect(page.getByRole("link", { name: "Review App DNA" })).toBeVisible();
-    await expect(page.getByText("Made for you")).toBeVisible({ timeout: 300_000 });
-    await shot(page, "home-working", true);
+  await test.step("Progress screen: Autopilot works on its own (App DNA accepted, plain steps with real results)", async () => {
+    loopUrl = page.url();
+    homeUrl = `${base()}/creator`;
+    await expect(page.getByRole("link", { name: "Check what we learned" })).toBeVisible({ timeout: 300_000 });
+    await expect(page.getByText("What we’re testing")).toBeVisible({ timeout: 300_000 });
+    await shot(page, "progress-working", true);
   });
 
-  await test.step("Needs you: the drafted posts wait for one-tap approval (top-bar badge too)", async () => {
+  await test.step("Needs you: the first videos are shown and the drafted posts wait for one-tap approval (top-bar badge too)", async () => {
+    await expect(page.locator("video").first()).toBeVisible({ timeout: 2 * RENDER_WAIT });
     await expect(page.getByRole("button", { name: "Approve post" })).toHaveCount(2, { timeout: 2 * RENDER_WAIT });
     const badge = page.getByRole("button", { name: "Needs you: 2 decisions" });
     await expect(badge).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^Published$/)).toHaveCount(0);
     // Renders went ahead inside the budget; nothing else asked.
     await expect(page.getByRole("button", { name: "Approve spend" })).toHaveCount(0);
-    await shot(page, "home-needs-you", true);
+    await shot(page, "progress-needs-you", true);
     await badge.click();
     const sheet = page.getByRole("dialog", { name: "Needs you" });
     await expect(sheet.getByRole("button", { name: "Approve post" })).toHaveCount(2);
@@ -80,13 +81,13 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
     await expect(sheet.getByRole("button", { name: "Approve post" })).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Needs you: 1 decision" })).toBeVisible();
-    studioUrl = new URL((await page.getByRole("link", { name: "Edit in Studio" }).first().getAttribute("href"))!, page.url()).toString();
+    studioUrl = new URL((await page.getByRole("link", { name: "Edit", exact: true }).first().getAttribute("href"))!, page.url()).toString();
   });
 
-  await test.step("Every decision: the audience choice cites real research", async () => {
-    await page.getByRole("link", { name: /See every decision/ }).click();
-    await page.waitForURL(/\/autopilot\?loop=/);
-    loopUrl = page.url();
+  await test.step("Show details: the goal came from App DNA; the audience choice cites real research", async () => {
+    await page.getByRole("button", { name: "Show details" }).click();
+    await expect(page.getByText("Get more installs of Tidy Timer from students")).toBeVisible();
+    loopUrl = `${loopUrl}&details=1`;
     const audience = page.getByRole("button", { name: /^Audience 1 decision/ });
     await expect(async () => {
       if ((await audience.getAttribute("aria-expanded")) !== "true") await audience.click();
@@ -216,7 +217,8 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
   await test.step("phone-width screenshots", async () => {
     const origin = new URL(page.url()).origin;
     await mobileShots(browser, page, "e2e-mobile", [
-      { name: "home", path: homeUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Made for you").first().waitFor() },
+      { name: "progress", path: loopUrl.replace(origin, "").replace("&details=1", ""), fullPage: true, wait: (m) => m.locator("video").first().waitFor() },
+      { name: "home", path: homeUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByRole("heading", { level: 1 }).first().waitFor() },
       { name: "autopilot", path: loopUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Awaiting approval", { exact: true }).first().waitFor() },
       { name: "campaign", path: campaignUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Compositions").first().waitFor() },
       { name: "studio", path: studioUrl.replace(origin, ""), wait: (m) => m.getByRole("button", { name: "Render", exact: true }).waitFor() },

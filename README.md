@@ -127,14 +127,18 @@ do real HyperFrames renders, so allow 15–40 minutes:
 
 ```powershell
 pnpm e2e            # both specs
-pnpm e2e journey    # paste the sample listing → Go → Growth Autopilot runs → Needs you; founder clip + SAM, hooks, export (e2e-*.png)
-pnpm e2e campaign   # "I'll do it myself": the hands-on campaign flow, post, mark as posted (e2e-campaign-*.png)
+pnpm e2e journey    # paste the sample listing → Go → the run's progress screen → first videos → Needs you; founder clip + SAM, hooks, export (e2e-*.png)
+pnpm e2e campaign   # Autopilot's automatic start off (workspace setting): the hands-on campaign flow, post, mark as posted (e2e-campaign-*.png)
 ```
 
-Growth Autopilot is the default: onboarding is one step (paste a link or describe the app → Go). The
-workspace is created from your name with a guessed country (both editable in Settings), and the run
-starts on its own once the app is imported. Posts, outreach and spending past a run's budget always
-wait in "Needs you". "I'll do it myself" (onboarding) or Settings → Growth Autopilot turns it off.
+Paste a link, get videos: onboarding is one step (paste an App Store / Google Play / website link, or
+describe the app → Go) with no other choice. The workspace is created from your name with a guessed
+country (both editable in Settings), Autopilot starts with sensible defaults (2 videos, length chosen
+per idea, 9:16, original music, the labelled AI voice when OPENAI_API_KEY is set) and you land on the
+run's progress screen: plain steps driven by the real jobs, each with its real result, then the first
+video to play, download and post. Posts, outreach and spending past a run's budget always wait in
+"Needs you". The hands-on tools stay on the Creator page; Settings → Autopilot turns the automatic
+start off.
 
 Screenshots go to `docs/screenshots/`. The founder clip in the demo is the synthetic presenter
 fixture (`fixtures/render/presenter/`); in fixture mode SAM answers "person"/"phone" with its

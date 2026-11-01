@@ -1,8 +1,10 @@
-import type { AgentRun, Approval, Autopilot, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
+import type { AgentRun, Approval, Autopilot, AutopilotProgress, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
 import { routes } from "@/lib/routes";
 
 /** GET /autopilots/:id (module B, routes/autopilot.ts). */
 export interface AutopilotDetail {
+  /** The run in plain steps with real results, its finished MP4s and the models that ran. */
+  progress: AutopilotProgress;
   autopilot: Autopilot;
   waitingFor: string;
   runs: Pick<AgentRun, "id" | "kind" | "status" | "goal" | "model" | "usage" | "createdAt">[];
@@ -33,12 +35,12 @@ export type LoopStage = Exclude<AutopilotStage, "done">;
 export const RAIL: { stage: LoopStage; label: string; blurb: string }[] = [
   { stage: "research", label: "Research", blurb: "Audience, trends and competitors — every finding cited." },
   { stage: "select_audience", label: "Audience", blurb: "Muse Wonder picks who to reach, citing the research." },
-  { stage: "hypothesis", label: "Hypothesis", blurb: "One testable bet and an experiment to measure it." },
-  { stage: "plan_creative", label: "Concepts", blurb: "Distinct creative angles, one per variant." },
-  { stage: "produce", label: "Videos", blurb: "Storyboards built into editable compositions." },
-  { stage: "verify", label: "Verify", blurb: "Lint, claim checks and the Brand Guardian." },
-  { stage: "render", label: "Render", blurb: "Final HyperFrames renders, within your budget." },
-  { stage: "schedule", label: "Posts", blurb: "Drafted with suggested times — each awaits your approval." },
+  { stage: "hypothesis", label: "Test", blurb: "What we’re testing, and how it’s measured." },
+  { stage: "plan_creative", label: "Ideas", blurb: "Distinct video ideas, one per video to compare." },
+  { stage: "produce", label: "Videos", blurb: "Plans (Muse Spark) built into editable videos." },
+  { stage: "verify", label: "Check", blurb: "Lint, fact checks and the brand check." },
+  { stage: "render", label: "Render", blurb: "Final HyperFrames renders, within your budget; Muse Spark watches each one." },
+  { stage: "schedule", label: "Posts", blurb: "Drafted with suggested times — each waits for your OK." },
   { stage: "measure", label: "Measure", blurb: "Waits for real results. Nothing is estimated." },
   { stage: "learn", label: "Learn", blurb: "Analysis, recommendations and lessons for next time." },
 ];
