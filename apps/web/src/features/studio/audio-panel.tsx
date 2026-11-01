@@ -388,7 +388,7 @@ function VoiceSection({
           </Button>
         </div>
       ) : (
-        <p className="text-footnote text-ink-2">{s.storyboard?.voiceover === "tts" ? "The storyboard has narration. Add a voice to speak it." : "No voiceover. Music plays at full level."}</p>
+        <p className="text-footnote text-ink-2">{s.storyboard?.voiceover === "tts" ? "The plan has narration. Add a voice to speak it." : "No voiceover. Music plays at full level."}</p>
       )}
 
       <SegmentedControl

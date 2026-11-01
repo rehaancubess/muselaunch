@@ -81,7 +81,7 @@ async function workspaceWithAutopilotOff(page: Page) {
   await expect(page.getByLabel("Your app’s link")).toHaveValue(SAMPLE_LISTING);
 }
 
-/** Hands-on path: sign up, a workspace with Autopilot's automatic start off → import → verify a claim → confirm App DNA. */
+/** Hands-on path: sign up, a workspace with Autopilot's automatic start off → import → confirm a fact → confirm what we learned. */
 export async function signUpAndImport(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { email: string; shots?: boolean }) {
   await signUp(page, shot, opts);
 
@@ -94,14 +94,14 @@ export async function signUpAndImport(page: Page, shot: (page: Page, name: strin
     await page.getByRole("button", { name: "Check what we learned" }).click();
   });
 
-  await test.step("App DNA: verify a claim, confirm", async () => {
+  await test.step("About your app: confirm a fact, then confirm what we learned", async () => {
     await page.waitForURL(/\/brand$/);
-    await expect(page.getByRole("button", { name: "Confirm App DNA" })).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByRole("button", { name: "Confirm what we learned" })).toBeVisible({ timeout: 120_000 });
     if (opts.shots !== false) await shot(page, "app-dna", true);
-    const verify = page.getByRole("button", { name: "Verify" }).first();
-    if (await verify.isVisible()) await verify.click();
-    await page.getByRole("button", { name: "Confirm App DNA" }).click();
-    await expect(page.getByText("App DNA confirmed")).toBeVisible();
+    const confirmFact = page.getByRole("button", { name: "Confirm", exact: true }).first();
+    if (await confirmFact.isVisible()) await confirmFact.click();
+    await page.getByRole("button", { name: "Confirm what we learned" }).click();
+    await expect(page.getByText("What we learned is confirmed")).toBeVisible();
   });
 }
 

@@ -30,7 +30,7 @@ export function AssetThumb({ workspaceId, assetId, className, alt = "", onClick 
 
 /** Evidence list for a claim/feature: fact, source chip, linked screenshot. */
 export function EvidenceList({ workspaceId, items }: { workspaceId: string; items: AppEvidence[] }) {
-  if (!items.length) return <p className="text-footnote text-ink-2">No evidence is linked. Treat this as unverified until you add a source.</p>;
+  if (!items.length) return <p className="text-footnote text-ink-2">No source is linked. Treat this as unconfirmed until you add one.</p>;
   return (
     <ul className="space-y-3">
       {items.map((e) => (
@@ -40,7 +40,7 @@ export function EvidenceList({ workspaceId, items }: { workspaceId: string; item
             <p className="text-footnote text-ink">{e.fact}</p>
             <div className="flex flex-wrap items-center gap-1.5">
               <SourceChip source={e.source} compact />
-              {e.reviewState === "verified" ? <Badge tone="success">Verified</Badge> : e.reviewState === "rejected" ? <Badge tone="danger">Rejected</Badge> : null}
+              {e.reviewState === "verified" ? <Badge tone="success">Confirmed</Badge> : e.reviewState === "rejected" ? <Badge tone="danger">Rejected</Badge> : null}
             </div>
           </div>
         </li>
@@ -52,7 +52,7 @@ export function EvidenceList({ workspaceId, items }: { workspaceId: string; item
 export function EvidencePopover({ workspaceId, items, trigger }: { workspaceId: string; items: AppEvidence[]; trigger?: ReactNode }) {
   return (
     <Popover
-      label="Evidence"
+      label="Sources"
       align="start"
       className="w-[min(380px,calc(100vw-24px))]"
       trigger={
@@ -64,7 +64,7 @@ export function EvidencePopover({ workspaceId, items, trigger }: { workspaceId: 
         )
       }
     >
-      <p className="mb-3 text-footnote font-semibold">Evidence</p>
+      <p className="mb-3 text-footnote font-semibold">Sources</p>
       <EvidenceList workspaceId={workspaceId} items={items} />
     </Popover>
   );

@@ -240,7 +240,7 @@ function SceneInspector({ doc, scene, lint, onPatch, onSelectLayer, disabled }: 
         </ul>
       </Group>
       {scene.notes ? (
-        <Group title="Storyboard note">
+        <Group title="Plan note">
           <p className="text-footnote text-ink-2">{scene.notes}</p>
         </Group>
       ) : null}
@@ -278,7 +278,7 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
       {layer.type === "text" ? (
         <Group title="Text">
           <CommitInput multiline aria-label="Text" value={layer.text} onCommit={(v) => set({ text: v.slice(0, 400) }, "Edit text")} disabled={disabled} maxLength={400} />
-          {layer.claimIds.length ? <p className="text-caption text-ink-3">Linked to {layer.claimIds.length} claim{layer.claimIds.length === 1 ? "" : "s"} from your claim library.</p> : null}
+          {layer.claimIds.length ? <p className="text-caption text-ink-3">Linked to {layer.claimIds.length} fact{layer.claimIds.length === 1 ? "" : "s"} from About your app.</p> : null}
           <div className="grid grid-cols-2 gap-2">
             <NumberInput label="Size" suffix="px" min={8} max={400} value={layer.style.sizePx} onCommit={(v) => set({ style: { sizePx: v } }, "Text size")} disabled={disabled} />
             <Select selectSize="sm" aria-label="Weight" value={String(layer.style.weight)} disabled={disabled} options={[400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: `Weight ${w}` }))} onChange={(e) => set({ style: { weight: Number(e.target.value) } }, "Text weight")} />

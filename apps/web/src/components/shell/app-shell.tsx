@@ -231,7 +231,8 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
         </div>
       </header>
 
-      <main id="main" className={cn("flex-1", fullBleed && "flex min-h-0 flex-col")}>
+      {/* Phones: room for the fixed tab bar below, so the end of every page (full-bleed ones too) stays visible. */}
+      <main id="main" className={cn("flex-1 pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] md:pb-0", fullBleed && "flex min-h-0 flex-col")}>
         {children}
       </main>
 

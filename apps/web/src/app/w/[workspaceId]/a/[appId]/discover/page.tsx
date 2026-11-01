@@ -16,7 +16,7 @@ function AutopilotResearchNotice({ workspaceId, appId }: { workspaceId: string; 
   const active = useActiveAutopilot(workspaceId, appId);
   if (!active || !["understand", "research"].includes(active.stage) || !["running", "waiting_on_jobs"].includes(active.status)) return null;
   return (
-    <Notice tone="info" icon={<Spinner className="size-4" />} className="mb-8" title={active.stage === "understand" ? "Growth Autopilot is learning your app" : "Growth Autopilot is researching your market"}>
+    <Notice tone="info" icon={<Spinner className="size-4" />} className="mb-8" title={active.stage === "understand" ? "Autopilot is learning about your app" : "Autopilot is researching your market"}>
       New findings appear here as they’re found, each linked to its sources.{" "}
       <Link href={routes.app(workspaceId, appId).creator} className="font-medium underline underline-offset-2">
         See the run

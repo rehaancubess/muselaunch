@@ -3,9 +3,9 @@ import { CSV, expectFixtureMode, nav, shooter, signUpAndImport } from "./helpers
 
 /**
  * The hands-on campaign flow, end to end through the real UI and API in FIXTURE MODE:
- * onboarding → import → App DNA confirm → research/Discover → new campaign → concepts → produce →
+ * onboarding → import → About your app confirmed → research/Discover → new campaign → ideas → produce →
  * Studio (AI edit, undo) → final render → export → post + tracked link → approve → post manually →
- * Insights CSV import → experiment → recommendation. (journey.spec.ts covers the Growth Autopilot demo.)
+ * Insights CSV import → test → recommendation. (journey.spec.ts covers the Autopilot demo.)
  *
  * AI responses are labelled fixtures (see apps/api/src/dev-fixture.ts); everything else is real.
  */
@@ -29,7 +29,7 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await shot(page, "discover");
   });
 
-  await test.step("Creator: new campaign → concepts", async () => {
+  await test.step("Creator: new campaign → ideas", async () => {
     await nav(page, "Creator");
     await page.waitForURL(/\/creator$/);
     await page.locator("#creator-request").fill("Create five promotional Reels introducing Tidy Timer, using a premium Apple-style aesthetic.");
@@ -43,7 +43,7 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await shot(page, "concepts", true);
   });
 
-  await test.step("produce a concept → composition rendered", async () => {
+  await test.step("produce an idea → video rendered", async () => {
     await page.getByRole("button", { name: "Select" }).nth(1).click();
     await page.getByRole("button", { name: "Produce", exact: true }).click();
     await page.getByRole("button", { name: "Start production" }).click();
@@ -97,8 +97,8 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await shot(page, "campaign-export-links", true);
   });
 
-  await test.step("Calendar: approve and post manually", async () => {
-    await page.goto(page.url().replace(/\/creator\/campaigns\/.*$/, "/calendar"));
+  await test.step("Scheduled: approve and post manually", async () => {
+    await page.goto(page.url().replace(/\/creator\/campaigns\/.*$/, "/creator/scheduled"));
     // The draft has no time yet, so it's listed under "Not scheduled yet"; open it from there.
     await page.getByText("Forward. Focus. Done.", { exact: false }).first().click();
     await page.getByRole("button", { name: "Request approval" }).click();
@@ -115,7 +115,7 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await page.keyboard.press("Escape");
   });
 
-  await test.step("Insights: CSV import → experiment → recommendation", async () => {
+  await test.step("Insights: CSV import → test → recommendation", async () => {
     await nav(page, "Insights");
     await page.waitForURL(/\/insights$/);
     await page.getByRole("tab", { name: "Data sources" }).click();
@@ -124,16 +124,16 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await expect(page.getByText("Import complete")).toBeVisible({ timeout: 120_000 });
     await page.getByRole("tab", { name: "Overview" }).click();
     await shot(page, "insights-overview", true);
-    await page.getByRole("tab", { name: "Experiments" }).click();
-    await page.getByRole("button", { name: "New experiment" }).click();
+    await page.getByRole("tab", { name: "Tests" }).click();
+    await page.getByRole("button", { name: "New test" }).click();
     const exp = page.getByRole("dialog");
     await exp.getByLabel("Title").fill("Question hook vs statement hook");
-    await exp.getByLabel("Hypothesis").fill("A question-led first line earns more link clicks.");
-    await exp.getByLabel("Variant A (control)").fill("Statement hook");
-    await exp.getByLabel("Variant B").fill("Question hook");
+    await exp.getByLabel("What we’re testing").fill("A question-led first line earns more link clicks.");
+    await exp.getByLabel("Version A (the one to beat)").fill("Statement hook");
+    await exp.getByLabel("Version B").fill("Question hook");
     await exp.getByRole("button", { name: "Create" }).click();
     await page.getByRole("button", { name: "Analyze with Muse Spark" }).click();
-    // With no per-variant data yet the honest result is "Insufficient data" (the model is skipped).
+    // With no per-version data yet the honest result is "Insufficient data" (the model is skipped).
     await expect(page.getByText(/Insufficient data|Low confidence|Medium confidence|High confidence/).first()).toBeVisible({ timeout: 120_000 });
     await shot(page, "insights-experiment");
     await page.keyboard.press("Escape");

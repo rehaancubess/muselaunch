@@ -10,7 +10,7 @@ export const OPEN_WEIGHTS_NOTE = "Muse Glimmer (self-hosted) and Muse Spark Open
 export const STEPS = [
   {
     title: "Paste your link",
-    text: "MuseLaunch reads your App Store or Google Play listing and screenshots, then builds your App DNA: features, audiences and the claims you can make, each backed by evidence.",
+    text: "MuseLaunch reads your App Store or Google Play listing and screenshots, then writes down what it learned about your app: features, audiences and the facts your videos can say, each linked to its source.",
   },
   {
     title: "Autopilot does the marketing",
@@ -18,7 +18,7 @@ export const STEPS = [
   },
   {
     title: "You approve and post",
-    text: "Each post waits for your OK, with a tracked link attached. Then Autopilot measures what happened and proposes the next experiment.",
+    text: "Each post waits for your OK, with a tracked link attached. Then Autopilot measures what happened and suggests the next test.",
   },
 ] as const;
 
@@ -31,18 +31,18 @@ export const OBJECT_FRAMES = [
 export const VIDEO_POINTS = [
   { title: "Say it or type it", text: "Muse Voice Transcribe turns spoken direction into edits. “Make this look like an Apple commercial and give me three hooks” works." },
   { title: "One scene at a time", text: "Changing one scene leaves every other scene exactly as it was." },
-  { title: "Real files", text: "HyperFrames renders MP4s in 9:16, 1:1, 16:9 and 4:5, from compositions you can keep editing." },
+  { title: "Real files", text: "HyperFrames renders MP4s in 9:16, 1:1, 16:9 and 4:5, from videos you can keep editing." },
 ] as const;
 
 export const AUTOPILOT_POINTS = [
-  { title: "A hard budget", text: "The loop pauses and asks before it spends past the limit you set." },
-  { title: "Cited decisions", text: "Every audience pick and hypothesis links to the research behind it." },
+  { title: "A hard budget", text: "Autopilot pauses and asks before it spends past the limit you set." },
+  { title: "Cited decisions", text: "Every audience pick and everything it tests links to the research behind it." },
   { title: "Approval gates", text: "Final renders ask first by default. Posts always do." },
   { title: "Your call, any step", text: "Pause it, cancel it, or take over a step and do it yourself." },
 ] as const;
 
 export const GUARDIAN_POINTS = [
-  { title: "Unsupported claims", text: "Flags anything your App DNA evidence doesn’t back up." },
+  { title: "Unsupported facts", text: "Flags anything the sources about your app don’t back up." },
   { title: "Tone and wording", text: "Catches drift from your voice and words you’ve ruled out." },
   { title: "Traceable findings", text: "Each finding says which check raised it." },
   { title: "Fixes you review", text: "Suggested changes wait for you before they’re applied." },
@@ -52,14 +52,14 @@ export const INSIGHT_POINTS = [
   { title: "Sourced metrics", text: "Each number shows where it came from and how it’s attributed." },
   { title: "Nothing estimated", text: "Missing data stays missing, with a note on how to measure it." },
   { title: "Correlation, labelled", text: "A change after a launch is never presented as proof the launch caused it." },
-  { title: "What to try next", text: "Muse compares experiments and recommends the next one to run." },
+  { title: "What to try next", text: "Muse compares tests and recommends the next one to run." },
 ] as const;
 
 export const CONTROL = [
   { title: "You approve every post", text: "Nothing is published until you approve that exact version." },
   { title: "Do it yourself, any time", text: "Pause Autopilot, take over any step, and edit anything it made." },
   { title: "A source for every finding", text: "Research links to where it came from and when. No source, no finding." },
-  { title: "Only claims you’ve verified", text: "Creative states what your App DNA supports and you’ve approved." },
+  { title: "Only facts you’ve confirmed", text: "Videos and posts say only what your sources support and you’ve confirmed." },
   { title: "No fake “posted”", text: "Accounts you haven’t connected get an export and a checklist instead." },
   { title: "Costs shown first", text: "Every action shows its credit estimate before it runs." },
 ] as const;
@@ -77,16 +77,16 @@ export const FREE_LIMITS = [
 export const CREDIT_ROWS = [
   { label: "Import and analyse your app", credits: PRICE["app.import"] + PRICE["app.analyze"] },
   { label: "Market research run", credits: PRICE["research.run"] },
-  { label: "Campaign concepts", credits: PRICE["campaign.generate_concepts"] },
-  { label: "Storyboard", credits: PRICE["storyboard.generate"] },
+  { label: "Campaign ideas", credits: PRICE["campaign.generate_concepts"] },
+  { label: "Video plan", credits: PRICE["storyboard.generate"] },
   { label: "AI edit", credits: PRICE["composition.edit"] },
   { label: "Final render, per 15 seconds", credits: PRICE["render.final_per_15s"] },
-  { label: "Brand Guardian review", credits: PRICE["brand.review"] },
+  { label: "Brand check", credits: PRICE["brand.review"] },
   { label: "Analytics sync and imports", credits: PRICE["analytics.sync"] },
 ] as const;
 
 /**
- * One Growth Autopilot round with two video variants and 15-second videos.
+ * One Autopilot round with two videos to compare, 15 seconds each.
  * Mirrors estimateAutopilot() in @muselaunch/autopilot, using the default price list.
  */
 const V = 2;
@@ -104,7 +104,7 @@ export const AUTOPILOT_ROUND_CREDITS =
 export const FAQ = [
   {
     q: "Do I need an App Store or Google Play listing?",
-    a: "No. Leave the link empty and describe your app instead. You can add screenshots and screen recordings later, and MuseLaunch uses them as evidence.",
+    a: "No. Leave the link empty and describe your app instead. You can add screenshots and screen recordings later, and MuseLaunch uses them as proof.",
   },
   {
     q: "Will anything be posted without my approval?",
@@ -112,7 +112,7 @@ export const FAQ = [
   },
   {
     q: "Can I do parts of it myself?",
-    a: "Yes. Pause or cancel Growth Autopilot at any point, take over any step, and edit anything it made in the Studio. You can also run research and campaigns by hand from Discover and Creator.",
+    a: "Yes. Pause or cancel Autopilot at any point, take over any step, and edit anything it made in the Studio. You can also run research and campaigns by hand from Discover and Creator.",
   },
   {
     q: "Where does the research come from?",
@@ -120,11 +120,11 @@ export const FAQ = [
   },
   {
     q: "Are the videos real files I can download?",
-    a: "Yes. HyperFrames renders MP4s in 9:16, 1:1, 16:9 and 4:5 from editable compositions built with your real screens and footage. Download them one at a time, or as a posting package with captions.",
+    a: "Yes. HyperFrames renders MP4s in 9:16, 1:1, 16:9 and 4:5 from editable videos built with your real screens and footage. Download them one at a time, or as a posting package with captions.",
   },
   {
-    q: "What does the Brand Guardian check?",
-    a: "Every video, caption and post, against your verified claims, brand voice, words to avoid, and CTA and platform fit. It runs on a self-hosted Muse Glimmer model alongside deterministic rules, and each finding names the check that raised it.",
+    q: "What does the brand check look at?",
+    a: "Every video, caption and post, against your confirmed facts, brand voice, words to avoid, call to action and platform fit. It runs on a self-hosted Muse Glimmer model alongside fixed rules, and each finding names the check that raised it.",
   },
   {
     q: "Which analytics can I connect?",
@@ -132,6 +132,6 @@ export const FAQ = [
   },
   {
     q: "Which AI models does MuseLaunch use?",
-    a: "Meta’s Muse Wonder plans research and runs Growth Autopilot. Muse Spark 1.3 analyses your app and writes campaigns, scripts and edits. Muse Spark Open, Meta’s open-weights model on Baseten, writes post copy and variant briefs, and steps in when the Meta Model API is limited (each run shows which model did what). SAM 3.1 tracks people and objects in your footage. Muse Voice Transcribe handles recordings and spoken edits. A self-hosted Muse Glimmer model, also open weights, reviews brand fit and remembers your preferences. HyperFrames renders the videos.",
+    a: "Meta’s Muse Wonder plans research and runs Autopilot. Muse Spark 1.3 analyses your app and writes campaigns, scripts and edits. Muse Spark Open, Meta’s open-weights model on Baseten, writes post copy and video briefs, and steps in when the Meta Model API is limited (each run shows which model did what). SAM 3.1 tracks people and objects in your footage. Muse Voice Transcribe handles recordings and spoken edits. A self-hosted Muse Glimmer model, also open weights, reviews brand fit and remembers your preferences. HyperFrames renders the videos.",
   },
 ] as const;

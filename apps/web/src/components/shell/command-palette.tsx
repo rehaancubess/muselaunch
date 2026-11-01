@@ -108,7 +108,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <Item value="discover trends competitors research" icon={<Compass aria-hidden />} onSelect={() => go(r.discover)}>
                     Discover
                   </Item>
-                  <Item value="insights analytics metrics experiments" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insights)}>
+                  <Item value="insights analytics metrics tests experiments" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insights)}>
                     Insights
                   </Item>
                   <Item value="autopilot growth autonomous loop goal" icon={<Rocket aria-hidden />} onSelect={() => go(r.autopilot)}>

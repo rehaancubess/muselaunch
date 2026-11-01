@@ -223,7 +223,7 @@ function ProspectSheet({ prospectId, onOpenChange }: { prospectId: string | null
                   </div>
                 </Section>
 
-                <Section title="Pitches" description="Each pitch references the creator’s real format and only your verified claims. Every send needs its own approval.">
+                <Section title="Pitches" description="Each pitch mentions the creator’s real format and only your confirmed facts. Every send needs its own approval.">
                   <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
                     <Field label="Your offer" optional hint="Leave empty and the AI suggests one for you to confirm.">
                       {({ id }) => <Input id={id} placeholder="e.g. A free year of Premium" value={offer} onChange={(e) => setOffer(e.target.value)} />}
@@ -298,7 +298,7 @@ function DraftCard({ draftId, onChanged }: { draftId: string; onChanged: () => P
               <Badge tone="warning">No public contact route</Badge>
             )}
             {draft.offerSource === "ai_suggested" ? <Badge tone="warning">Offer suggested by AI</Badge> : null}
-            {draft.validation ? <Badge tone={draft.validation.ok ? "success" : "danger"}>{draft.validation.ok ? `Claims OK (${draft.validation.validator === "spark" ? "Spark check" : "rule check"})` : `${draft.validation.issues.length} claim issue(s)`}</Badge> : null}
+            {draft.validation ? <Badge tone={draft.validation.ok ? "success" : "danger"}>{draft.validation.ok ? `Facts OK (${draft.validation.validator === "spark" ? "Spark check" : "rule check"})` : `${draft.validation.issues.length} fact issue(s)`}</Badge> : null}
           </div>
           {edit ? (
             <div className="space-y-2">

@@ -47,7 +47,8 @@ export default defineConfig({
       env: { PORT: new URL(API_URL).port || "8080", PUBLIC_WEB_URL: WEB_URL, API_PUBLIC_URL: API_URL, ...(chrome ? { RENDER_CHROME_PATH: chrome } : {}) },
     },
     {
-      command: (new URL(WEB_URL).port || "3000") === "3000" ? "pnpm --filter @muselaunch/web dev" : `pnpm --filter @muselaunch/web exec next dev -p ${new URL(WEB_URL).port}`,
+      // Another port skips `pnpm dev` (and its predev step), so vendor the player runtime first or the Studio preview can't start.
+      command: (new URL(WEB_URL).port || "3000") === "3000" ? "pnpm --filter @muselaunch/web dev" : `pnpm --filter @muselaunch/web vendor:runtime && pnpm --filter @muselaunch/web exec next dev -p ${new URL(WEB_URL).port}`,
       url: WEB_URL,
       reuseExistingServer: true,
       timeout: 180_000,

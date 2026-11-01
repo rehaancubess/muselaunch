@@ -16,6 +16,13 @@ type HfPlayer = HTMLElement & { play(): void; pause(): void; seek(t: number): vo
 let playerModule: Promise<unknown> | null = null;
 const loadPlayer = () => (playerModule ??= import("@hyperframes/player"));
 
+/** The player's own error text in plain words (it says "composition timeline" when it gives up waiting). */
+function plainPlayerError(message?: string): string {
+  if (!message) return "The preview couldn't load.";
+  if (/timeline not found/i.test(message)) return "The preview took too long to start. Try again.";
+  return message.replace(/\bcompositions?\b/gi, "video");
+}
+
 /** Only show a loading indicator when loading takes longer than this. */
 const BUSY_DELAY_MS = 300;
 
@@ -170,7 +177,7 @@ export const PreviewPlayer = forwardRef<
       ),
     );
     p.addEventListener("error", (e) => {
-      setLoadError((e as unknown as CustomEvent<{ message?: string }>).detail?.message ?? "The preview couldn't load.");
+      setLoadError(plainPlayerError((e as unknown as CustomEvent<{ message?: string }>).detail?.message));
       if (pending.current === p) promote(p);
     });
     return p;

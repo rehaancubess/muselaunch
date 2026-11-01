@@ -57,7 +57,7 @@ export function useStudio(workspaceId: string, compositionId: string) {
     (ops: PatchOp[], summary = "Edit") =>
       run(async () => {
         const cur = qc.getQueryData<CompositionResponse>(keyFor(base));
-        if (!cur) throw new Error("Composition not loaded");
+        if (!cur) throw new Error("Video not loaded");
         const r = await api.post<CommitResponse>(`${base}/patch`, { baseVersion: cur.composition.currentVersion, ops, summary: summary.slice(0, 500) });
         applyCommit(r);
         return r;

@@ -100,7 +100,7 @@ export default function CalendarRoot({ appId }: CalendarRootProps) {
         </Section>
       ) : null}
 
-      <QueryState query={cal} feature="Calendar" skeleton={<Skeleton className="h-72 w-full" rounded="xl" />}>
+      <QueryState query={cal} feature="Scheduled posts" skeleton={<Skeleton className="h-72 w-full" rounded="xl" />}>
         {(data) => {
           const days = Object.entries(data.days)
             .map(([day, items]) => [day, items.filter((i) => matches(filter, i))] as const)
@@ -151,7 +151,7 @@ export default function CalendarRoot({ appId }: CalendarRootProps) {
                 ) : (
                   <EmptyState
                     icon={<CalendarDays aria-hidden />}
-                    title="Nothing on the calendar in this range"
+                    title="Nothing scheduled in this range"
                     description="Create a post from a rendered video. It stays a draft until it’s approved, then publishes via a connected account or gives you a posting checklist."
                     action={
                       <Button icon={<Plus aria-hidden />} onClick={() => setNewPost(true)}>

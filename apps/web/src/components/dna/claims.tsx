@@ -9,7 +9,7 @@ import { EvidencePopover } from "./evidence";
 
 type Filter = "needs_review" | "verified" | "rejected" | "all";
 
-const STATE_LABEL: Record<ReviewState, string> = { verified: "Verified", needs_review: "Needs review", rejected: "Rejected" };
+const STATE_LABEL: Record<ReviewState, string> = { verified: "Confirmed", needs_review: "Needs review", rejected: "Rejected" };
 
 function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: { claim: Claim; evidence: AppEvidence[]; workspaceId: string; appId: string; canEdit: boolean; canApprove: boolean }) {
   const toast = useToast();
@@ -23,11 +23,11 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: 
     try {
       await api.patch(wsPath(workspaceId, `/apps/${appId}/claims/${claim.id}`), body);
       await invalidate(wsPath(workspaceId, `/apps/${appId}/dna`));
-      if (which === "verified") toast.success("Claim verified", "It can now be used in creative.");
-      if (which === "rejected") toast.toast({ title: "Claim rejected", description: "Muse won’t use it." });
+      if (which === "verified") toast.success("Fact confirmed", "Videos and posts can say it now.");
+      if (which === "rejected") toast.toast({ title: "Fact rejected", description: "Muse won’t use it." });
       if (which === "edit") setEditing(false);
     } catch (e) {
-      toast.error("Couldn’t update the claim", errorMessage(e));
+      toast.error("Couldn’t update the fact", errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -40,22 +40,22 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: 
         <div className="flex flex-wrap items-center gap-1.5">
           <StatusPill status={claim.state === "verified" ? "success" : claim.state === "rejected" ? "failed" : "attention"}>{STATE_LABEL[claim.state]}</StatusPill>
           {claim.speculative ? (
-            <Tooltip content="This claim goes beyond its evidence. Verify it only if you can back it up.">
+            <Tooltip content="This goes further than its sources show. Confirm it only if you can back it up.">
               <span>
                 <Badge tone="warning" icon={<AlertTriangle aria-hidden />}>
-                  Beyond evidence
+                  Beyond the sources
                 </Badge>
               </span>
             </Tooltip>
           ) : null}
-          <Badge tone="outline">{claim.origin === "user" ? "Added by you" : claim.origin === "agent" ? "Suggested by Muse" : "Extracted"}</Badge>
+          <Badge tone="outline">{claim.origin === "user" ? "Added by you" : claim.origin === "agent" ? "Suggested by Muse" : "From your sources"}</Badge>
           <span className="text-caption tabular text-ink-3">{Math.round(claim.confidence * 100)}% confidence</span>
           <EvidencePopover workspaceId={workspaceId} items={evidence} />
         </div>
       </div>
       {canEdit ? (
         <div className="flex shrink-0 items-center gap-1.5 sm:pt-0.5">
-          <IconButton label="Edit claim" size="sm" onClick={() => setEditing(true)}>
+          <IconButton label="Edit fact" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" aria-hidden />
           </IconButton>
           {canApprove && claim.state !== "rejected" ? (
@@ -65,7 +65,7 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: 
           ) : null}
           {canApprove && claim.state !== "verified" ? (
             <Button size="sm" variant="secondary" loading={busy === "verified"} onClick={() => patch({ state: "verified" }, "verified")} icon={<Check className="size-3.5" aria-hidden />}>
-              Verify
+              Confirm
             </Button>
           ) : null}
         </div>
@@ -73,20 +73,20 @@ function ClaimRow({ claim, evidence, workspaceId, appId, canEdit, canApprove }: 
       <Dialog
         open={editing}
         onOpenChange={setEditing}
-        title="Edit claim"
-        description="Edited claims go back to review. Keep them specific and provable."
+        title="Edit fact"
+        description="Edited facts go back to review. Keep them specific and provable."
         footer={
           <>
             <Button variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
             <Button loading={busy === "edit"} disabled={!text.trim() || text.trim() === claim.text} onClick={() => patch({ text: text.trim(), state: "needs_review" }, "edit")}>
-              Save claim
+              Save fact
             </Button>
           </>
         }
       >
-        <Field label="Claim">{(f) => <Textarea id={f.id} rows={3} value={text} onChange={(e) => setText(e.target.value)} maxLength={500} />}</Field>
+        <Field label="Fact">{(f) => <Textarea id={f.id} rows={3} value={text} onChange={(e) => setText(e.target.value)} maxLength={500} />}</Field>
       </Dialog>
     </li>
   );
@@ -108,24 +108,24 @@ export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit, c
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl<Filter>
-          label="Filter claims"
+          label="Filter facts"
           size="sm"
           value={filter}
           onChange={setFilter}
           items={[
             { value: "needs_review", label: `To review ${counts.needs_review}` },
-            { value: "verified", label: `Verified ${counts.verified}` },
+            { value: "verified", label: `Confirmed ${counts.verified}` },
             { value: "rejected", label: `Rejected ${counts.rejected}` },
             { value: "all", label: "All" },
           ]}
         />
         {canEdit ? (
           <Button size="sm" variant="secondary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setAdding(true)}>
-            Add claim
+            Add fact
           </Button>
         ) : null}
       </div>
-      {canEdit && !canApprove && counts.needs_review ? <p className="text-footnote text-ink-2">An owner or admin verifies claims. You can edit wording or add new ones.</p> : null}
+      {canEdit && !canApprove && counts.needs_review ? <p className="text-footnote text-ink-2">An owner or admin confirms facts. You can edit wording or add new ones.</p> : null}
       {shown.length ? (
         <ul className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-raised">
           {shown.map((c) => (
@@ -137,16 +137,16 @@ export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit, c
           <EmptyState
             size="sm"
             icon={<MessageSquareQuote aria-hidden />}
-            title={claims.length ? "Nothing in this view" : "No claims yet"}
-            description={claims.length ? "Switch filters to see other claims." : "Claims are statements creative can make about your app. They appear after analysis, or add your own."}
+            title={claims.length ? "Nothing in this view" : "No facts yet"}
+            description={claims.length ? "Switch filters to see other facts." : "Facts are things your videos and posts can say about your app. They appear after analysis, or add your own."}
           />
         </div>
       )}
       <Dialog
         open={adding}
         onOpenChange={setAdding}
-        title="Add a claim"
-        description={canApprove ? "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. Claims you add are verified straight away." : "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. It starts in review."}
+        title="Add a fact"
+        description={canApprove ? "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. Facts you add are confirmed straight away." : "Something true about your app you want campaigns to say, like “Syncs across iPhone and Mac”. It starts in review."}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAdding(false)}>
@@ -162,20 +162,20 @@ export function ClaimsSection({ claims, evidence, workspaceId, appId, canEdit, c
                   await invalidate(wsPath(workspaceId, `/apps/${appId}/dna`));
                   setNewText("");
                   setAdding(false);
-                  toast.success("Claim added");
+                  toast.success("Fact added");
                 } catch (e) {
-                  toast.error("Couldn’t add the claim", errorMessage(e));
+                  toast.error("Couldn’t add the fact", errorMessage(e));
                 } finally {
                   setSaving(false);
                 }
               }}
             >
-              Add claim
+              Add fact
             </Button>
           </>
         }
       >
-        <Field label="Claim">{(f) => <Textarea id={f.id} rows={3} value={newText} onChange={(e) => setNewText(e.target.value)} maxLength={500} autoFocus />}</Field>
+        <Field label="Fact">{(f) => <Textarea id={f.id} rows={3} value={newText} onChange={(e) => setNewText(e.target.value)} maxLength={500} autoFocus />}</Field>
       </Dialog>
     </div>
   );

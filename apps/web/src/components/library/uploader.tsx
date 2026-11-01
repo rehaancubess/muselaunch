@@ -115,7 +115,7 @@ export function Uploader({ workspaceId, appId, onUploaded }: { workspaceId: stri
         </span>
         <div className="space-y-1">
           <p className="text-body-sm font-medium">Drop screenshots, screen recordings or founder clips</p>
-          <p className="text-footnote text-ink-2">PNG, JPEG, HEIC, MP4, MOV, WebM and audio. Real product media is used as proof in App DNA and in videos.</p>
+          <p className="text-footnote text-ink-2">PNG, JPEG, HEIC, MP4, MOV, WebM and audio. Real product media is used as proof in About your app and in videos.</p>
         </div>
         <Button size="sm" variant="secondary" onClick={() => inputRef.current?.click()}>
           Choose files

@@ -25,7 +25,7 @@ export default function PrivacyPage() {
             about your app, audience and brand.
           </li>
           <li>
-            <strong className="text-ink">Your content:</strong> files you upload (recordings, images, videos) and what MuseLaunch makes for you (research notes, scripts, storyboards,
+            <strong className="text-ink">Your content:</strong> files you upload (recordings, images, videos) and what MuseLaunch makes for you (research notes, scripts, video plans,
             videos, images, captions, post drafts).
           </li>
           <li>
@@ -62,14 +62,14 @@ export default function PrivacyPage() {
             where Meta may train on inputs.
           </li>
           <li>
-            <strong className="text-ink">Baseten</strong>: Muse Spark Open, Meta&apos;s open-weight model, for post copy and variants.
+            <strong className="text-ink">Baseten</strong>: Muse Spark Open, Meta&apos;s open-weight model, for post copy and video briefs.
           </li>
           <li>
             <strong className="text-ink">OpenAI</strong>: image generation and optional narration. While Meta Model API access is unavailable to us, OpenAI also temporarily handles the
             steps normally run by Muse Wonder and Muse Spark; the app shows a banner whenever that is the case.
           </li>
           <li>
-            <strong className="text-ink">Muse Glimmer</strong>: Meta&apos;s open-weight model, run on hardware the operator controls, for brand and claim checks.
+            <strong className="text-ink">Muse Glimmer</strong>: Meta&apos;s open-weight model, run on hardware the operator controls, for brand and fact checks.
           </li>
           <li>
             <strong className="text-ink">Platforms you connect</strong>, for the actions you approve there.

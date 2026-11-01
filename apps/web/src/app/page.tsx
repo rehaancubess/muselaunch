@@ -101,7 +101,7 @@ function Hero() {
           MuseLaunch does the marketing.
         </h1>
         <p className={`mt-6 max-w-[40rem] animate-rise-in text-ink-2 text-balance [animation-delay:120ms] ${LEAD}`}>
-          Paste your App Store or Google Play link. Growth Autopilot finds your audience, makes real promo videos from your own screens and gets every post ready. Nothing goes out until you approve it.
+          Paste your App Store or Google Play link. Autopilot finds your audience, makes real promo videos from your own screens and gets every post ready. Nothing goes out until you approve it.
         </p>
         <div className="mt-9 w-full max-w-[540px] animate-rise-in [animation-delay:180ms]">
           <HeroLinkForm />
@@ -333,17 +333,17 @@ function Autopilot() {
     <FeatureRow
       id="autopilot"
       first
-      label="Growth Autopilot"
+      label="Autopilot"
       icon={<Rocket className="size-4" />}
       title="Marketing on autopilot, with a budget and brakes."
-      lead="Give Muse Wonder a goal, like more installs from students before exams. It runs one bounded experiment at a time inside the credit budget you set, and logs every decision with the research behind it."
+      lead="Give Muse Wonder a goal, like more installs from students before exams. It runs one test at a time inside the credit budget you set, and logs every decision with the research behind it."
       points={AUTOPILOT_POINTS}
       visual={
-        <ShotPanel caption="The decision log, budget and experiment from a Growth Autopilot run. Sample data.">
+        <ShotPanel caption="The decision log, budget and test from an Autopilot run. Sample data.">
           <ShotCard className="mx-auto max-w-[1040px]">
             <Image
               src="/landing/autopilot-log.webp"
-              alt="Growth Autopilot decision log beside its budget. Muse Wonder started with the goal and a 50-credit budget, understood the app from its App DNA, delegated live web research that succeeded for 40 credits, and cited a source retrieved on 28 October. The side panel shows 77 of 93 credits used, renders never run without asking, the chosen audience of university students revising for exams, and a two-variant experiment."
+              alt="Autopilot decision log beside its budget. Muse Wonder started with the goal and a 50-credit budget, understood the app from what it learned about it, delegated live web research that succeeded for 40 credits, and cited a source retrieved on 28 October. The side panel shows 77 of 93 credits used, renders never run without asking, the chosen audience of university students revising for exams, and a test comparing two videos."
               width={1280}
               height={552}
               sizes="(min-width: 1200px) 1040px, 92vw"
@@ -360,17 +360,17 @@ function Guardian() {
   return (
     <FeatureRow
       id="guardian"
-      label="Brand Guardian"
+      label="Brand check"
       icon={<ShieldCheck className="size-4" />}
       title="A private check before anything reaches you."
-      lead="A self-hosted Muse Glimmer model reviews every video, caption and post against your brand voice and the claims you’ve verified. It works alongside deterministic rules, before you’re asked to approve."
+      lead="A self-hosted Muse Glimmer model reviews every video, caption and post against your brand voice and the facts you’ve confirmed. It works alongside fixed rules, before you’re asked to approve."
       points={GUARDIAN_POINTS}
       visual={
-        <ShotPanel caption="Claims and brand voice in App DNA, which the guardian checks every asset against. Sample app.">
+        <ShotPanel caption="Facts and brand voice in About your app, which the brand check compares everything against. Sample app.">
           <ShotCard className="mx-auto max-w-[860px]">
             <Image
               src="/landing/guardian-claims.webp"
-              alt="Claims to review: “Helps you get more done every week” and “The #1 focus app for students” are both flagged Beyond evidence, with Reject and Verify buttons. Below, the brand kit voice: tone calm and encouraging, words to use focus and calm, words to avoid hustle."
+              alt="Facts to review: “The #1 focus app for students” and “Helps you get more done every week” are both flagged Beyond the sources, with Reject and Confirm buttons. Below, the brand kit voice: tone calm and encouraging, words to use focus and calm, words to avoid hustle."
               width={940}
               height={587}
               sizes="(min-width: 1200px) 860px, 92vw"
@@ -426,7 +426,7 @@ function Control() {
           <ShotCard>
             <Image
               src="/landing/approvals.webp"
-              alt="Calendar, waiting for approval: two Instagram posts marked Pending, each tied to a specific version, with Approve this version and Reject buttons. Nothing is published until that exact version is approved."
+              alt="Scheduled posts waiting for approval: two Instagram posts marked Pending, each tied to a specific version, with Approve this version and Reject buttons. Nothing is published until that exact version is approved."
               width={1280}
               height={260}
               sizes="(min-width: 1200px) 1136px, 100vw"
@@ -434,14 +434,14 @@ function Control() {
             />
             <Image
               src="/landing/approvals-one.webp"
-              alt="Calendar, waiting for approval: an Instagram post marked Pending for a specific version, with Approve this version and Reject buttons. Nothing is published until that exact version is approved."
+              alt="Scheduled posts waiting for approval: an Instagram post marked Pending for a specific version, with Approve this version and Reject buttons. Nothing is published until that exact version is approved."
               width={642}
               height={260}
               sizes="100vw"
               className="block h-auto w-full sm:hidden"
             />
           </ShotCard>
-          <figcaption className="mt-3 text-footnote text-ink-2">Posts waiting for approval in the Calendar. Sample data.</figcaption>
+          <figcaption className="mt-3 text-footnote text-ink-2">Posts waiting for approval in Scheduled. Sample data.</figcaption>
         </figure>
         <ul className="mt-14 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
           {CONTROL.map((c) => (
@@ -526,7 +526,7 @@ function Pricing() {
               </tbody>
             </table>
             <p className="mt-4 border-t border-black/[0.07] pt-4 text-footnote text-ink-2 text-pretty">
-              One Growth Autopilot round with two video variants is estimated at about {AUTOPILOT_ROUND_CREDITS} credits.
+              One Autopilot round with two videos is estimated at about {AUTOPILOT_ROUND_CREDITS} credits.
             </p>
           </div>
         </div>
@@ -565,7 +565,7 @@ function FinalCta() {
         <h2 id="cta-title" className={`${H2} max-w-[20ch]`}>
           You built something good. Let’s help the world discover it.
         </h2>
-        <p className={`mt-5 max-w-[34rem] text-ink-2 text-balance ${LEAD} lg:text-[19px]`}>Paste your link and Growth Autopilot gets to work. You approve what goes out.</p>
+        <p className={`mt-5 max-w-[34rem] text-ink-2 text-balance ${LEAD} lg:text-[19px]`}>Paste your link and Autopilot gets to work. You approve what goes out.</p>
         <div className="mt-9 w-full max-w-[540px]">
           <HeroLinkForm id="cta-link" />
         </div>

@@ -17,10 +17,10 @@ export function AgentRunsList({ workspaceId, appId, limit = 20 }: { workspaceId:
     refetchInterval: (q) => (q.state.data?.items.some((r) => r.status === "running" || r.status === "queued") ? 4000 : false),
   });
   return (
-    <QueryState query={query} feature="Agent runs">
+    <QueryState query={query} feature="AI activity">
       {(page) =>
         page.items.length ? (
-          <List label="Agent runs">
+          <List label="AI activity">
             {page.items.map((r) => (
               <ListRow
                 key={r.id}
@@ -40,7 +40,7 @@ export function AgentRunsList({ workspaceId, appId, limit = 20 }: { workspaceId:
             ))}
           </List>
         ) : (
-          <EmptyState icon={<Bot aria-hidden />} title="No agent runs yet" description="Runs appear here when Muse Wonder or Muse Spark works on this app — research, App DNA, concepts, storyboards and edits." />
+          <EmptyState icon={<Bot aria-hidden />} title="No AI activity yet" description="It appears here when Muse Wonder or Muse Spark works on this app — research, learning about your app, ideas, plans and edits." />
         )
       }
     </QueryState>

@@ -38,7 +38,7 @@ export const RAIL: { stage: LoopStage; label: string; blurb: string }[] = [
   { stage: "hypothesis", label: "Test", blurb: "What we’re testing, and how it’s measured." },
   { stage: "plan_creative", label: "Ideas", blurb: "Distinct video ideas, one per video to compare." },
   { stage: "produce", label: "Videos", blurb: "Plans (Muse Spark) built into editable videos." },
-  { stage: "verify", label: "Check", blurb: "Lint, fact checks and the brand check." },
+  { stage: "verify", label: "Check", blurb: "Layout checks, fact checks and the brand check." },
   { stage: "render", label: "Render", blurb: "Final HyperFrames renders, within your budget; Muse Spark watches each one." },
   { stage: "schedule", label: "Posts", blurb: "Drafted with suggested times — each waits for your OK." },
   { stage: "measure", label: "Measure", blurb: "Waits for real results. Nothing is estimated." },
@@ -120,24 +120,24 @@ export function entityHref(workspaceId: string, appId: string, ap: Pick<Autopilo
     case "campaigns":
       return { href: app.campaign(ref.id), label: "Campaign" };
     case "campaignVariants":
-      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Concepts" } : null;
+      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Ideas" } : null;
     case "agentRuns":
-      return { href: app.run(ref.id), label: "Agent run" };
+      return { href: app.run(ref.id), label: "AI run" };
     case "researchRuns":
       return { href: app.discover, label: "Research" };
     case "experiments":
     case "recommendations":
-      return { href: app.insights, label: ref.entity === "experiments" ? "Experiment" : "Recommendations" };
+      return { href: app.insights, label: ref.entity === "experiments" ? "Test" : "Recommendations" };
     case "scheduledPosts":
-      return { href: app.calendar, label: "Calendar" };
+      return { href: app.scheduled, label: "Scheduled" };
     case "brandProfiles":
-      return { href: app.brand, label: "Brand" };
+      return { href: app.about, label: "About your app" };
     case "brandReviews": {
       const r = reviews.find((x) => x.id === ref.id);
       return r?.subject.entity === "compositions" ? { href: app.studio(r.subject.id), label: "Review in Studio" } : null;
     }
     case "mediaAssets":
-      return { href: app.library, label: "Library" };
+      return { href: app.videos, label: "Videos" };
     default:
       return null;
   }

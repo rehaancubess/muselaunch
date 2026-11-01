@@ -131,7 +131,8 @@ export function SimpleStudio(props: SimpleStudioProps) {
               {preview.data.missingAssetIds.length} media file{preview.data.missingAssetIds.length === 1 ? " is" : "s are"} missing or still uploading; they appear blank in the preview.
             </Notice>
           ) : null}
-          <div className={cn("min-h-0", portrait ? "h-[min(58dvh,560px)]" : "h-[min(40dvh,420px)] sm:h-[min(52dvh,520px)]", "lg:h-auto lg:flex-1")}>
+          {/* Phones: short enough that the scene strip sits above the tab bar on the first screen. */}
+          <div className={cn("min-h-0", portrait ? "h-[max(260px,min(calc(100dvh_-_var(--ml-topbar-h)_-_22.5rem_-_env(safe-area-inset-bottom)),560px))] md:h-[min(58dvh,560px)]" : "h-[min(40dvh,420px)] sm:h-[min(52dvh,520px)]", "lg:h-auto lg:flex-1")}>
             <PreviewPlayer
               ref={player}
               html={preview.data?.html}
@@ -173,7 +174,7 @@ export function SimpleStudio(props: SimpleStudioProps) {
               <SoundLine workspaceId={workspaceId} base={base} version={c.currentVersion} onCommitted={props.onApplied} onRefresh={props.onRefresh} onDetails={() => onDetail("sound")} disabled={props.saving} />
             </div>
           </div>
-          <div className="space-y-3 border-t border-line px-4 pb-28 pt-4 md:pb-5 lg:px-5">
+          <div className="space-y-3 border-t border-line px-4 pb-5 pt-4 lg:px-5">
             <ShareActions workspaceId={workspaceId} appId={appId} base={base} data={data} 
               onRendered={props.onRefresh}
               onDetail={() => {
@@ -552,8 +553,8 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
         onCreated={() =>
           toast.toast({
             title: "Draft post created",
-            description: "Nothing is published yet: request approval in the Calendar, then publish or post it yourself.",
-            action: { label: "Open Calendar", onClick: () => router.push(routes.app(workspaceId, appId).calendar) },
+            description: "Nothing is posted yet: ask for approval in Scheduled, then MuseLaunch posts it or you post it yourself.",
+            action: { label: "Open Scheduled", onClick: () => router.push(routes.app(workspaceId, appId).scheduled) },
           })
         }
       />

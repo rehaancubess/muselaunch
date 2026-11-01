@@ -12,7 +12,7 @@ import { useWorkspace } from "@/lib/workspace";
 import { fetchEstimate } from "./experiments";
 
 const KIND_LABEL: Record<GrowthRecommendation["kind"], string> = {
-  next_experiment: "Next experiment",
+  next_experiment: "Next test",
   content: "Content",
   channel: "Channel",
   audience: "Audience",
@@ -46,7 +46,7 @@ export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { 
       const res = await api.post<{ recommendation: GrowthRecommendation; experiment: Experiment | null }>(wsPath(workspaceId, `/recommendations/${r.id}/accept`));
       void recs.refetch();
       if (res.experiment) {
-        toast.success("Experiment created", res.experiment.title);
+        toast.success("Test created", res.experiment.title);
         onOpenExperiment(res.experiment.id);
       } else toast.success("Accepted", "Saved to your brand memory.");
     } catch (err) {
@@ -65,7 +65,7 @@ export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { 
   return (
     <Section
       title="What to try next"
-      description={`Muse Spark reads your measured results; Muse Wonder proposes the next experiment, using what you've decided before. Recommendations never predict results.${auto ? " Autopilot is on: new results you sync or import generate fresh recommendations automatically." : ""}`}
+      description={`Muse Spark reads your measured results; Muse Wonder suggests the next test, using what you've decided before. Recommendations never predict results.${auto ? " Autopilot is on: new results you sync or import generate fresh recommendations automatically." : ""}`}
       actions={
         can("analytics.write") ? (
           <div className="flex items-center gap-3">
@@ -85,7 +85,7 @@ export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { 
           if (!data.items.length)
             return (
               <Card tone="well">
-                <EmptyState icon={<Lightbulb aria-hidden />} title="No recommendations yet" description="Generate them once you have some measured data, or to plan your first experiment." />
+                <EmptyState icon={<Lightbulb aria-hidden />} title="No recommendations yet" description="Generate them once you have some measured data, or to plan your first test." />
               </Card>
             );
           return (
@@ -103,7 +103,7 @@ export function RecommendationsView({ workspaceId, appId, onOpenExperiment }: { 
                         {r.dismissReason ? ` (${r.dismissReason})` : ""}
                         {r.experimentId ? (
                           <button type="button" className="ml-2 text-accent hover:underline" onClick={() => onOpenExperiment(r.experimentId!)}>
-                            Open experiment
+                            Open test
                           </button>
                         ) : null}
                       </li>
@@ -141,12 +141,12 @@ function RecommendationCard({ r, canAct, onAccept, onDismiss }: { r: GrowthRecom
           <p className="font-medium">{r.proposedExperiment.title}</p>
           <p className="text-ink-2">{r.proposedExperiment.hypothesis}</p>
           <p className="mt-1 text-footnote text-ink-2">
-            Measure: {r.proposedExperiment.primaryMetric.replace(/_/g, " ")} · Variants: {r.proposedExperiment.variants.join(" vs ")}
+            Measured by {r.proposedExperiment.primaryMetric.replace(/_/g, " ")} · Versions: {r.proposedExperiment.variants.join(" vs ")}
           </p>
         </div>
       ) : null}
       <p className="text-footnote text-ink-3">
-        Based on {evidence ? `${r.basedOn.observationIds.length} measured observations and ${r.basedOn.resultIds.length} experiment results` : "no measured results yet"}
+        Based on {evidence ? `${r.basedOn.observationIds.length} measured numbers and ${r.basedOn.resultIds.length} test results` : "no measured results yet"}
         {r.basedOn.preferenceIds.length ? `, ${r.basedOn.preferenceIds.length} memory item${r.basedOn.preferenceIds.length > 1 ? "s" : ""}` : ""}
         {r.models ? ` · ${[modelName(r.models.interpret) && `read by ${modelName(r.models.interpret)}`, modelName(r.models.propose) && `proposed by ${modelName(r.models.propose)}`].filter(Boolean).join(", ")}` : ""}
       </p>
@@ -166,7 +166,7 @@ function RecommendationCard({ r, canAct, onAccept, onDismiss }: { r: GrowthRecom
         ) : (
           <div className="flex gap-2">
             <Button size="sm" onClick={onAccept}>
-              {r.proposedExperiment ? "Accept and create experiment" : "Accept"}
+              {r.proposedExperiment ? "Accept and create the test" : "Accept"}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setDismissing(true)}>
               Dismiss

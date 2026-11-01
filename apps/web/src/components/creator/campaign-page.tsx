@@ -30,7 +30,7 @@ import { QueryState } from "@/components/states";
 import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { AppDnaResponse, CampaignDetailResponse, JobResponse, Page } from "@/lib/api-types";
 import { isActive, useJob } from "@/lib/jobs";
-import { CHANNEL_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
+import { CHANNEL_LABEL, COPY_KIND_LABEL, GOAL_LABEL, campaignStatusLabel, relativeTime } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
@@ -75,14 +75,14 @@ function CopyPacks({ data }: { data: CampaignDetailResponse }) {
   const toast = useToast();
   if (!data.copyPacks.length) return null;
   return (
-    <Section title="Captions & copy" description="Checked against your verified claims before it’s shown here.">
+    <Section title="Captions & copy" description="Checked against your confirmed facts before it’s shown here.">
       <div className="grid gap-3 md:grid-cols-2">
         {data.copyPacks.map((p) => (
           <div key={p.id} className="space-y-3 rounded-xl bg-surface p-4 shadow-raised">
             <div className="flex items-center justify-between gap-2">
               <p className="text-body-sm font-semibold">{CHANNEL_LABEL[p.channel]}</p>
               {p.validation ? (
-                <StatusPill status={p.validation.ok ? "success" : "attention"}>{p.validation.ok ? "Claims checked" : `${p.validation.issues.length} to fix`}</StatusPill>
+                <StatusPill status={p.validation.ok ? "success" : "attention"}>{p.validation.ok ? "Facts checked" : `${p.validation.issues.length} to fix`}</StatusPill>
               ) : (
                 <StatusPill status="queued">Not checked</StatusPill>
               )}
@@ -91,7 +91,7 @@ function CopyPacks({ data }: { data: CampaignDetailResponse }) {
               {p.items.slice(0, 4).map((it) => (
                 <li key={it.id} className="group flex items-start gap-2 rounded-lg bg-mist/70 px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-caption text-ink-3">{humanizeStatus(it.kind)}</p>
+                    <p className="text-caption text-ink-3">{COPY_KIND_LABEL[it.kind] ?? humanizeStatus(it.kind)}</p>
                     <p className="whitespace-pre-line text-footnote text-ink">{it.text}</p>
                     {p.validation?.issues.filter((x) => x.itemId === it.id).map((x, i) => (
                       <p key={i} className="mt-1 text-caption text-warning">
@@ -222,7 +222,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
   const r = routes.app(workspaceId, appId);
   const refresh = () => void invalidate(path, wsPath(workspaceId, "/jobs"));
   const toast = useToast();
-  const toastPosted = () => toast.toast({ title: "Draft post created", description: "Find it in the Calendar to request approval and publish or export.", action: { label: "Open Calendar", onClick: () => router.push(r.calendar) } });
+  const toastPosted = () => toast.toast({ title: "Draft post created", description: "Find it in Scheduled to ask for approval, then post or export it.", action: { label: "Open Scheduled", onClick: () => router.push(r.scheduled) } });
 
   return (
     <PageContainer width="wide">
@@ -324,7 +324,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                 </Section>
               ) : null}
 
-              <Section title="Concepts" description={variants.length ? "Each takes a different strategic angle. Select the ones worth testing, then produce them." : undefined}>
+              <Section title="Ideas" description={variants.length ? "Each idea takes a different angle. Select the ones worth testing, then produce them." : undefined}>
                 {variants.length ? (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {variants.map((v) => (
@@ -345,14 +345,14 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                   <div className="rounded-2xl bg-mist/60">
                     <EmptyState
                       icon={<Lightbulb aria-hidden />}
-                      title={active.length ? "Muse is working on concepts" : "No concepts yet"}
-                      description={active.length ? "Research comes first, so every concept can point to what it’s based on. Progress is shown above." : "Concept generation didn’t produce results. Check the activity above and retry."}
+                      title={active.length ? "Muse is working on ideas" : "No ideas yet"}
+                      description={active.length ? "Research comes first, so every idea can point to what it’s based on. Progress is shown above." : "Muse didn’t come up with ideas this time. Check the activity above and try again."}
                     />
                   </div>
                 )}
               </Section>
 
-              <Section title="Compositions" description={compositions.length ? "Editable videos and stills. Open one in the Studio to edit by conversation or by hand." : undefined}>
+              <Section title="Videos" description={compositions.length ? "Editable videos and images. Open one in the Studio to change it by asking or by hand." : undefined}>
                 {compositions.length ? (
                   <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
                     {compositions.map((c) => (
@@ -361,7 +361,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-line-strong">
-                    <EmptyState size="sm" icon={<FileArchive aria-hidden />} title="Nothing produced yet" description="Produce a selected concept and its storyboard, composition and preview render appear here." />
+                    <EmptyState size="sm" icon={<FileArchive aria-hidden />} title="Nothing produced yet" description="Produce a selected idea and its plan, video and preview show up here." />
                   </div>
                 )}
               </Section>
@@ -369,7 +369,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
               {d.copyPacks.length ? (
                 <CopyPacks data={d} />
               ) : compositions.length && can("content.write") ? (
-                <Section title="Captions & copy" description="Channel-native captions, titles and hashtags, checked against your verified claims.">
+                <Section title="Captions & copy" description="Captions, titles and hashtags written for each channel, checked against your confirmed facts.">
                   <div className="flex items-center justify-between gap-4 rounded-xl bg-mist/60 px-5 py-4">
                     <p className="text-body-sm text-ink-2">No captions yet for this campaign.</p>
                     <WriteCopyButton workspaceId={workspaceId} campaignId={campaignId} channels={campaign.channels} onJob={(j) => setStartedJobs((x) => [j, ...x])} />
@@ -381,7 +381,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                 <TrackedLinks workspaceId={workspaceId} campaignId={campaignId} campaignName={campaign.name} app={app} channels={campaign.channels} canEdit={can("analytics.write")} />
               </Section>
 
-              <Section title="AI activity" description="Every research, concept, storyboard and edit run for this app, with its plan, sources and model usage.">
+              <Section title="AI activity" description="Every research, idea, plan and edit run for this app, with its steps, sources and model usage.">
                 <AgentRunsList workspaceId={workspaceId} appId={appId} limit={8} />
               </Section>
 
@@ -407,7 +407,7 @@ function CompositionBrandStatus({ workspaceId, compositionId, version }: { works
   if (!latest) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-caption text-ink-3">Brand Guardian</span>
+      <span className="text-caption text-ink-3">Brand check</span>
       <ReviewStatus status={latest.status} />
       <EngineBadge reviewer={latest.reviewer} />
     </div>
@@ -423,7 +423,7 @@ function AutopilotLink({ workspaceId, appId, campaignId }: { workspaceId: string
     <Button variant="ghost" size="sm" asChild>
       <Link href={`${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(loop.id)}`}>
         <Rocket className="size-3.5" aria-hidden />
-        Growth Autopilot · {AUTOPILOT_STATUS[loop.status]}
+        Autopilot · {AUTOPILOT_STATUS[loop.status]}
       </Link>
     </Button>
   );

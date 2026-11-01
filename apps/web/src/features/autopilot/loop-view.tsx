@@ -118,7 +118,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
             ))}
           </ul>
           <p className="text-caption text-ink-3">
-            Primary metric: {humanizeStatus(exp.primaryMetric)}
+            Measured by {humanizeStatus(exp.primaryMetric).toLowerCase()}
             {exp.launchWindow?.end ? ` · measured until ${new Date(exp.launchWindow.end).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
           </p>
         </section>
@@ -148,7 +148,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
         <section className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-footnote font-medium text-ink-2">Posts</p>
-            <SideLink href={app.calendar}>Calendar</SideLink>
+            <SideLink href={app.scheduled}>Scheduled</SideLink>
           </div>
           <ul className="space-y-1">
             {detail.posts.map((x) => (
@@ -161,7 +161,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
               </li>
             ))}
           </ul>
-          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post in Needs you or the Calendar. Autopilot never posts on its own.</p> : null}
+          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post in Needs you or in Scheduled. Autopilot never posts on its own.</p> : null}
         </section>
       ) : null}
     </Card>
