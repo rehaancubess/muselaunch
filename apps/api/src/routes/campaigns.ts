@@ -40,7 +40,7 @@ async function variantOf(c: Ctx, campaignId: string) {
 
 async function requireDna(c: Ctx, appId: string) {
   if (!(await ws(c).collection("brandProfiles").get(appId))) {
-    throw new AppError("CONFLICT", "App DNA is required first", { userMessage: "Build your App DNA first (import your listing or describe your app)." });
+    throw new AppError("CONFLICT", "App DNA is required first", { userMessage: "Let MuseLaunch learn about your app first (import your listing or describe your app)." });
   }
 }
 

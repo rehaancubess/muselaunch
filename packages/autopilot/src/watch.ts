@@ -90,7 +90,7 @@ const fixPatchId = (env: LoopEnv, compositionId: string) => hashId("pch", env.ap
 export async function watchRenders(env: LoopEnv, step: WatchStep): Promise<Outcome> {
   const renders = await finalRenders(env);
   if (!renders.length) return { kind: "advance", to: "schedule" };
-  const gate = await env.budgetGate(env.estimate("video.review") * renders.length, `Spark video review${renders.length === 1 ? "" : "s"} (${renders.length})`, step.approved);
+  const gate = await env.budgetGate(env.estimate("video.review") * renders.length, `Muse Spark watching ${renders.length} video${renders.length === 1 ? "" : "s"}`, step.approved);
   if (gate) return gate;
   const who = engine(env, "video.review");
   const waitIds: string[] = [];
@@ -184,7 +184,7 @@ async function afterWatch(env: LoopEnv, step: WatchStep): Promise<Outcome> {
 
   // Budget for the whole round: the scene edit plus the re-render (priced at the current length).
   const credits = fixable.reduce((n, x) => n + env.estimate("composition.edit") + env.estimate("render.final", { durationSec: x.durationSec }), 0);
-  const gate = await env.budgetGate(credits, `one Spark fix round and re-render (${fixable.length} video${fixable.length === 1 ? "" : "s"})`, step.approved);
+  const gate = await env.budgetGate(credits, `one round of fixes from Muse Spark and re-making ${fixable.length} video${fixable.length === 1 ? "" : "s"}`, step.approved);
   if (gate) return gate;
 
   const editor = engine(env, "composition.edit.scoped");
@@ -243,17 +243,17 @@ async function afterFix(env: LoopEnv, step: WatchStep, renderable: RenderableFn)
   if (!plan.length) return { kind: "advance", to: "schedule" };
   const total = plan.reduce((n, x) => n + x.credits, 0);
   const approved = step.phase === "approved" && step.tag === "render:rerender:approve";
-  const gate = await env.budgetGate(total, `re-render of ${plan.length} fixed video${plan.length === 1 ? "" : "s"}`, step.approved && !approved);
+  const gate = await env.budgetGate(total, `re-making ${plan.length} fixed video${plan.length === 1 ? "" : "s"}`, step.approved && !approved);
   if (gate) return gate;
   if (!approved && total > env.ap.budget.autoApproveCredits) {
-    return env.checkpoint("spend", `Re-render ${plan.length} video${plan.length === 1 ? "" : "s"} fixed from Spark's review for ≈${total} credits? (Auto-approve limit: ${env.ap.budget.autoApproveCredits} credits.) Reject to keep the earlier renders.`, total, "render:rerender:approve", `Re-render after Spark's fix needs your OK (≈${total} credits)`);
+    return env.checkpoint("spend", `Re-make ${plan.length} video${plan.length === 1 ? "" : "s"} with the fixes from Muse Spark’s review for about ${total} credits? Autopilot only spends up to ${env.ap.budget.autoApproveCredits} credits at a time without asking. Not now keeps the earlier versions.`, total, "render:rerender:approve", `Re-making after Muse Spark’s fixes needs your OK (about ${total} credits)`);
   }
   const waitIds: string[] = [];
   for (const x of plan) {
     const job = await env.delegate(
       "render.final",
       { appId: env.appId, compositionId: x.id, version: x.version, format: "mp4" },
-      { key: `render:${x.id}:v${x.version}`, label: `Video fix (iteration ${env.iteration}): final re-render of “${x.title}” v${x.version} (${x.durationSec}s) after Spark's fix, Brand Guardian gate passed.`, credits: { operation: "render.final", params: { durationSec: x.durationSec } } },
+      { key: `render:${x.id}:v${x.version}`, label: `Video fix (iteration ${env.iteration}): final re-render of “${x.title}” v${x.version} (${x.durationSec}s) after Muse Spark’s fix, brand check passed.`, credits: { operation: "render.final", params: { durationSec: x.durationSec } } },
     );
     waitIds.push(job.id);
   }

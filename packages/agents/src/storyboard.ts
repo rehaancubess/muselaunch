@@ -695,7 +695,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
     const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets, segments, targetDurationSec, voice };
     const sceneSummary = (o: StoryboardOutput) => o.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}${s.focus ? " [focus]" : s.focusQuery ? ` [focus: ${s.focusQuery}]` : ""}`).join("\n");
 
-    await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is writing the storyboard`);
+    await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is planning the video`);
     const maxOutputTokens = targetDurationSec >= 30 ? 14_000 : 8000;
     let out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.generate"), instructions: INSTRUCTIONS, input: callInput, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
     await rec.modelStep(`Write storyboard (${engineName(out.model)})`, out, { media: options.length, images: parts.length, target: targetDurationSec }, sceneSummary(out.data));
@@ -710,7 +710,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.repair"), instructions: INSTRUCTIONS, input: parts.length ? ([{ type: "input_text", text: repair }, ...parts] as InputPart[]) : repair, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
       await rec.modelStep(`Repair storyboard (${engineName(out.model)})`, out, issues, sceneSummary(out.data));
       check = checkStoryboard(out.data, checkCtx);
-      if (check.problems.length) throw new AppError("PROVIDER_ERROR", `Storyboard still invalid after repair: ${check.problems.join(" ")}`, { retryable: true, userMessage: "The storyboard couldn't be built from your real app media. Add screenshots or retry." });
+      if (check.problems.length) throw new AppError("PROVIDER_ERROR", `Storyboard still invalid after repair: ${check.problems.join(" ")}`, { retryable: true, userMessage: "The video couldn't be planned from your real app media. Add screenshots or try again." });
       claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: claimTexts(check.scenes), onFallback: fallbackTo(rec) });
     }
     const polished = polishStoryboard(check.scenes, checkCtx, brief?.cta || dna.preferredCtas[0] || `Get ${app.app.name}`);
@@ -767,7 +767,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
     await ws.collection("campaignVariants").update(variantId, { storyboardId, status: variant.status === "proposed" ? "selected" : variant.status, compositionIds: [...new Set([...variant.compositionIds, compositionId])] }, { actor: ctx.actor });
     // Producing (again): the campaign returns to `review` when every production chain has finished (campaign-status.ts).
     if (campaign.status === "planning" || campaign.status === "concepts_ready" || campaign.status === "review") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
-    await ctx.progress(90, "queueing b-roll and composition build");
+    await ctx.progress(90, "queueing b-roll and the video build");
     const media = await ctx.enqueue("storyboard.resolve_media", { appId, storyboardId, compositionId }, { idempotencyKey: `storyboard.resolve_media:${storyboardId}` });
     await rec.finish("succeeded", { outputRefs: [{ entity: "storyboards", id: storyboard.id }], memoryRefs: memory.items.map((m) => m.id) });
     // Charged: the storyboard at this length, plus the SAM focus lookups actually made.

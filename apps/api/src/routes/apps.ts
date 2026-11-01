@@ -55,13 +55,27 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
   let job = null;
   if (sources.length) {
     const imp = await p.db.ws(wid).collection("appImports").create({ appId: app.id, sources, status: "queued" }, { actor });
+    let evidenceId: string | undefined;
     if (input.description) {
-      await p.db.ws(wid).collection("appEvidence").create(
-        { appId: app.id, kind: "positioning", fact: input.description.slice(0, 1000), source: { kind: "user_input", retrievedAt: new Date().toISOString() }, observedAt: new Date().toISOString(), reviewState: "verified" },
-        { actor },
-      );
+      evidenceId = (
+        await p.db.ws(wid).collection("appEvidence").create(
+          { appId: app.id, kind: "positioning", fact: input.description.slice(0, 1000), source: { kind: "user_input", retrievedAt: new Date().toISOString() }, observedAt: new Date().toISOString(), reviewState: "verified" },
+          { actor },
+        )
+      ).id;
     }
-    job = await p.jobs.create(wid, "app.import", { appId: app.id, importId: imp.id }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `app.import:${imp.id}`), credits: { operation: "app.import" } });
+    try {
+      job = await p.jobs.create(wid, "app.import", { appId: app.id, importId: imp.id }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `app.import:${imp.id}`), credits: { operation: "app.import" } });
+    } catch (err) {
+      // No import could start (rate limit, credits, queue): undo the app so a retry doesn't leave a
+      // stuck "importing" app behind (and doesn't count against the plan's app limit).
+      await Promise.allSettled([
+        p.db.ws(wid).collection("appImports").delete(imp.id),
+        ...(evidenceId ? [p.db.ws(wid).collection("appEvidence").delete(evidenceId)] : []),
+        p.db.ws(wid).collection("apps").delete(app.id),
+      ]);
+      throw err;
+    }
     await p.db.ws(wid).collection("appImports").update(imp.id, { jobId: job.id }, { actor });
     await p.db.ws(wid).collection("apps").update(app.id, { lastImportId: imp.id }, { actor });
   }
@@ -71,7 +85,7 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
   if (wantsAutopilot) {
     autopilot = job
       ? await tryStartAutoAutopilot(p, wid, app.id, { member: c.get("member"), actor })
-      : { started: false, code: "no_source", reason: "Add a store link, a website or a short description so MuseLaunch can learn the app first; Growth Autopilot starts from there." };
+      : { started: false, code: "no_source", reason: "Add a store link, a website or a short description so MuseLaunch can learn the app first; Autopilot starts from there." };
     if (autopilot.started) await audit(p, wid, actor, "autopilot.auto_started", { appId: app.id, autopilotId: autopilot.autopilotId, budget: autopilot.plan?.maxCredits });
   }
   return c.json({ app, job, autopilot }, hasSources ? 202 : 201);

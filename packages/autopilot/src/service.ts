@@ -16,13 +16,13 @@ export function estimateAutopilot(p: Platform, input: { variants: number; maxIte
   const v = input.variants;
   const lines = [
     { label: "Research (Muse Wonder, cited)", credits: e("research.run") },
-    { label: `Campaign concepts (${chooseTextModel(p, "concepts.generate").name})`, credits: e("campaign.generate_concepts") },
-    { label: `Storyboards + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
-    { label: `Brand Guardian reviews ×${v}`, credits: v * e("brand.review") },
-    { label: `Final renders ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? AUTO_VIDEO_DURATION.max }) },
-    { label: `Spark video reviews ×${v}`, credits: v * e("video.review") },
+    { label: `Video ideas (${chooseTextModel(p, "concepts.generate").name})`, credits: e("campaign.generate_concepts") },
+    { label: `Plans + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
+    { label: `Brand checks ×${v}`, credits: v * e("brand.review") },
+    { label: `Final videos ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? AUTO_VIDEO_DURATION.max }) },
+    { label: `Muse Spark watches each video ×${v}`, credits: v * e("video.review") },
     { label: `Post copy ×${v}`, credits: v * e("copy.generate") },
-    { label: "Experiment analysis + recommendations", credits: e("experiment.analyze") + e("recommendations.generate") },
+    { label: "Reading results + next steps", credits: e("experiment.analyze") + e("recommendations.generate") },
   ];
   const perIteration = lines.reduce((n, l) => n + l.credits, 0);
   return { perIteration, total: perIteration * input.maxIterations, breakdown: lines };
@@ -40,7 +40,7 @@ export async function startAutopilot(
   await ws.collection("apps").getOrThrow(appId);
   const active = await ws.collection("autopilots").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 });
   if (active.items.some((a) => ACTIVE.includes(a.status))) {
-    throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "This app already has an active Growth Autopilot. Pause or cancel it first." });
+    throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "Autopilot is already running for this app. Pause or stop it first." });
   }
   const renders = input.autoApproveCredits ? `final renders run without asking up to ${input.autoApproveCredits} credits` : "final renders ask you first";
   const summary = opts.auto

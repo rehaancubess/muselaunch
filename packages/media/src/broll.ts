@@ -88,7 +88,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 
 export async function resolveMediaHandler(ctx: JobContext<"storyboard.resolve_media">): Promise<JobResult> {
   const { appId, storyboardId, compositionId } = ctx.payload;
-  await ctx.progress(2, "loading storyboard");
+  await ctx.progress(2, "loading the plan");
   const sb = await ctx.ws.collection("storyboards").getOrThrow(storyboardId);
   if (sb.appId !== appId) throw new AppError("BAD_REQUEST", "Storyboard belongs to another app", { retryable: false });
 
@@ -113,7 +113,7 @@ export async function resolveMediaHandler(ctx: JobContext<"storyboard.resolve_me
   }
 
   ctx.throwIfCancelled();
-  await ctx.progress(95, "queueing composition build");
+  await ctx.progress(95, "queueing the video build");
   const build = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
   const attached = outcomes.filter((o) => o.assetId);
   return {

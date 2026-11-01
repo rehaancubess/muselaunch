@@ -358,3 +358,29 @@ describe("tracked-link redirects only go to the stored destination", () => {
     expect((await s.app.request("/r/launch-week")).status).toBe(404);
   });
 });
+
+describe("Adding an app when no import can start", () => {
+  it("a refused import (concurrency quota, 429) leaves no stuck 'importing' app behind, so a retry works", async () => {
+    const s = await workspaceWithEditor();
+    installAnalyticsHooks(s.p);
+    const ws = s.p.db.ws(s.wsA);
+    const campaign = await ws.collection("campaigns").create({ appId: s.appId, name: "Launch", goal: "launch" }, { actor: "alice" });
+    const payload = { appId: s.appId, campaignId: campaign.id, channels: ["instagram"] };
+    const opts = { actor: "alice", deferDispatch: true, credits: { operation: "copy.generate" } };
+    // Free plan: 2 concurrent jobs, 2 apps (Focusly is the first).
+    const busy = [await s.p.jobs.create(s.wsA, "copy.generate", payload, opts), await s.p.jobs.create(s.wsA, "copy.generate", payload, opts)];
+    const add = { appStoreUrl: "https://apps.apple.com/us/app/tidy-timer/id1234567890", description: "A calm focus timer" };
+    const refused = await s.alice.post(`${s.A}/apps`, add);
+    expect(refused.status).toBe(429);
+    expect(refused.body.error.code).toBe("QUOTA_EXCEEDED");
+    const apps = (await ws.collection("apps").list({ limit: 10 })).items;
+    expect(apps.map((a) => a.id)).toEqual([s.appId]);
+    expect((await ws.collection("appImports").list({ limit: 10 })).items).toHaveLength(0);
+    expect((await ws.collection("appEvidence").list({ limit: 10 })).items).toHaveLength(0);
+    // Once a slot is free the same request goes through: the refused attempt didn't use up the app limit.
+    for (const j of busy) await s.p.jobs.requestCancel(s.wsA, j.id, "alice");
+    const ok = await s.alice.post(`${s.A}/apps`, add);
+    expect(ok.status).toBe(202);
+    expect(ok.body.app.status).toBe("importing");
+  });
+});

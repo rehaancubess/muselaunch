@@ -100,7 +100,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const decisions = ap.log.filter((e) => e.kind === "decision" && e.agentRunId);
     expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative"]);
     expect(ap.log.filter((e) => e.kind === "verification" && e.stage === "verify")).toHaveLength(2);
-    expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/auto-approved/);
+    expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/without asking: about \d+ credits is within the \d+-credit limit/);
     // Spark watched both final renders (no blockers) before the posts were drafted.
     expect(h.watched.sort()).toEqual(ap.compositionIds.map((c) => `${c}@v1:pass`).sort());
     const watchedLog = ap.log.filter((e) => e.stage === "render" && e.kind === "verification");
@@ -156,7 +156,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     }
     expect(budgetApprovals).toBe(1);
     ap = await get(h, id);
-    expect(ap.log.some((e) => e.kind === "budget" && /rest of this iteration/.test(e.summary))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "budget" && /rest of this round/.test(e.summary))).toBe(true);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "render" });
     expect(tagOf(ap.waitingOn.reason)).toBe("render:approve");
     expect(h.rendered).toHaveLength(0);
@@ -221,7 +221,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     for (const c of comps) expect(c.currentVersion).toBe(2);
     const patches = (await h.p.db.ws(h.wid).collection("compositionPatches").list({ limit: 20 })).items;
     expect(patches.filter((x) => x.status === "applied")).toHaveLength(2);
-    expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("Brand Guardian (rules): blocked"))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("Brand check (rules): blocked"))).toBe(true);
     expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("v2") && e.summary.includes("passed"))).toBe(true);
   });
 
@@ -252,7 +252,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const id = await start(h);
     const ap = await get(h, id);
     expect(ap).toMatchObject({ status: "sleeping", stage: "measure" });
-    const fixes = ap.log.filter((e) => e.summary.startsWith("Fix round 1 (iteration 1): applied the Brand Guardian's suggested fix"));
+    const fixes = ap.log.filter((e) => e.summary.startsWith("Fix round 1 (iteration 1): applied the brand check’s suggested fix"));
     expect(fixes).toHaveLength(2);
     const ws = h.p.db.ws(h.wid);
     for (const c of await ws.collection("compositions").getMany(ap.compositionIds)) {
@@ -267,7 +267,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect((await ws.collection("brandPreferences").list({ limit: 50 })).items.filter((x) => x.text.startsWith("Accepted Brand Guardian fix"))).toHaveLength(0);
     // No Spark edit was needed, and only v2 was rendered
     expect((await ws.collection("jobs").list({ limit: 200 })).items.filter((j) => j.type === "composition.edit")).toHaveLength(0);
-    expect(ap.log.filter((e) => e.summary.startsWith("Final render of") && e.summary.includes(" v2 "))).toHaveLength(2);
+    expect(ap.log.filter((e) => e.summary.startsWith("Final video of") && e.summary.includes(" v2 "))).toHaveLength(2);
   });
 
   it("checkpoints after two unsuccessful fix rounds, never overrides the Guardian, and renders only what a person overrode; an unavailable Guardian is never a pass", async () => {
@@ -276,13 +276,19 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     let ap = await get(h, id);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "verify" });
     expect(tagOf(ap.waitingOn.reason)).toBe("verify:unresolved");
+    expect(ap.waitingOn.reason).toMatch(/2 videos need a look before they’re finished$/);
     expect(ap.log.filter((e) => e.summary.startsWith("Fix round")).length).toBe(4); // 2 rounds × 2 videos
+    // The decision is written for people: plain words, no internal ids or lint jargon.
+    const [ask] = (await h.p.db.ws(h.wid).collection("approvals").list({ where: [["status", "==", "pending"]], limit: 5 })).items;
+    expect(ask!.summary).toMatch(/^We tried 2 automatic fixes, but “.+”, “.+” still have problems: .*brand check: Tone drift/);
+    expect(ask!.summary).toMatch(/Continue finishes the videos; any still flagged are left out\. Pause stops here\.$/);
+    expect(ask!.summary).not.toMatch(/\b(sc|ly|cmp)_\w+|Lint:|Brand Guardian/);
     // Continuing doesn't bypass the render gate: every video is still blocked → honest failure, nothing rendered.
     await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
     await h.p.inline!.drain();
     ap = await get(h, id);
     expect(ap).toMatchObject({ status: "failed", stage: "render" });
-    expect(ap.log.filter((e) => e.summary.startsWith("Left out of the final render: the Brand Guardian blocks"))).toHaveLength(2);
+    expect(ap.log.filter((e) => e.summary.startsWith("Left out of the final videos: the brand check flags"))).toHaveLength(2);
     expect(h.rendered).toHaveLength(0);
     // A person overrides one video's review (with a reason) → resuming renders exactly that one.
     const [first] = await h.p.db.ws(h.wid).collection("compositions").getMany(ap.compositionIds);
@@ -291,14 +297,14 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     await h.p.inline!.drain();
     ap = await get(h, id);
     expect(h.rendered).toEqual([first!.id]);
-    expect(ap.log.some((e) => e.summary.includes("rendering because u1 overrode the Brand Guardian"))).toBe(true);
+    expect(ap.log.some((e) => e.summary.includes("finishing it because u1 went ahead past the brand check"))).toBe(true);
     expect(ap.stage).toBe("measure");
 
     const offline = await autopilotHarness({ reviewPlan: () => "fail", workspaceId: "ws_autopilot_2" });
     const id2 = await start(offline);
     const ap2 = await get(offline, id2);
     expect(ap2.stage).toBe("measure");
-    expect(ap2.log.filter((e) => e.kind === "verification" && e.stage === "verify").every((e) => e.summary.includes("Brand Guardian unavailable"))).toBe(true);
+    expect(ap2.log.filter((e) => e.kind === "verification" && e.stage === "verify").every((e) => e.summary.includes("Brand check unavailable"))).toBe(true);
   });
 
   it("pauses and resumes a single-variant loop; a Wonder decision that never validates fails the loop honestly", async () => {
@@ -326,7 +332,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(failed).toMatchObject({ status: "failed", stage: "hypothesis" });
     expect(failed.error?.code).toBe("PROVIDER_ERROR");
     expect(failed.log.at(-1)!.kind).toBe("error");
-    const run = (await bad.p.db.ws(bad.wid).collection("agentRuns").getMany(failed.agentRunIds)).find((r) => r.goal.startsWith("Hypothesis"));
+    const run = (await bad.p.db.ws(bad.wid).collection("agentRuns").getMany(failed.agentRunIds)).find((r) => r.goal.startsWith("What to test"));
     expect(run?.status).toBe("failed");
     const steps = (await bad.p.db.ws(bad.wid).collection("agentSteps").list({ where: [["runId", "==", run!.id]], orderBy: { field: "index", dir: "asc" }, limit: 50 })).items;
     expect(steps.some((x) => x.status === "failed" && x.outputSummary?.includes("Provide exactly 1 variant labels"))).toBe(true);

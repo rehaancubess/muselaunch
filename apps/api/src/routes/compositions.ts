@@ -24,7 +24,7 @@ async function loadComposition(c: Ctx): Promise<Composition> {
 
 /** Map PatchError to a 422 the editor can show line by line. */
 function patchFailure(err: unknown): never {
-  if (err instanceof PatchError) throw new AppError("VALIDATION_FAILED", err.message, { userMessage: "That edit isn't valid for this composition.", details: { errors: err.errors } });
+  if (err instanceof PatchError) throw new AppError("VALIDATION_FAILED", err.message, { userMessage: "That edit isn't valid for this video.", details: { errors: err.errors } });
   throw err;
 }
 

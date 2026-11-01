@@ -136,7 +136,8 @@ export function RunSteps({ detail, className }: { detail: AutopilotDetail; class
   const ap = detail.autopilot;
   const { steps, source } = detail.progress;
   const videos = ap.compositionIds.length || ap.budget.variants;
-  const dnaAuto = ap.log.some((e) => e.summary.startsWith("Accepted your App DNA automatically"));
+  // New wording first; older runs logged "Accepted your App DNA automatically".
+  const dnaAuto = ap.log.some((e) => e.summary.startsWith("Accepted what we learned about your app automatically") || e.summary.startsWith("Accepted your App DNA automatically"));
   return (
     <ol className={cn("space-y-0", className)} aria-label="What Autopilot is doing">
       {steps

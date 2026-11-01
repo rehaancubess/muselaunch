@@ -132,7 +132,7 @@ export async function brandGate(p: Platform, workspaceId: string, input: GateInp
   if (!review) {
     const inflight = existing.find((r) => (r.status === "queued" || r.status === "running") && Date.now() - Date.parse(r.updatedAt) < INFLIGHT_STALE_MS);
     if (inflight)
-      throw new AppError("CONFLICT", "Brand Guardian is still reviewing this content", { userMessage: "Brand Guardian is still reviewing this. Try again in a moment.", details: { reason: "brand_review_running", reviewId: inflight.id } });
+      throw new AppError("CONFLICT", "Brand Guardian is still reviewing this content", { userMessage: "The brand check is still running. Try again in a moment.", details: { reason: "brand_review_running", reviewId: inflight.id } });
     review = await reviewInline(p, workspaceId, s, input.actor);
   }
   if (review.status !== "blocked") return { review, overridden: false };
@@ -140,11 +140,11 @@ export async function brandGate(p: Platform, workspaceId: string, input: GateInp
   const what = input.action === "render_final" ? "final render" : "approval request";
   if (!input.override) {
     throw new AppError("APPROVAL_REQUIRED", `Brand Guardian blocked this ${what}: ${clip(blocking[0]?.message ?? review.summary, 300)}`, {
-      userMessage: "Brand Guardian found blocking issues. Fix them, or override with a reason.",
+      userMessage: "The brand check found a problem. Fix it, or go ahead with a reason.",
       details: { reason: "brand_review_blocked", requiresOverride: true, review: reviewBrief(review) },
     });
   }
-  if (!input.canOverride) throw new AppError("FORBIDDEN", "Overriding a blocked Brand Guardian review needs the capability of the gated action", { userMessage: "You don't have permission to override Brand Guardian here." });
+  if (!input.canOverride) throw new AppError("FORBIDDEN", "Overriding a blocked Brand Guardian review needs the capability of the gated action", { userMessage: "You don't have permission to go ahead past the brand check here." });
   const entry = { at: new Date().toISOString(), by: input.actor, reason: clip(input.override.reason.trim(), 500), action: input.action, findingIds: blocking.map((f) => f.id).slice(0, 100) };
   review = await ws.collection("brandReviews").update(review.id, { overrides: [...review.overrides, entry].slice(-50) }, { actor: input.actor });
   await ws.collection("auditLog").create(
@@ -251,7 +251,7 @@ export async function applyFinding(
   // and the ops are re-validated with applyPatch against the CURRENT version before committing.
   const stale = () =>
     new AppError("CONFLICT", `Review is of version ${review.subjectVersion}; the composition is at version ${comp.currentVersion}`, {
-      userMessage: "The composition changed since this review. Run the review again.",
+      userMessage: "The video changed since this check. Run the check again.",
       details: { reason: "brand_review_stale", reviewedVersion: review.subjectVersion, currentVersion: comp.currentVersion },
     });
   if (review.subjectVersion !== comp.currentVersion) throw stale();
@@ -261,7 +261,7 @@ export async function applyFinding(
   try {
     result = applyPatch(cur.doc, finding.suggestedOps);
   } catch (err) {
-    if (err instanceof PatchError) throw new AppError("CONFLICT", "This fix no longer applies to the current version", { userMessage: "The composition changed since this review. Run the review again.", details: { reason: "brand_review_stale", errors: err.errors } });
+    if (err instanceof PatchError) throw new AppError("CONFLICT", "This fix no longer applies to the current version", { userMessage: "The video changed since this check. Run the check again.", details: { reason: "brand_review_stale", errors: err.errors } });
     throw err;
   }
   // Defence in depth: media a fix introduces must be this app's real product media.

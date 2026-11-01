@@ -209,7 +209,7 @@ export async function appImportHandler(ctx: JobContext<"app.import">): Promise<J
     { status: "analyzing", sources: sources.slice(0, 10), listings, importedAssetIds, warnings: warnings.map((w) => clip(w, 500)).slice(0, 50) },
     { actor: ctx.actor },
   );
-  await ctx.progress(85, "queueing App DNA analysis");
+  await ctx.progress(85, "queueing: learn about your app");
 
   let analyzeJobId: string | undefined;
   try {

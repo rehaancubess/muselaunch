@@ -192,16 +192,16 @@ export class LoopEnv {
     const raiseTo = Math.max(max, spent + rest);
     if (approved) {
       this.set({ budget: { ...this.ap.budget, maxCredits: raiseTo } });
-      this.note("budget", `Budget raised to ${raiseTo} credits after your approval: enough for ${what} and the rest of this iteration (≈${rest}).`);
+      this.note("budget", `Credit limit raised to ${raiseTo} after your approval: enough for ${what} and the rest of this round (about ${rest}).`);
       return null;
     }
-    this.note("budget", `Paused: ${what} needs ≈${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit budget remain. The rest of this iteration is estimated at ≈${rest}.`);
+    this.note("budget", `Paused: ${what} needs about ${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit limit are left. The rest of this round is estimated at about ${rest}.`);
     return this.checkpoint(
       "spend",
-      `Growth Autopilot needs more credits: ≈${credits} for ${what}, ≈${rest} to finish this iteration (budget ${max}, used ${spent}). Approve to raise the budget to ${raiseTo} credits and continue.`,
+      `Autopilot has used ${spent} of its ${max}-credit limit. Next is ${what} (about ${credits} credits); finishing this round takes about ${rest}. Approve to raise the limit to ${raiseTo} credits and keep going.`,
       rest,
       `budget@${this.currentTag ?? "enter"}`,
-      `Budget reached before ${what}`,
+      `Credit limit reached before ${what}`,
     );
   }
 

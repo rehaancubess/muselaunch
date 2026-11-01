@@ -167,7 +167,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       `Audience segments (id: name): ${segmentsPage.items.map((s) => `${s.id}: ${s.name}`).join("; ") || "(none)"}`,
     ].join("\n");
 
-    await ctx.progress(30, `${plannedEngine(p, "concepts.generate").name} is developing concepts`);
+    await ctx.progress(30, `${plannedEngine(p, "concepts.generate").name} is coming up with ideas`);
     let out = await sparkJson(p, rec, "concepts.generate", { ctx: rec.callCtx("concepts.generate"), instructions: INSTRUCTIONS, input, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
     await rec.modelStep(`Generate brief + concepts (${engineName(out.model)})`, out, { findings: findings.length, opportunities: opps.length, memory: memory.items.length }, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
     let problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
@@ -180,11 +180,11 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       await rec.modelStep(`Repair: make concepts distinct (${engineName(out.model)})`, out, problems, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
       problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
       if (problems.length || out.data.variants.length < count) {
-        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: `${engineName(out.model)} couldn't produce clearly different concepts. Please retry or refine the request.` });
+        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: `${engineName(out.model)} couldn't come up with clearly different ideas. Try again or say more about what you want.` });
       }
     }
     ctx.throwIfCancelled();
-    await ctx.progress(75, "saving concepts");
+    await ctx.progress(75, "saving the ideas");
 
     const verifiedIds = new Set(app.verifiedClaims.map((c) => c.id));
     const findingIds = new Set(findings.map((f) => f.id));
@@ -258,7 +258,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
     const rename = spokenName && campaign.request && campaign.name === autoCampaignName(campaign.request) ? { name: spokenName } : {};
     await ws.collection("campaigns").update(campaignId, { status: "concepts_ready", briefId: brief.id, ...rename }, { actor: ctx.actor });
     await rec.finish("succeeded", { outputRefs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id }))], memoryRefs: memory.items.map((m) => m.id) });
-    await ctx.progress(100, "concepts ready");
+    await ctx.progress(100, "ideas ready");
     return { refs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id })), { entity: "agentRuns", id: rec.id }], data: { usedGlimmer: memory.usedGlimmer, angleTypes: variants.map((v) => v.angleType), durationsSec: variants.map((v) => v.targetDurationSec) } };
   } catch (raw) {
     const err = toAppError(raw);

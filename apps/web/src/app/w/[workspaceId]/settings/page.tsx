@@ -1,5 +1,6 @@
 "use client";
 import { Badge, Button, Field, Input, List, ListRow, PageHeader, Section, Select, Switch, useToast } from "@muselaunch/ui";
+import { DEFAULT_SOUND_SETTINGS } from "@muselaunch/contracts";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -164,7 +165,7 @@ function SoundSettings() {
   const toast = useToast();
   const invalidate = useInvalidate();
   const raw = (workspace?.settings as { sound?: { music?: boolean; sfx?: boolean; aiVoiceover?: boolean; voice?: string } } | undefined)?.sound;
-  const s = { music: raw?.music ?? true, sfx: raw?.sfx ?? true, aiVoiceover: raw?.aiVoiceover ?? false, voice: raw?.voice ?? "marin" };
+  const s = { music: raw?.music ?? DEFAULT_SOUND_SETTINGS.music, sfx: raw?.sfx ?? DEFAULT_SOUND_SETTINGS.sfx, aiVoiceover: raw?.aiVoiceover ?? DEFAULT_SOUND_SETTINGS.aiVoiceover, voice: raw?.voice ?? "marin" };
   const [busy, setBusy] = useState<string | null>(null);
   const manage = can("workspace.manage");
   const money = manage && can("billing.manage");

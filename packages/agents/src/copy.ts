@@ -119,7 +119,7 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
       limits = copyLimitProblems(packs);
     }
     ctx.throwIfCancelled();
-    await ctx.progress(70, "checking claims");
+    await ctx.progress(70, "checking the facts");
     const verified = new Set(app.verifiedClaims.map((c) => c.id));
     const created: CopyPack[] = [];
     for (const c of chans) {

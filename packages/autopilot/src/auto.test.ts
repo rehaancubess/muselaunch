@@ -81,8 +81,8 @@ describe("Autopilot by default (auto.ts)", () => {
     const ap = (await h.ws.collection("autopilots").getOrThrow(autopilot.id)) as Autopilot;
     expect(ap).toMatchObject({ status: "sleeping", stage: "measure", goal: "Get more installs of Tidy Timer from students", auto: { goal: false, acceptDna: true } });
     // It waited for the import (no second analysis) and accepted App DNA on the founder's behalf.
-    expect(ap.log.find((e) => e.stage === "understand" && e.summary.startsWith("Accepted your App DNA automatically"))).toBeTruthy();
-    expect(ap.log.some((e) => e.summary.startsWith("No App DNA yet"))).toBe(false);
+    expect(ap.log.find((e) => e.stage === "understand" && e.summary.startsWith("Accepted what we learned about your app automatically"))).toBeTruthy();
+    expect(ap.log.some((e) => e.summary.startsWith("Nothing learned about the app yet"))).toBe(false);
     const analyses = (await h.ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items.filter((j) => j.type === "app.analyze");
     expect(analyses).toHaveLength(1);
     const dna = await h.ws.collection("brandProfiles").getOrThrow(appId);
@@ -94,8 +94,8 @@ describe("Autopilot by default (auto.ts)", () => {
     expect(screenChecks.length).toBeGreaterThan(0);
     for (const s of screenChecks) for (const b of appJobs.filter((j) => j.type === "storyboard.generate")) expect(b.createdAt >= (s.finishedAt ?? s.updatedAt)).toBe(true);
     // Renders went ahead inside the budget, without a spend checkpoint; nothing went over budget.
-    expect(ap.log.some((e) => e.kind === "decision" && e.summary.startsWith("Final render auto-approved"))).toBe(true);
-    expect(ap.log.some((e) => e.kind === "checkpoint" && /needs your OK|needs more credits/i.test(e.summary))).toBe(false);
+    expect(ap.log.some((e) => e.kind === "decision" && e.summary.startsWith("Finishing the videos without asking"))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "checkpoint" && /needs your OK|Credit limit reached/i.test(e.summary))).toBe(false);
     expect(ap.spent.credits).toBeLessThanOrEqual(ap.budget.maxCredits);
     expect(h.rendered).toHaveLength(2);
 

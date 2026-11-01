@@ -154,7 +154,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     const shots = [...ordered.filter((a) => requested.has(a.id)), ...ordered.filter((a) => !requested.has(a.id) && a.role === "screenshot")].filter((a, i, all) => all.findIndex((b) => b.id === a.id) === i).slice(0, 8);
     const icon = truth.find((a) => a.id === app.iconAssetId) ?? truth.find((a) => a.role === "icon" || a.role === "logo");
     if (!evidence.length && !shots.length) {
-      throw new AppError("BAD_REQUEST", "No evidence to analyze", { userMessage: "Add a store link, a description or screenshots so we can build your App DNA." });
+      throw new AppError("BAD_REQUEST", "No evidence to analyze", { userMessage: "Add a store link, a description or screenshots so we can learn about your app." });
     }
     const { parts: imageParts, buffers } = await imageInputs(p, ctx.workspaceId, [...shots, ...(icon ? [icon] : [])]);
     const imaged = [...shots, ...(icon ? [icon] : [])].filter((a) => buffers.has(a.id));
@@ -323,7 +323,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     await run.finish("succeeded", { outputRefs: [{ entity: "brandProfiles", id: profile.id }] });
     // Designed store screenshots → Muse Spark check + SAM 3.1 screen cut-outs, in the background.
     const screenCutoutJobId = await queueScreenCutouts(ctx, appId);
-    await ctx.progress(100, "App DNA ready for review");
+    await ctx.progress(100, "Learned about your app: ready to check");
     return { refs: [{ entity: "brandProfiles", id: profile.id }, { entity: "agentRuns", id: run.id }], data: { version: profile.version, features: features.length, claimsCreated: created, dropped, screenCutoutJobId } };
   } catch (raw) {
     const err = toAppError(raw);

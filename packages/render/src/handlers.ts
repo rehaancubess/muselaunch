@@ -104,7 +104,7 @@ export async function lintForRender(ws: WorkspaceDb, doc: CompositionDoc, storag
 
 async function compositionBuild(ctx: JobContext<"composition.build">) {
   const { appId, storyboardId, compositionId } = ctx.payload;
-  await ctx.progress(5, "loading storyboard");
+  await ctx.progress(5, "loading the plan");
   const storyboard = await ctx.ws.collection("storyboards").getOrThrow(storyboardId);
   if (storyboard.appId !== appId) throw new AppError("BAD_REQUEST", "Storyboard belongs to another app");
   const app = await ctx.ws.collection("apps").getOrThrow(appId);
@@ -116,7 +116,7 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
   const segmentations = await loadAppSegmentations(ctx.ws, appId);
   ctx.throwIfCancelled();
 
-  await ctx.progress(30, "building composition");
+  await ctx.progress(30, "building the video");
   const existing = await ctx.ws.collection("compositions").get(compositionId);
   let composition: Composition;
   let version: CompositionVersion;
@@ -139,7 +139,7 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
       ctx.actor,
     ));
   }
-  await ctx.progress(60, "checking composition");
+  await ctx.progress(60, "checking the video");
   const lint = await lintForRender(ctx.ws, version.doc, ctx.platform.storage);
 
   // Link back to the concept/variant (idempotent set-add).
