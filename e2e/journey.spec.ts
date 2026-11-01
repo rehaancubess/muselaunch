@@ -86,7 +86,7 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
 
   await test.step("Show details: the goal came from App DNA; the audience choice cites real research", async () => {
     await page.getByRole("button", { name: "Show details" }).click();
-    await expect(page.getByText("Get more installs of Tidy Timer from students")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Goal: Get more installs of Tidy Timer from students" })).toBeVisible();
     loopUrl = `${loopUrl}&details=1`;
     const audience = page.getByRole("button", { name: /^Audience 1 decision/ });
     await expect(async () => {
