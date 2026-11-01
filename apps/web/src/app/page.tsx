@@ -370,7 +370,7 @@ function Guardian() {
           <ShotCard className="mx-auto max-w-[860px]">
             <Image
               src="/landing/guardian-claims.webp"
-              alt="Facts to review: “Helps you get more done every week” and “The #1 focus app for students” are both flagged as going beyond their sources, with buttons to reject or confirm each one. Below, the brand kit voice: tone calm and encouraging, words to use focus and calm, words to avoid hustle."
+              alt="Facts to review: “The #1 focus app for students” and “Helps you get more done every week” are both flagged Beyond the sources, with Reject and Confirm buttons. Below, the brand kit voice: tone calm and encouraging, words to use focus and calm, words to avoid hustle."
               width={940}
               height={587}
               sizes="(min-width: 1200px) 860px, 92vw"
