@@ -108,7 +108,7 @@ describe("Needs you: About your app and the Brand check (needs-you.ts)", () => {
       preview: { factsToCheck: 1 },
     });
     expect(items[0]!.title).toBe("Check what we learned about Tidy Timer");
-    expect(items[0]!.summary).toMatch(/1 fact to check\.$/);
+    expect(items[0]!.summary).toMatch(/A quick check keeps every video true\.$/);
     // The app filter has it too; editors can confirm, viewers only see it.
     expect((await list(alice, `?appId=${seeded.appId}`)).items.map((i) => i.kind)).toEqual(["app_dna"]);
     expect((await list(eddie)).items[0]!.canDecide).toBe(true);

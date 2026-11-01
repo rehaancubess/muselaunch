@@ -187,7 +187,8 @@ async function appDnaItems(ws: WorkspaceDb, appId: string | undefined, has: (c: 
       action: "dna_review",
       appId: app.id,
       title: clip(`Check what we learned about ${name}`, 200),
-      summary: `We wrote down what ${name} does, who it’s for and what we may say about it. A quick check keeps every video true.${facts ? ` ${facts} fact${facts === 1 ? "" : "s"} to check.` : ""}`,
+      // The number of facts to check travels in `preview.factsToCheck` (the card shows it).
+      summary: `We wrote down what ${name} does, who it’s for and what we may say about it. A quick check keeps every video true.`,
       createdAt: profile?.updatedAt ?? app.updatedAt,
       subject: { entity: "apps", id: app.id },
       // Confirming (POST /apps/:appId/dna/confirm) needs apps.write; verifying facts needs content.approve.
