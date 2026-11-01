@@ -15,9 +15,9 @@ import type { AiEditResponse, CommitResponse, CompositionDoc, CompositionPatch, 
 
 const SUGGESTIONS = ["Make the opening more engaging", "Make this scene punchier", "Tighten the whole video to about 10 seconds", "Use a calmer, more premium tone in the headlines"];
 /** Extra suggestions once a founder clip has been analysed (Spark sees the tracked objects). */
-const OBJECT_SUGGESTIONS = ["Put the app behind me in the opening", "Add a label that follows my phone", "Spotlight my phone when I mention the app"];
+export const OBJECT_SUGGESTIONS =["Put the app behind me in the opening", "Add a label that follows my phone", "Spotlight my phone when I mention the app"];
 
-interface Turn {
+export interface AiTurn {
   id: string;
   instruction: string;
   spoken?: boolean;
@@ -26,6 +26,46 @@ interface Turn {
   initialJob: Job | null;
   patchId: string | null;
   error: string | null;
+}
+type Turn = AiTurn;
+
+/**
+ * The conversational edit flow shared by "Ask Muse" (full editor) and the simple Studio's
+ * "Tell me what to change" box: each request becomes a turn → job → proposed patch to apply/reject.
+ * `run` tracks any request that answers with `{ job, patch }` (e.g. "fix this" from Spark's review).
+ */
+export function useAiEdits({ base, baseVersion, clipAnalysisIds = [] }: { base: string; baseVersion: number; clipAnalysisIds?: string[] }) {
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [sending, setSending] = useState(false);
+  const clipIds = useRef(clipAnalysisIds);
+  clipIds.current = clipAnalysisIds;
+
+  const run = useCallback(async (instruction: string, sceneIds: string[], start: () => Promise<{ job: Job; patch: { id: string } }>, spoken = false) => {
+    const id = `t${Date.now()}`;
+    setTurns((t) => [...t, { id, instruction, spoken, scope: sceneIds, jobId: null, initialJob: null, patchId: null, error: null }]);
+    setSending(true);
+    try {
+      const r = await start();
+      setTurns((t) => t.map((x) => (x.id === id ? { ...x, jobId: r.job.id, initialJob: r.job, patchId: r.patch.id } : x)));
+    } catch (e) {
+      setTurns((t) => t.map((x) => (x.id === id ? { ...x, error: errorMessage(e) } : x)));
+    } finally {
+      setSending(false);
+    }
+  }, []);
+
+  const send = useCallback(
+    (instruction: string, sceneIds: string[], spoken = false) =>
+      run(
+        instruction,
+        sceneIds,
+        () => api.post<AiEditResponse>(`${base}/ai-edit`, { baseVersion, instruction, sceneIds, ...(clipIds.current.length ? { clipAnalysisIds: clipIds.current.slice(0, 4) } : {}) }, { idempotent: true }),
+        spoken,
+      ),
+    [base, baseVersion, run],
+  );
+
+  return { turns, sending, send, run };
 }
 
 export function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: { base: string; patchId: string; doc: CompositionDoc; onApplied: (r: CommitResponse) => void; onUndo: () => void; disabled?: boolean }) {
@@ -110,7 +150,7 @@ export function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: {
   );
 }
 
-function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchReady, disabled }: { turn: Turn; workspaceId: string; base: string; doc: CompositionDoc; onApplied: (r: CommitResponse) => void; onUndo: () => void; onPatchReady: () => void; disabled?: boolean }) {
+export function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPatchReady, disabled }: { turn: Turn; workspaceId: string; base: string; doc: CompositionDoc; onApplied: (r: CommitResponse) => void; onUndo: () => void; onPatchReady: () => void; disabled?: boolean }) {
   const live = useJob(workspaceId, turn.jobId, { initial: turn.initialJob, onSettled: onPatchReady });
   const job = live.job;
   const notConnected = job?.status === "failed" && job.error?.code === "PROVIDER_NOT_CONFIGURED";
@@ -183,30 +223,10 @@ export function AiPanel({
   const [text, setText] = useState("");
   const [scope, setScope] = useState<"scene" | "all">("all");
   const engine = useTextEngine(scope === "scene" && selectedSceneId ? "composition.edit.scoped" : "composition.edit");
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [sending, setSending] = useState(false);
+  const { turns, sending, send } = useAiEdits({ base, baseVersion, clipAnalysisIds });
   const [voice, setVoice] = useState(false);
-  const clipIds = useRef(clipAnalysisIds);
-  clipIds.current = clipAnalysisIds;
   const listRef = useRef<HTMLUListElement>(null);
   const recent = useApiQuery<{ items: CompositionPatch[] }>(`${base}/patches`, { query: { limit: 10 } });
-
-  const send = useCallback(
-    async (instruction: string, sceneIds: string[], spoken = false) => {
-      const id = `t${Date.now()}`;
-      setTurns((t) => [...t, { id, instruction, spoken, scope: sceneIds, jobId: null, initialJob: null, patchId: null, error: null }]);
-      setSending(true);
-      try {
-        const r = await api.post<AiEditResponse>(`${base}/ai-edit`, { baseVersion, instruction, sceneIds, ...(clipIds.current.length ? { clipAnalysisIds: clipIds.current.slice(0, 4) } : {}) }, { idempotent: true });
-        setTurns((t) => t.map((x) => (x.id === id ? { ...x, jobId: r.job.id, initialJob: r.job, patchId: r.patch.id } : x)));
-      } catch (e) {
-        setTurns((t) => t.map((x) => (x.id === id ? { ...x, error: errorMessage(e) } : x)));
-      } finally {
-        setSending(false);
-      }
-    },
-    [base, baseVersion],
-  );
 
   useAiEditCommand(
     useCallback(

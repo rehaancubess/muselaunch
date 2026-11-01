@@ -3,12 +3,17 @@
  * Owner: module C (Video Studio). Rendered by
  * apps/web/src/app/w/[workspaceId]/a/[appId]/creator/studio/[compositionId]/page.tsx (full-bleed).
  *
- * Live HyperFrames preview of the compiled composition, multi-track timeline, inspector, media drawer
- * and the conversational AI editor. Every edit is a validated PatchOp committed as a new version
- * (undo/redo/restore); renders and exports run as background jobs with live progress.
+ * Opens SIMPLE by default (simple-view.tsx): the live preview, one "Tell me what to change" box,
+ * the scenes as a strip, Brand check + sound status and Render / Download / Post. "Edit in detail"
+ * opens the full editor: live HyperFrames preview of the compiled composition, multi-track timeline,
+ * inspector, media drawer and the conversational AI editor. The choice is remembered per browser;
+ * `?mode=detail` / `?mode=simple` opens one directly (use-studio-mode.ts).
+ *
+ * Every edit is a validated PatchOp committed as a new version (undo/redo/restore); renders and
+ * exports run as background jobs with live progress.
  */
 import { Button, ErrorState, Notice, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
-import { ScanEye, ScanSearch } from "lucide-react";
+import { Minimize2, ScanEye, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandGuardianPanel, useBrandReviews } from "@/features/guardian";
 import { wsPath } from "@/lib/api";
@@ -24,11 +29,13 @@ import { clipObjects, docAnalysisIds, pickDemo, useClips } from "./clips";
 import { Inspector } from "./inspector";
 import { sceneAt, sceneStarts, splitSceneOps } from "./ops";
 import { PreviewPlayer, type PlayerHandle } from "./preview";
+import { SimpleStudio } from "./simple-view";
 import { Timeline } from "./timeline";
 import { StudioTopbar } from "./topbar";
 import { TrackOverlay } from "./track-overlay";
 import type { LintIssue, MediaAsset, PatchOp } from "./types";
 import { usePreview, useStudio } from "./use-studio";
+import { useStudioMode } from "./use-studio-mode";
 import { openVideoBlockers, useVideoReviews, VideoReviewPanel } from "./video-review-panel";
 
 export interface StudioRootProps {
@@ -39,6 +46,8 @@ const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isCon
 
 export default function StudioRoot({ compositionId }: StudioRootProps) {
   const { workspaceId, appId } = useCurrentApp();
+  const { mode, setMode } = useStudioMode();
+  const simple = mode === "simple";
   const studio = useStudio(workspaceId, compositionId);
   const data = studio.data;
   const doc = data?.version.doc;
@@ -61,11 +70,12 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   useAiEditCommand(
     useCallback(
       (cmd) => {
-        if (cmd.compositionId !== compositionId || rightTab === "ai") return;
+        // The simple view's "Tell me what to change" box takes the command itself.
+        if (simple || cmd.compositionId !== compositionId || rightTab === "ai") return;
         setRightTab("ai");
         setTimeout(() => emitAiEdit(cmd), 80);
       },
-      [compositionId, rightTab],
+      [compositionId, rightTab, simple],
     ),
   );
 
@@ -110,8 +120,16 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   const videoReviews = useVideoReviews(studio.base, data?.composition.currentVersion);
   const videoBlockers = openVideoBlockers(videoReviews.data?.current);
   const lint = useMemo<LintIssue[]>(
-    () => [...(data?.lint ?? []), ...brandOpen.filter((f) => f.location?.sceneId).map((f) => ({ level: f.severity === "block" ? ("error" as const) : ("warning" as const), sceneId: f.location!.sceneId, layerId: f.location!.layerId, message: `Brand: ${f.message}` }))],
+    () => [...(data?.lint ?? []), ...brandOpen.filter((f) => f.location?.sceneId).map((f) => ({ level: f.severity === "block" ? ("error" as const) : ("warning" as const), sceneId: f.location!.sceneId, layerId: f.location!.layerId, message: `Brand check: ${f.message}` }))],
     [data?.lint, brandOpen],
+  );
+  const issueScenes = useMemo(() => new Set(lint.map((i) => i.sceneId).filter((id): id is string => Boolean(id))), [lint]);
+  const openDetail = useCallback(
+    (tab?: string) => {
+      if (tab) setRightTab(tab);
+      setMode("detail");
+    },
+    [setMode],
   );
   const focusFinding = useCallback(
     (loc: { sceneId?: string; layerId?: string }) => {
@@ -155,6 +173,9 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
       } else if (e.key === " ") {
         e.preventDefault();
         player.current?.toggle();
+      } else if (simple) {
+        // The simple view has no timeline or layers: only undo/redo and play/pause.
+        return;
       } else if (e.key.toLowerCase() === "s" && !mod) {
         const at = sceneAt(doc, time);
         const ops = at ? splitSceneOps(at.scene, time - at.start) : null;
@@ -169,8 +190,21 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc, time, scene, layer, studio, onPatch]);
+  }, [doc, time, scene, layer, studio, onPatch, simple]);
 
+  if (studio.query.isLoading && simple) {
+    return (
+      <div className="grid h-[calc(100dvh-var(--ml-topbar-h))] grid-rows-[52px_1fr] gap-px bg-line">
+        <Skeleton className="rounded-none" />
+        <div className="grid grid-cols-1 gap-px lg:grid-cols-[1fr_400px]">
+          <div className="grid place-items-center bg-mist p-6">
+            <Skeleton className="aspect-[9/16] h-[min(58dvh,560px)]" rounded="lg" />
+          </div>
+          <Skeleton className="hidden rounded-none lg:block" />
+        </div>
+      </div>
+    );
+  }
   if (studio.query.isLoading) {
     return (
       <div className="grid h-[calc(100dvh-var(--ml-topbar-h))] grid-rows-[48px_1fr_220px] gap-px bg-line">
@@ -192,6 +226,41 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
   }
 
   const disabled = studio.saving;
+  if (simple) {
+    return (
+      <SimpleStudio
+        workspaceId={workspaceId}
+        appId={appId}
+        compositionId={compositionId}
+        base={studio.base}
+        data={data}
+        saving={studio.saving}
+        preview={preview}
+        player={player}
+        time={time}
+        onTime={setTime}
+        seek={seek}
+        sceneId={scene?.id ?? null}
+        onSceneId={(id) => {
+          setSceneId(id);
+          setLayerId(null);
+        }}
+        brand={brand}
+        videoReviews={videoReviews}
+        assets={assets.data?.items ?? []}
+        objects={objects}
+        trackedLabels={trackedLabels}
+        clipAnalysisIds={clipAnalysisIds}
+        issueScenes={issueScenes}
+        onApplied={studio.applyCommit}
+        onUndo={() => void studio.undo()}
+        onRedo={() => void studio.redo()}
+        onRestore={(v) => void studio.restore(v)}
+        onRefresh={() => void studio.refresh()}
+        onDetail={openDetail}
+      />
+    );
+  }
   const mediaPanel = <AssetsDrawer workspaceId={workspaceId} appId={appId} doc={doc} scene={activeScene} layer={layer} onPatch={onPatch} disabled={disabled} composition={data.composition} />;
   return (
     <div className="flex min-h-[calc(100dvh-var(--ml-topbar-h))] flex-col bg-mist lg:h-[calc(100dvh-var(--ml-topbar-h))]">
@@ -206,7 +275,14 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
         onRestore={(v) => void studio.restore(v)}
         onRendered={() => void studio.refresh()}
         onSelectIssue={selectIssue}
+        onSimple={() => setMode("simple")}
       />
+      <div className="flex items-center justify-between gap-3 border-b border-line bg-surface px-4 py-2.5 lg:hidden">
+        <p className="text-footnote text-ink-2">The full editor works best on a larger screen.</p>
+        <Button size="sm" variant="secondary" icon={<Minimize2 className="size-4" aria-hidden />} onClick={() => setMode("simple")} className="shrink-0">
+          Simple view
+        </Button>
+      </div>
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[272px_minmax(0,1fr)_360px]">
         <aside className="hidden min-h-0 border-r border-line bg-surface xl:block" aria-label="Media">
           {mediaPanel}

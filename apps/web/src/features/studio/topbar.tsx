@@ -19,10 +19,10 @@ import {
   statusKindOf,
   useToast,
 } from "@muselaunch/ui";
-import { AlertTriangle, ChevronLeft, Download, History, Package, Redo2, Clapperboard, Undo2, Users } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Download, History, Minimize2, Package, Redo2, Clapperboard, Undo2, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { BrandGuardianBadge, BrandOverrideForm, brandBlockOf, type ReviewBrief } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useTextEngine } from "@/lib/engines";
@@ -35,7 +35,7 @@ import { useVersions } from "./use-studio";
 import type { Composition, CompositionResponse, LintIssue, RenderResponse } from "./types";
 
 const ASPECTS: AspectRatio[] = ["9:16", "1:1", "16:9", "4:5"];
-const SOURCE_LABEL: Record<string, string> = { generated: "Generated", user_edit: "Your edit", ai_edit: "AI edit", revert: "Restored", duplicate: "Variant" };
+const SOURCE_LABEL: Record<string, string> = { generated: "Generated", user_edit: "Your edit", ai_edit: "AI edit", revert: "Restored", duplicate: "Copy" };
 
 function rel(iso: string) {
   const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
@@ -45,7 +45,7 @@ function rel(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
-async function downloadAsset(workspaceId: string, assetId: string) {
+export async function downloadAsset(workspaceId: string, assetId: string) {
   const { url } = await api.get<SignedUrl>(wsPath(workspaceId, `/assets/${assetId}/url`), { query: { download: 1 } });
   window.open(url, "_blank", "noopener");
 }
@@ -55,7 +55,8 @@ function JobBlock({ workspaceId, job, onDone, title }: { workspaceId: string; jo
   return <JobProgress job={live.job ?? job} title={title} onCancel={() => void live.cancel()} onRetry={() => void live.retry()} cancelling={live.cancelling} retrying={live.retrying} />;
 }
 
-function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: string; base: string; data: CompositionResponse; onRendered: () => void }) {
+/** Render (quick preview / final) with cost, the Brand check gate + override, live progress and the latest render's download. */
+export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: { workspaceId: string; base: string; data: CompositionResponse; onRendered: () => void; trigger?: ReactNode }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [quality, setQuality] = useState<"preview" | "final">("final");
@@ -93,9 +94,11 @@ function RenderDialog({ workspaceId, base, data, onRendered }: { workspaceId: st
         }
       }}
       trigger={
-        <Button size="sm" icon={<Clapperboard className="size-4" aria-hidden />}>
-          Render
-        </Button>
+        trigger ?? (
+          <Button size="sm" icon={<Clapperboard className="size-4" aria-hidden />}>
+            Render
+          </Button>
+        )
       }
       title="Render video"
       description={`Version ${data.composition.currentVersion} · ${data.version.doc.aspectRatio} · ${Math.round(data.durationSec * 10) / 10}s`}
@@ -293,7 +296,7 @@ function AudienceDialog({ workspaceId, appId, base }: { workspaceId: string; app
         </Button>
       }
       title="Make versions for different audiences"
-      description={`Each version is a copy of this video whose on-screen text ${engine.name} adapts for that audience, using only verified claims. You review each change before applying it.`}
+      description={`Each version is a copy of this video whose on-screen text ${engine.name} adapts for that audience, using only verified facts. You review each change before applying it.`}
       footer={
         job ? null : (
           <Button onClick={start} loading={submitting} disabled={!valid.length}>
@@ -389,7 +392,7 @@ function PendingVariant({ workspaceId, job, onDone }: { workspaceId: string; job
   );
 }
 
-function VersionsPopover({ base, current, onRestore }: { base: string; current: number; onRestore: (v: number) => void }) {
+export function VersionsPopover({ base, current, onRestore }: { base: string; current: number; onRestore: (v: number) => void }) {
   const [open, setOpen] = useState(false);
   const versions = useVersions(base, open);
   return (
@@ -485,6 +488,7 @@ export function StudioTopbar({
   onRestore,
   onRendered,
   onSelectIssue,
+  onSimple,
 }: {
   workspaceId: string;
   appId: string;
@@ -496,6 +500,8 @@ export function StudioTopbar({
   onRestore: (v: number) => void;
   onRendered: () => void;
   onSelectIssue: (i: LintIssue) => void;
+  /** Back to the simple Studio (preview + "Tell me what to change"). */
+  onSimple?: () => void;
 }) {
   const c = data.composition;
   const back = c.campaignId ? routes.app(workspaceId, appId).campaign(c.campaignId) : routes.app(workspaceId, appId).creator;
@@ -504,6 +510,11 @@ export function StudioTopbar({
       <Link href={back} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-footnote text-ink-2 hover:bg-mist hover:text-ink">
         <ChevronLeft className="size-4" aria-hidden /> {c.campaignId ? "Campaign" : "Creator"}
       </Link>
+      {onSimple ? (
+        <Button size="sm" variant="secondary" icon={<Minimize2 className="size-4" aria-hidden />} onClick={onSimple}>
+          Simple view
+        </Button>
+      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="truncate text-headline font-semibold">{c.title}</h1>
         <StatusPill status={statusKindOf(c.status)}>{humanizeStatus(c.status)}</StatusPill>
