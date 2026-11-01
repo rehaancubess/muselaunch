@@ -119,8 +119,45 @@ describe("storyboard rules for 30–60 s videos", () => {
   });
 
   it("keeps the 15 s rules light when the founder picks a short video", () => {
-    const r = checkStoryboard(out([sc("hook-title", { purpose: "hook", onScreenText: "One tap. Calm." }), sc("device-demo", { assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }), sc("device-demo", { assets: [{ kind: "screenshot", assetId: "ast_raw2" }] }), sc("cta-endcard", { purpose: "cta", onScreenText: "Get it" })]), ctx(15));
+    const r = checkStoryboard(out([sc("hook-title", { purpose: "hook", onScreenText: "One tap. Calm." }), sc("device-demo", { assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }), sc("device-demo", { onScreenText: "Find it by typing", assets: [{ kind: "screenshot", assetId: "ast_raw2" }] }), sc("cta-endcard", { purpose: "cta", onScreenText: "Get it" })]), ctx(15));
     expect(r.soft).toEqual([]);
+  });
+
+  it("flags runs of type-only cards, a long ending and repeated lines; trims the ending to icon-reveal + CTA (live run 5)", () => {
+    const shot = (id: string, text: string) => sc("device-demo", { onScreenText: text, assets: [{ kind: "screenshot", assetId: id }] });
+    const scenes = [
+      sc("hook-title", { purpose: "hook", onScreenText: "Where's that password?", durationSec: 2 }),
+      sc("kinetic-type", { purpose: "problem", onScreenText: "Lost in screenshots", durationSec: 3 }),
+      shot("ast_raw1", "Throw it in"),
+      sc("focus-zoom", { onScreenText: "Ask for it", assets: [{ kind: "screenshot", assetId: "ast_raw2" }] }),
+      sc("kinetic-type", { purpose: "cta", onScreenText: "Your second memory", durationSec: 3 }),
+      sc("icon-reveal", { purpose: "cta", onScreenText: "Magic Pocket", durationSec: 3 }),
+      sc("hook-title", { purpose: "cta", onScreenText: "Your second memory", durationSec: 3 }),
+      sc("store-cta", { purpose: "cta", onScreenText: "Get it free", durationSec: 3 }),
+    ];
+    const r = checkStoryboard(out(scenes), { ...ctx(30), voice: "none" });
+    expect(r.soft.join("\n")).toMatch(/Scenes 5–7 are all type-only cards/);
+    expect(r.soft.join("\n")).toMatch(/3 closing cards after the last app scene/);
+    expect(r.soft.join("\n")).toMatch(/Scene 7 repeats scene 5's text/);
+    const pol = polishStoryboard(r.scenes, { targetDurationSec: 30 }, "Get it");
+    expect(pol.scenes.map((s) => s.template)).toEqual(["hook-title", "kinetic-type", "device-demo", "focus-zoom", "icon-reveal", "store-cta"]);
+    expect(pol.fixes.join(" ")).toMatch(/Shorter ending: removed 2/);
+    // The freed time goes to the scenes before (total length kept, CTA unchanged).
+    expect(pol.scenes.reduce((n, s) => n + s.durationSec, 0)).toBeCloseTo(scenes.reduce((n, s) => n + s.durationSec, 0), 0);
+    expect(pol.scenes.at(-1)!.durationSec).toBe(3);
+  });
+
+  it("with an AI voice, asks for a short spoken line on most scenes", () => {
+    const scenes = [
+      sc("hook-title", { purpose: "hook", onScreenText: "Lost a password?", durationSec: 2, narration: "You saved it somewhere, but where did it go, and why does this always happen to me every single time?" }),
+      sc("device-demo", { onScreenText: "Throw it in", assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }),
+      sc("focus-zoom", { onScreenText: "Ask for it", assets: [{ kind: "screenshot", assetId: "ast_raw2" }] }),
+      sc("store-cta", { purpose: "cta", onScreenText: "Get it" }),
+    ];
+    const soft = checkStoryboard(out(scenes), { ...ctx(15), voice: "ai" }).soft.join("\n");
+    expect(soft).toMatch(/Scene 1 narration has 20 words for 2 s/);
+    expect(soft).toMatch(/only 1 of 3 scenes have narration/);
+    expect(checkStoryboard(out(scenes), { ...ctx(15), voice: "none" }).soft.join("\n")).not.toMatch(/narration/);
   });
 });
 

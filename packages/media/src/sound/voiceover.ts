@@ -17,6 +17,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import {
   VOICEOVER_WER_THRESHOLD,
   type CaptionCue,
+  type CompositionDoc,
   type MediaAsset,
   type SpeechRange,
   type Transcript,
@@ -27,6 +28,7 @@ import { assertBuiltinVoice, synthesizeSpeech, TTS_DISCLOSURE } from "@muselaunc
 import { transcriptToCaptionCues } from "../captions";
 import { Stereo, SR } from "../music/dsp";
 import { decodePcm, encodeM4a } from "../music/encode";
+import { fitScenesToVoice, lineCaptions, type SceneFit } from "./scene-fit";
 import { master } from "../music/master";
 import { runTranscriptionSafely } from "../transcribe";
 import { callCtx, derivedId, EXT_BY_MIME, mediaDeps, sha256, usageEventIdsForJob, withWorkdir } from "../util";
@@ -314,6 +316,169 @@ export async function prepareRecordingVoiceover(ctx: JobContext, input: { source
     const { transcript, ran } = await transcribeAsset(ctx, asset, dir, local, input.keywords ?? []);
     const captions = transcriptToCaptionCues({ id: transcript.id, text: transcript.text, turns: transcript.turns, durationSec: asset.durationSec }, { idPrefix: `vo-${transcript.id}`.slice(0, 60), maxChars: 64 });
     return { asset, durationSec: asset.durationSec ?? 0, transcriptId: transcript.id, speech: speechOf(transcript), captions, warnings: [], ttsCalls: 0, ttsChars: 0, checkSeconds: ran ? (asset.durationSec ?? 0) : 0, checks: ran ? 1 : 0 };
+  });
+}
+
+export interface SceneLine {
+  sceneId: string;
+  text: string;
+}
+
+export interface SceneVoiceoverResult extends VoiceoverResult {
+  /** The composition retimed so every narrated scene holds its own line. */
+  fit: SceneFit;
+  tempo: number;
+}
+
+/**
+ * AI voiceover spoken scene by scene: one OpenAI TTS line per narrated scene (same built-in voice and
+ * delivery notes), each scene held for its own line (`fitScenesToVoice`), the lines placed on one
+ * track at their scenes, and the whole track checked against the script with Muse Voice Transcribe
+ * (regenerated once more clearly if it differs). Captions are the spoken lines at their exact times.
+ * Idempotent per (composition, line, voice, attempt): a re-run reuses stored lines.
+ */
+export async function produceSceneVoiceover(
+  ctx: JobContext,
+  input: {
+    appId?: string;
+    compositionId: string;
+    doc: CompositionDoc;
+    lines: SceneLine[];
+    voice?: string;
+    /** Brand delivery, e.g. "calm, reassuring". */
+    tone?: string;
+    keywords?: string[];
+    maxTotalSec: number;
+    progress?: (pct: number, msg: string) => Promise<void> | void;
+  },
+): Promise<SceneVoiceoverResult> {
+  const p = ctx.platform;
+  const lines = input.lines.map((l) => ({ sceneId: l.sceneId, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text && input.doc.scenes.some((s) => s.id === l.sceneId));
+  if (!lines.length) throw new AppError("BAD_REQUEST", "No narration lines", { userMessage: "Write narration for at least one scene first." });
+  const voice = assertBuiltinVoice(input.voice);
+  const script = lines.map((l) => l.text).join(" ");
+  const repo = ctx.ws.collection("mediaAssets");
+  const takes: { asset: MediaAsset; transcript: Transcript; wer: number; fit: SceneFit; tempo: number }[] = [];
+  let ttsCalls = 0;
+  let ttsChars = 0;
+  let checkSeconds = 0;
+  let checks = 0;
+  return withWorkdir(async (dir) => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      ctx.throwIfCancelled();
+      const instructions = `${attempt === 1 ? INSTRUCTIONS : RETRY_INSTRUCTIONS}${input.tone ? ` Tone: ${input.tone}.` : ""} This is one line of a narrated app video; keep the same voice and energy as the other lines.`;
+      await input.progress?.(attempt === 1 ? 15 : 55, attempt === 1 ? `generating ${lines.length} narration lines (OpenAI TTS)` : "regenerating the narration more clearly");
+      // 1. One line per scene (stored, so a retry or re-run never pays twice).
+      const raw: { file: string; sec: number }[] = [];
+      let synthesized = false;
+      for (const [i, l] of lines.entries()) {
+        const key = workspaceKey(ctx.workspaceId, "generated", derivedId("vol", input.compositionId, sha256(l.text), voice, String(attempt)), "line.m4a");
+        const local = join(dir, `a${attempt}-l${i}.m4a`);
+        const src = join(dir, `a${attempt}-l${i}.mp3`);
+        if (await p.storage.stat(key)) {
+          await p.storage.downloadToFile(key, src);
+        } else {
+          const speech = await synthesizeSpeech(p, callCtx(ctx, "tts.voiceover_line"), { text: l.text, voice, instructions }, { fetch: mediaDeps(p).fetch });
+          synthesized = true;
+          ttsChars += l.text.length;
+          await writeFile(src, speech.audio);
+          await p.storage.put(key, speech.audio, { contentType: speech.mimeType });
+        }
+        const norm = await normalizeVoice(src, local, { signal: ctx.signal });
+        raw.push({ file: local, sec: norm.durationSec });
+      }
+      if (synthesized) ttsCalls++;
+      // 2. Scenes hold their lines; over the plan's length → speak a little faster (≤ MAX_VOICE_TEMPO), fit again.
+      const durations = () => new Map(lines.map((l, i) => [l.sceneId, raw[i]!.sec]));
+      let fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec });
+      let tempo = 1;
+      if (fit.overflowSec > 0) {
+        const spoken = raw.reduce((n, r) => n + r.sec, 0);
+        tempo = Math.min(MAX_VOICE_TEMPO, 1 + fit.overflowSec / Math.max(1, spoken));
+        for (const [i, r] of raw.entries()) {
+          const sped = join(dir, `a${attempt}-l${i}-t.m4a`);
+          r.sec = (await normalizeVoice(r.file, sped, { tempo, signal: ctx.signal })).durationSec;
+          r.file = sped;
+        }
+        fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec });
+      }
+      // 3. One track: each line at its scene.
+      const track = new Float32Array(Math.ceil(fit.totalSec * SR));
+      for (const [i, l] of lines.entries()) {
+        const pl = fit.placements.find((x) => x.sceneId === l.sceneId);
+        if (!pl) continue;
+        const [pcm] = await decodePcm(raw[i]!.file, `${raw[i]!.file}.pcm`, { sampleRate: SR, channels: 1, signal: ctx.signal });
+        const at = Math.round(pl.startSec * SR);
+        for (let k = 0; k < pcm!.length && at + k < track.length; k++) track[at + k] = track[at + k]! + pcm![k]!;
+      }
+      const out = join(dir, `voice-${attempt}.m4a`);
+      await encodeM4a(track, null, SR, out, { bitrateK: 128, signal: ctx.signal });
+      const id = derivedId("ast", "voiceover-scenes", input.compositionId, sha256(JSON.stringify([lines, fit.placements])), voice, String(attempt));
+      let asset = await repo.get(id);
+      if (asset?.status !== "ready") {
+        const bytes = await readFile(out);
+        const key = workspaceKey(ctx.workspaceId, "generated", id, "voiceover.m4a");
+        const stored = await p.storage.put(key, bytes, { contentType: "audio/mp4" });
+        asset = (
+          await repo.createIfAbsent(
+            {
+              id,
+              appId: input.appId,
+              kind: "audio",
+              role: "tts",
+              origin: "generated",
+              storagePath: key,
+              mimeType: "audio/mp4",
+              bytes: stored.bytes,
+              sha256: stored.sha256,
+              durationSec: Math.round(fit.totalSec * 1000) / 1000,
+              hasAudio: true,
+              status: "ready",
+              isProductTruth: false,
+              sourceLabel: "external_tts",
+              labels: ["external_tts", "ai_voice", `voice:${voice}`, "per_scene", `composition:${input.compositionId}`.slice(0, 60)],
+              title: `AI voiceover · OpenAI TTS (${voice}), ${lines.length} lines`,
+              license: { type: "generated_terms", provider: "OpenAI TTS", termsUrl: "https://openai.com/policies/usage-policies/", restrictions: TTS_DISCLOSURE },
+              generation: { provider: "openai", model: p.cfg.OPENAI_TTS_MODEL, prompt: script.slice(0, 4000), revision: attempt },
+            },
+            { actor: ctx.actor },
+          )
+        ).entity;
+      }
+      // 4. Muse Voice Transcribe hears the whole track and compares it with the script.
+      await input.progress?.(attempt === 1 ? 40 : 80, "checking the voice against the script (Muse Voice Transcribe)");
+      const { transcript, ran } = await transcribeAsset(ctx, asset, dir, out, input.keywords ?? []);
+      if (ran) {
+        checks++;
+        checkSeconds = Math.max(checkSeconds, asset.durationSec ?? 0);
+      }
+      const wer = wordErrorRate(script, transcript.text);
+      takes.push({ asset, transcript, wer, fit, tempo });
+      if (wer <= VOICEOVER_WER_THRESHOLD) break;
+    }
+    const best = takes.reduce((a, b) => (b.wer < a.wer ? b : a));
+    const passed = best.wer <= VOICEOVER_WER_THRESHOLD;
+    const warnings = passed
+      ? []
+      : [`The AI voice didn't match the script closely (${Math.round(best.wer * 100)}% of words differ, checked with Muse Voice Transcribe, after one regeneration). Listen before publishing, or edit the narration.`];
+    if (best.fit.overflowSec > 0) warnings.push(`With narration the video runs ${best.fit.overflowSec.toFixed(1)} s over the plan's ${input.maxTotalSec} s. Shorten a narration line.`);
+    // Track-local seconds (the track starts at 0 with the video).
+    const captions = lineCaptions(lines, best.fit.placements, { idPrefix: `vo-${best.transcript.id}`.slice(0, 60) });
+    return {
+      asset: best.asset,
+      durationSec: best.asset.durationSec ?? best.fit.totalSec,
+      transcriptId: best.transcript.id,
+      speech: best.fit.placements.map((x) => ({ startSec: x.startSec, endSec: x.endSec })),
+      captions,
+      check: { wer: Math.round(best.wer * 1000) / 1000, passed, attempts: takes.length, transcriptId: best.transcript.id, model: best.transcript.model },
+      warnings,
+      ttsCalls,
+      ttsChars,
+      checkSeconds,
+      checks,
+      fit: best.fit,
+      tempo: best.tempo,
+    };
   });
 }
 

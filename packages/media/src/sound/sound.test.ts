@@ -271,6 +271,58 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     expect((await p.db.ws(wid).collection("modelUsage").list({ limit: 5 })).items).toHaveLength(0);
   });
 
+  it("speaks the narration scene by scene: each narrated scene holds its own line, captions are the spoken lines, re-runs reuse the lines", async () => {
+    const p = createTestPlatform({ OPENAI_API_KEY: "sk-test", META_API_KEY: "test-meta-key" }, handlers);
+    const wid = "ws_scenes";
+    await makeWorkspace(p, wid, { music: false, sfx: false, aiVoiceover: true });
+    await p.credits.ensureAccount(wid, { grant: 50, reason: "test" });
+    const { tts } = await wire(p, ["Meet Focusly. Plan your whole day in three taps."]);
+    const sb = {
+      id: "sbd_s",
+      voiceover: { source: "tts", script: "Meet Focusly. Plan your whole day in three taps." },
+      music: {},
+      scenes: [
+        { id: "hook", order: 0, narration: "Meet Focusly." },
+        { id: "demo", order: 1, narration: "Plan your whole day in three taps." },
+        { id: "cta", order: 2, narration: "" },
+      ],
+    } as unknown as Storyboard;
+    const base = videoDoc();
+    const doc = { ...base, scenes: base.scenes.map((s) => ({ ...s, id: s.id.replace("sc_", "sc_") })), captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_s1"), { doc, compositionId: "cmp_s", appId: "app_1", storyboard: sb, app: { name: "Focusly" } });
+    // One TTS line per narrated scene (the fake line is 4.2 s): hook and demo grow to 0.25 + 4.2 + 0.45 s.
+    expect(tts.map((b) => b.input)).toEqual(["Meet Focusly.", "Plan your whole day in three taps."]);
+    expect(String(tts[0]!.instructions)).toMatch(/one line of a narrated app video/);
+    expect(r.doc.scenes.map((s) => s.durationSec)).toEqual([4.9, 4.9, 3]);
+    const vo = r.doc.audio.find((a) => a.kind === "voiceover")!;
+    expect(vo).toMatchObject({ sourceLabel: "external_tts", startSec: 0, speech: [{ startSec: 0.25, endSec: 4.45 }, { startSec: 5.15, endSec: 9.35 }], check: { passed: true } });
+    expect(r.doc.captions).toMatchObject({ enabled: true, source: "transcript" });
+    expect(r.doc.captions.cues.map((c) => [c.startSec, c.endSec, c.text])).toEqual([
+      [0.25, 4.45, "Meet Focusly."],
+      [5.15, 9.35, "Plan your whole day in three taps."],
+    ]);
+    const asset = await p.db.ws(wid).collection("mediaAssets").getOrThrow(vo.assetId);
+    expect(asset).toMatchObject({ role: "tts", sourceLabel: "external_tts", license: { provider: "OpenAI TTS" } });
+    expect(asset.labels).toContain("per_scene");
+    expect(r.notes.join(" ")).toMatch(/2 narration lines .* 2 scene\(s\) held longer/);
+    expect(r.voiceover!.credits).toBeGreaterThan(0);
+    expect(validateDoc(r.doc).ok).toBe(true);
+
+    // A rebuild of the same composition reuses the stored lines (no new TTS calls).
+    await prepareSoundtrack(ctxFor(p, wid, "job_s2"), { doc, compositionId: "cmp_s", appId: "app_1", storyboard: sb, app: { name: "Focusly" } });
+    expect(tts).toHaveLength(2);
+  });
+
+  it("without a voice, script captions are switched off (no unspoken caption fragments)", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_novoice";
+    await makeWorkspace(p, wid, { music: false, sfx: false, aiVoiceover: false });
+    const base = videoDoc();
+    const doc = { ...base, captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_nv"), { doc, compositionId: "cmp_nv", appId: "app_1", storyboard: storyboard("none"), app: null });
+    expect(r.doc.captions).toMatchObject({ enabled: false, cues: [{ text: "Meet Focusly." }] });
+  });
+
   it("reads the narration script from the storyboard", () => {
     expect(narrationScript(storyboard("tts"))).toBe(SCRIPT);
     expect(narrationScript({ voiceover: { source: "tts" }, scenes: [{ order: 1, narration: "Two." }, { order: 0, narration: " One. " }] } as unknown as Storyboard)).toBe("One. Two.");

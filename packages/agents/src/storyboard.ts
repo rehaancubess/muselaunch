@@ -1,4 +1,4 @@
-import { ScenePurpose, TEMPLATE_IDS, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
+import { ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
 import { CTA_TEMPLATES, DEVICE_TEMPLATES, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT } from "@muselaunch/compositions";
 import { AppError, assertKeyInWorkspace, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { imagePart, runSam, untrusted, type InputPart } from "@muselaunch/providers";
@@ -60,6 +60,26 @@ const PROOF_TEMPLATES = new Set<TemplateId>(["quote-proof", "stat-card"]);
 const OBJECT_TEMPLATES = new Set<TemplateId>(["presenter-depth", "object-spotlight", "product-in-hand"]);
 const FOCUS_TEMPLATES = new Set<TemplateId>(["focus-zoom", "tap-demo"]);
 const TEXT_TEMPLATES = new Set<TemplateId>(["hook-title", "kinetic-type"]);
+/** Cards with no app on screen. */
+const TYPE_ONLY = new Set<TemplateId>(["hook-title", "kinetic-type", "icon-reveal"]);
+/** Cards allowed after the last app scene, before the CTA (an icon-reveal). */
+const MAX_CLOSING = 1;
+/** A natural narration pace for short app videos. */
+export const NARRATION_WORDS_PER_SEC = 2.5;
+
+/** Indices of the type-only cards between the last scene that shows the app (or proof) and the final CTA. */
+function closingScenes(scenes: Pick<OutScene, "template" | "purpose" | "assets">[]): number[] {
+  const end = scenes.length - 1;
+  if (end < 1 || !CTA_TEMPLATES.has(scenes[end]!.template)) return [];
+  let lastContent = -1;
+  scenes.forEach((s, i) => {
+    if (i < end && (!TYPE_ONLY.has(s.template) || s.purpose === "proof" || s.assets.some((h) => PRODUCT_KINDS.has(h.kind)))) lastContent = i;
+  });
+  if (lastContent < 0) return [];
+  const out: number[] = [];
+  for (let i = lastContent + 1; i < end; i++) out.push(i);
+  return out;
+}
 const UI_WORDS = /\b(screenshot|app (?:ui|interface|screen)|user interface|\bui\b|dashboard of the app|the app's screen|phone screen showing)\b/i;
 
 /** Readable on-screen text: about 3 words per second (plus the entrance before the first word lands). */
@@ -95,7 +115,11 @@ export interface StoryboardCheckContext {
   segments?: Map<string, RecordingSegment>;
   /** The video length; rules for 30 s+ videos (variety, close-ups) apply from 30 s. */
   targetDurationSec?: number;
+  /** Who will speak the narration: an AI voice (workspace switch on), the founder's recording, or nobody. */
+  voice?: StoryboardVoice;
 }
+
+export type StoryboardVoice = "ai" | "founder" | "none";
 
 const isMarketing = (a: MediaAsset | undefined) => !!a && a.screenshotKind === "marketing" && a.sourceLabel !== "sam_ui_crop";
 const isTruth = (a: MediaAsset | undefined): a is MediaAsset => !!a && PRODUCT_KINDS.has(a.role) && a.isProductTruth;
@@ -242,7 +266,7 @@ export function checkStoryboard(sb: StoryboardOutput, c: StoryboardCheckContext)
   dedupeMedia(scenes, cat, fixes);
   // Enforced deterministically by fitDurations' minimums: no repair call needed.
   if (scenes[0] && scenes[0].durationSec < HOOK_MIN_SEC) fixes.push(`Scene 1 (hook) held for at least ${HOOK_MIN_SEC}s (was ${scenes[0].durationSec}s)`);
-  soft.push(...pacingProblems(scenes, target, long, cat.framable.length > 0));
+  soft.push(...pacingProblems(scenes, target, long, cat.framable.length > 0, c.voice ?? "none"));
   return { scenes, problems, soft, fixes };
 }
 
@@ -270,8 +294,32 @@ function dedupeMedia(scenes: OutScene[], cat: ReturnType<typeof mediaCatalog>, f
 }
 
 /** Pace, variety and arc rules (an editor's checklist). */
-function pacingProblems(scenes: OutScene[], target: number, long: boolean, hasProductMedia: boolean): string[] {
+function pacingProblems(scenes: OutScene[], target: number, long: boolean, hasProductMedia: boolean, voice: StoryboardVoice = "none"): string[] {
   const out: string[] = [];
+  // Run 5 (1 Nov): Spark's review of the render called out six near-identical text cards at the end.
+  for (let i = 2; i < scenes.length; i++) {
+    if ([i, i - 1, i - 2].every((k) => TYPE_ONLY.has(scenes[k]!.template))) {
+      out.push(`Scenes ${i - 1}–${i + 1} are all type-only cards (${scenes.slice(i - 2, i + 1).map((s) => s.template).join(", ")}); at most two in a row, show the app in between.`);
+      break;
+    }
+  }
+  const closing = closingScenes(scenes);
+  if (closing.length > MAX_CLOSING) out.push(`${closing.length} closing cards after the last app scene (${closing.map((i) => scenes[i]!.template).join(", ")}); end with at most an icon-reveal, then the CTA.`);
+  const seen = new Map<string, number>();
+  scenes.forEach((s, i) => {
+    const key = s.onScreenText.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    if (!key) return;
+    if (seen.has(key)) out.push(`Scene ${i + 1} repeats scene ${seen.get(key)! + 1}'s text ("${clip(s.onScreenText, 50)}"); every scene says something new.`);
+    else seen.set(key, i);
+  });
+  if (voice === "ai") {
+    scenes.forEach((s, i) => {
+      const w = countWords(s.narration);
+      if (w > Math.ceil(s.durationSec * NARRATION_WORDS_PER_SEC) + 2) out.push(`Scene ${i + 1} narration has ${w} words for ${s.durationSec} s (about ${NARRATION_WORDS_PER_SEC} words per second); shorten the line.`);
+    });
+    const spoken = scenes.filter((s, i) => s.narration.trim() && i < scenes.length - 1).length;
+    if (spoken < Math.ceil((scenes.length - 1) / 2)) out.push(`AI voiceover is on but only ${spoken} of ${scenes.length - 1} scenes have narration; give most scenes a short spoken line.`);
+  }
   const range = sceneRange(target);
   if (scenes.length < range.min || scenes.length > range.max) out.push(`${scenes.length} scenes for a ${Math.round(target)} s video; use ${range.min}–${range.max} scenes (about 3.5 s each).`);
   const hook = scenes[0];
@@ -337,6 +385,19 @@ export function polishStoryboard(input: StoryboardOutput["scenes"], c: Pick<Stor
       scenes.push({ purpose: "cta", durationSec: 3, onScreenText: clip(cta, 60), narration: "", visual: "App icon, name and store pills", template: "store-cta", assets: [], claimIds: [] });
       fixes.push("Added a store-cta end card");
     }
+  }
+  // A short ending: at most one card (preferably the icon-reveal) between the last app scene and the CTA.
+  const closing = closingScenes(scenes);
+  if (closing.length > MAX_CLOSING) {
+    const keep = closing.find((i) => scenes[i]!.template === "icon-reveal") ?? closing[closing.length - 1]!;
+    const drop = new Set(closing.filter((i) => i !== keep));
+    const freed = [...drop].reduce((n, i) => n + scenes[i]!.durationSec, 0);
+    fixes.push(`Shorter ending: removed ${drop.size} repeated closing card(s) (${[...drop].map((i) => `scene ${i + 1} ${scenes[i]!.template}`).join(", ")}); their ${freed.toFixed(1)} s went to the scenes before.`);
+    const kept = scenes.filter((_, i) => !drop.has(i));
+    const before = kept.slice(0, -1);
+    const weight = before.reduce((n, x) => n + x.durationSec, 0) || 1;
+    for (const x of before) x.durationSec = Math.round((x.durationSec + (freed * x.durationSec) / weight) * 10) / 10;
+    scenes.splice(0, scenes.length, ...kept);
   }
   const hasProduct = (s: OutScene) => s.assets.some((h) => PRODUCT_KINDS.has(h.kind));
   const swappable = (s: OutScene) => DEVICE_TEMPLATES.has(s.template) && !OBJECT_TEMPLATES.has(s.template) && s.template !== "founder-cutout" && hasProduct(s);
@@ -460,7 +521,24 @@ Editing rules:
 - generated_image / stock_* hints are only for supporting visuals (moods, people, settings) and need a query; they never depict the app UI.
 - founder-cutout and presenter templates only if a founder_clip exists in the list.
 - Product claims in onScreenText/narration must come from the verified claims (list their ids in claimIds).
+- Never more than two type-only cards (hook-title, kinetic-type, icon-reveal) in a row, and never the same line twice, on screen or spoken.
+- A short ending: after the last scene that shows the app, at most one card (an icon-reveal), then the CTA. Don't restate the tagline on several cards.
+- Narration (only when the input says a voice is available): one short spoken line per scene, said while that scene is on screen, about ${NARRATION_WORDS_PER_SEC} words per second of the scene. It adds to the on-screen text rather than reading it out, and the lines together tell the story in the brand voice. With no voice, leave narration empty and set voiceover.source "none".
 - Respect the brand voice and team memory.`;
+
+const VOICE_LINE: Record<StoryboardVoice, string> = {
+  ai: `Voice: AI voiceover is ON for this workspace (OpenAI TTS, disclosed as an AI voice). Write narration for every scene except the CTA end card: one short spoken line per scene (about ${NARRATION_WORDS_PER_SEC} words per second of the scene; each scene is held long enough for its line). Set voiceover.source to "tts".`,
+  founder: "Voice: the founder's own recording is available (founder_clip). Use voiceover.source \"founder_recording\" only if that clip narrates this story; otherwise \"none\" with empty narration.",
+  none: "Voice: no voiceover for this video. Set voiceover.source to \"none\" and leave narration empty: the on-screen text carries the story.",
+};
+
+/** Who can speak this video's narration (workspace AI-voice switch + an external TTS key, or a founder clip). */
+async function storyboardVoice(p: Platform, workspaceId: string, hasFounderClip: boolean): Promise<StoryboardVoice> {
+  const ws = await p.db.top("workspaces").get(workspaceId).catch(() => null);
+  const sound = WorkspaceSoundSettings.safeParse((ws?.settings as { sound?: unknown } | undefined)?.sound ?? {});
+  if (sound.success && sound.data.aiVoiceover && p.cfg.OPENAI_API_KEY) return "ai";
+  return hasFounderClip ? "founder" : "none";
+}
 
 /** Images Spark can look at to point at UI (raw screenshots, cut-outs, walkthrough keyframes). 8 = Muse Spark Open's cap, so the route can still fall back. */
 const MAX_STORYBOARD_IMAGES = 8;
@@ -581,6 +659,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       imageNo.set(v.ref, parts.length);
     }
     const range = sceneRange(targetDurationSec);
+    const voice = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
     const demoMedia = options.filter((o) => o.deviceFrameOk && !["founder_clip", "logo", "icon"].includes(o.kind)).length;
 
     const input = [
@@ -591,6 +670,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       `Script outline:\n${variant.scriptOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
       brief ? `Brief: CTA "${brief.cta}" · USP: ${brief.usp}${brief.visualDirection ? ` · Visual direction: ${brief.visualDirection}` : ""}` : "",
       `Format: ${aspectRatio}, target ${targetDurationSec} seconds total, ${range.min}-${range.max} scenes (about 3.5 s each; hook 1.5–2.5 s with ≤ ${HOOK_MAX_WORDS} words; CTA 2.5–4 s).`,
+      VOICE_LINE[voice],
       targetDurationSec >= 30 ? `This is a ${targetDurationSec} s video: at least ${MIN_TEMPLATES_LONG} different templates, at least one close-up (focus-zoom or tap-demo), no template more than twice in a row.` : "",
       variantClaims.length ? `Claims chosen for this concept: ${variantClaims.map((c) => `${c.id}: ${c.text}`).join(" | ")}` : "",
       memory.items.length ? `Team memory:\n${memory.summary}` : "",
@@ -608,7 +688,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       .filter((x) => x !== "")
       .join("\n");
     const callInput = parts.length ? ([{ type: "input_text", text: input }, ...parts] as InputPart[]) : input;
-    const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets, segments, targetDurationSec };
+    const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets, segments, targetDurationSec, voice };
     const sceneSummary = (o: StoryboardOutput) => o.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}${s.focus ? " [focus]" : s.focusQuery ? ` [focus: ${s.focusQuery}]` : ""}`).join("\n");
 
     await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is writing the storyboard`);
@@ -664,12 +744,16 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       ...(s.focusQuery ? { focusQuery: s.focusQuery } : {}),
     }));
     const founderClip = usable.find((a) => a.role === "founder_clip");
+    // Only a voice that exists: AI narration when the workspace turned AI voice on (and lines were
+    // written), otherwise nothing is "spoken" and no script captions appear.
+    const lines = scenes.map((s) => s.narration).filter((x) => x.trim());
     const voiceover: Storyboard["voiceover"] =
       out.data.voiceover.source === "founder_recording" && founderClip
         ? { source: "founder_recording", assetId: founderClip.id, script: out.data.voiceover.script }
-        : out.data.voiceover.source === "tts"
-          ? { source: "tts", script: out.data.voiceover.script ?? scenes.map((s) => s.narration).filter(Boolean).join(" ") }
+        : voice === "ai" && lines.length && out.data.voiceover.source !== "founder_recording"
+          ? { source: "tts", script: lines.join(" ") }
           : { source: "none" };
+    if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: "No AI voice for this video (workspace AI voice is off): narration kept in the storyboard, not spoken" });
     const storyboard = (
       await ws.collection("storyboards").createIfAbsent(
         { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music: out.data.music, generatedByRunId: rec.id },

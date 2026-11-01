@@ -20,9 +20,10 @@ import { AppError, toAppError, type JobContext, type Platform } from "@muselaunc
 import { transcriptToCaptionCues } from "../captions";
 import { ensureMusicAsset, ensureSfxLibrary, moodFromText } from "../music";
 import { lookupTranscript } from "../service";
-import { prepareRecordingVoiceover, produceAiVoiceover, voiceoverCredits, type VoiceoverResult } from "./voiceover";
+import { prepareRecordingVoiceover, produceAiVoiceover, produceSceneVoiceover, voiceoverCredits, type SceneLine, type VoiceoverResult } from "./voiceover";
 
-export { normalizeWords, wordErrorRate, scriptTurns, normalizeVoice, produceAiVoiceover, prepareRecordingVoiceover, voiceoverCredits, VOICE_TARGET_LUFS, type VoiceoverResult } from "./voiceover";
+export { normalizeWords, wordErrorRate, scriptTurns, normalizeVoice, produceAiVoiceover, produceSceneVoiceover, prepareRecordingVoiceover, voiceoverCredits, VOICE_TARGET_LUFS, type VoiceoverResult, type SceneLine } from "./voiceover";
+export { fitScenesToVoice, lineCaptions, type SceneFit, type VoicePlacement } from "./scene-fit";
 
 /** Workspace sound defaults (workspaces saved before this existed parse to the defaults). */
 export function soundSettings(ws: Pick<Workspace, "settings"> | null | undefined): WorkspaceSoundSettings {
@@ -107,10 +108,23 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
       try {
         reservation = await p.credits.reserve(ctx.workspaceId, est, { operation: "media.voiceover", idempotencyKey: `job:${ctx.job.id}:voiceover`, actor: ctx.actor, jobId: ctx.job.id });
         const total = totalDuration(doc);
-        const r = await produceAiVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, text: script, voice: settings.voice, keywords: input.app?.name ? [input.app.name] : [], maxDurationSec: Math.max(2, total - VOICE_START - 0.4) });
-        const ext = extendForVoice(doc, VOICE_START, r.durationSec);
-        doc = attachAudio(ext.doc, { voiceover: { ...voiceAttach(r, "external_tts"), startSec: VOICE_START } });
-        if (ext.extendedSec) notes.push(`Extended the last scene by ${ext.extendedSec}s so the narration isn't cut off.`);
+        const keywords = input.app?.name ? [input.app.name] : [];
+        const lines = sceneLines(doc, sb);
+        let r: VoiceoverResult;
+        if (lines.length) {
+          // Spoken scene by scene: each narrated scene holds its own line, so voice and picture match.
+          const brand = await ctx.ws.collection("brandProfiles").get(input.appId).catch(() => null);
+          const sv = await produceSceneVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, doc, lines, voice: settings.voice, tone: brand?.tone.voice.slice(0, 4).join(", "), keywords, maxTotalSec: await maxVideoSec(p, ctx.workspaceId) });
+          r = sv;
+          doc = attachAudio(sv.fit.doc, { voiceover: { ...voiceAttach(sv, "external_tts"), startSec: 0 } });
+          const longer = sv.fit.changed.filter(([, a, b]) => b > a).length;
+          notes.push(`AI voiceover: ${lines.length} narration lines (OpenAI TTS, external), each on its own scene${longer ? `; ${longer} scene(s) held longer for their line` : ""}${sv.tempo > 1.001 ? `; spoken ${Math.round((sv.tempo - 1) * 100)}% faster to fit` : ""}.`);
+        } else {
+          r = await produceAiVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, text: script, voice: settings.voice, keywords, maxDurationSec: Math.max(2, total - VOICE_START - 0.4) });
+          const ext = extendForVoice(doc, VOICE_START, r.durationSec);
+          doc = attachAudio(ext.doc, { voiceover: { ...voiceAttach(r, "external_tts"), startSec: VOICE_START } });
+          if (ext.extendedSec) notes.push(`Extended the last scene by ${ext.extendedSec}s so the narration isn't cut off.`);
+        }
         const credits = voiceoverCredits(p.credits.prices as Record<string, number>, r);
         await p.credits.settle(ctx.workspaceId, reservation.reservationId, credits, { actor: ctx.actor, reason: "AI voiceover (external TTS) + Muse Voice Transcribe check" });
         reservation = null;
@@ -174,6 +188,11 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
       warnings.push(`Sound effects skipped: ${err.message}`);
     }
   }
+  // Captions are what is SAID: script captions without a voice would just be unspoken fragments.
+  if (doc.captions.enabled && doc.captions.source === "script" && !doc.audio.some((a) => a.kind === "voiceover")) {
+    doc = { ...doc, captions: { ...doc.captions, enabled: false } };
+    notes.push("Captions are off: there is no voiceover, so the on-screen text carries the story (turn them on in Studio if you want the script shown).");
+  }
   const v = validateDoc(doc);
   if (!v.ok) {
     warnings.push(`Sound not attached (invalid result: ${v.errors.slice(0, 2).join("; ")})`);
@@ -181,6 +200,22 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
   }
   out.doc = v.doc;
   return out;
+}
+
+/** The storyboard's per-scene narration, keyed by the composition's scene ids (`sc_<storyboard scene id>`). */
+export function sceneLines(doc: Pick<CompositionDoc, "scenes">, sb: Pick<Storyboard, "scenes"> | null | undefined): SceneLine[] {
+  if (!sb) return [];
+  const ids = new Set(doc.scenes.map((s) => s.id));
+  return [...sb.scenes]
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({ sceneId: `sc_${s.id}`.slice(0, 100), text: s.narration.replace(/\s+/g, " ").trim() }))
+    .filter((l) => l.text && ids.has(l.sceneId));
+}
+
+async function maxVideoSec(p: Platform, workspaceId: string): Promise<number> {
+  const ws = await p.db.top("workspaces").get(workspaceId).catch(() => null);
+  const plans = p.credits.plans as Record<string, { limits: { maxVideoSec: number } } | undefined>;
+  return (plans[ws?.planId ?? "free"] ?? plans.free)?.limits.maxVideoSec ?? 60;
 }
 
 const sfxIds = (lib: Record<SfxKind, { id: string }>) => Object.fromEntries(Object.entries(lib).map(([k, a]) => [k, a.id])) as Partial<Record<SfxKind, string>>;

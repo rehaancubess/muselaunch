@@ -30,6 +30,14 @@ export async function run(p: Platform): Promise<string> {
   mkdirSync(out, { recursive: true });
   const wid = "smoke_pipeline";
   await p.credits.ensureAccount(wid, { grant: 2000, reason: "smoke" });
+  // AI voiceover (OpenAI TTS, labelled) is a workspace switch, off by default; on for this run unless SMOKE_AI_VOICE=0.
+  const aiVoice = process.env.SMOKE_AI_VOICE !== "0" && Boolean(p.cfg.OPENAI_API_KEY);
+  {
+    const now = new Date().toISOString();
+    const cur = await p.db.top("workspaces").get(wid);
+    const base = cur ?? { id: wid, workspaceId: wid, name: "Smoke pipeline", slug: "smoke-pipeline", ownerId: "smoke", planId: "free", spendCeilingUsd: 25, createdAt: now, createdBy: "smoke", settings: { defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { enabled: true, autoApproveRenders: true } } };
+    await p.db.top("workspaces").set(wid, { ...base, settings: { ...base.settings, sound: { music: true, sfx: true, aiVoiceover: aiVoice } }, updatedAt: now } as never);
+  }
   const ws = p.db.ws(wid);
   const lines: string[] = [];
   const t0 = Date.now();
@@ -90,7 +98,9 @@ export async function run(p: Platform): Promise<string> {
     const doc = versions[0]?.doc;
     const templates = doc ? doc.scenes.map((s) => s.template ?? "?") : [];
     const dur = doc ? doc.scenes.reduce((n, s) => n + s.durationSec, 0) : 0;
+    const vo = doc?.audio?.find((a) => a.kind === "voiceover");
     lines.push(`video "${comp.title}" v${comp.currentVersion} ${dur.toFixed(1)}s ${templates.length} scenes [${templates.join(", ")}] audio=${doc?.audio?.map((a) => a.kind).join("+") || "none"}`);
+    lines.push(`  voice: ${vo ? `${vo.label ?? vo.sourceLabel}, ${vo.speech?.length ?? 0} lines, Muse Voice check ${vo.check ? `${Math.round((1 - vo.check.wer) * 100)}% word match (${vo.check.passed ? "passed" : "differs"})` : "—"}` : aiVoice ? "none (see build notes)" : "off (SMOKE_AI_VOICE=0 or no OPENAI_API_KEY)"} · captions ${doc?.captions.enabled ? `on (${doc.captions.source}, ${doc.captions.cues.length} cues)` : "off"}`);
     const renders = (await ws.collection("mediaAssets").list({ where: [["appId", "==", app.id], ["role", "==", "render"]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 })).items.filter((a) => a.render?.compositionId === cid);
     for (const r of renders) {
       const file = `${out}${comp.title.replace(/[^\w-]+/g, "-").slice(0, 40)}-v${r.render!.version}-${r.render!.quality}.mp4`;
