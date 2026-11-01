@@ -114,9 +114,9 @@ export function BrandKitEditor({ profile, workspaceId, appId, canEdit }: { profi
         <Field label="Style keywords">{(f) => <TagInput id={f.id} label="Style keywords" value={s.keywords} onChange={(v) => set("keywords", v)} placeholder="e.g. minimal, airy, high contrast" disabled={!canEdit} max={20} />}</Field>
       </GroupCard>
 
-      <GroupCard title="Calls to action & guardrails" description="Muse never uses prohibited claims, even if a concept would benefit from them.">
+      <GroupCard title="Calls to action & guardrails" description="Muse never says the things you list here, even if an idea would benefit from them.">
         <Field label="Preferred calls to action">{(f) => <TagInput id={f.id} label="Preferred calls to action" value={s.ctas} onChange={(v) => set("ctas", v)} placeholder="e.g. Try it free on iPhone" disabled={!canEdit} max={20} />}</Field>
-        <Field label="Never claim">{(f) => <TagInput id={f.id} label="Prohibited claims" value={s.prohibited} onChange={(v) => set("prohibited", v)} placeholder="e.g. #1 productivity app" disabled={!canEdit} tone="danger" maxLength={300} />}</Field>
+        <Field label="Never say">{(f) => <TagInput id={f.id} label="Things never to say" value={s.prohibited} onChange={(v) => set("prohibited", v)} placeholder="e.g. #1 productivity app" disabled={!canEdit} tone="danger" maxLength={300} />}</Field>
         <Field label="Guidelines" optional>
           {(f) => <Textarea id={f.id} rows={4} value={s.guidelines} onChange={(e) => set("guidelines", e.target.value)} placeholder="Anything else a designer should know: logo usage, imagery to avoid, legal lines…" disabled={!canEdit} maxLength={4000} />}
         </Field>

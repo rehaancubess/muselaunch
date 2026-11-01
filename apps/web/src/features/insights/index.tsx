@@ -29,7 +29,7 @@ export default function InsightsRoot({ appId }: InsightsRootProps) {
     <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="space-y-8">
       <TabsList label="Insights sections">
         <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="experiments">Experiments</TabsTrigger>
+        <TabsTrigger value="experiments">Tests</TabsTrigger>
         <TabsTrigger value="next">What to try next</TabsTrigger>
         <TabsTrigger value="youtube">YouTube</TabsTrigger>
         <TabsTrigger value="sources">Data sources</TabsTrigger>

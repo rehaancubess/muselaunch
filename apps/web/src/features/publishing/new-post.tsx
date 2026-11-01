@@ -152,7 +152,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
             {({ id }) => <Select id={id} value={channel} onChange={(e) => setChannel(e.target.value as Channel)} options={CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))} />}
           </Field>
         </div>
-        <Field label="Media" hint={media.finals.length ? "Final renders are listed first. Newer renders from the studio appear here too." : "No final renders yet: render a composition in the studio, or pick uploaded media."}>
+        <Field label="Media" hint={media.finals.length ? "Final renders are listed first. Newer renders from the studio appear here too." : "No final renders yet: render a video in the Studio, or pick uploaded media."}>
           {({ id }) => (
             <Select
               id={id}
@@ -173,7 +173,7 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
         </Field>
         {packs.length ? (
           <Field label="Copy pack" optional>
-            {({ id }) => <Select id={id} value={copyPackId} onChange={(e) => setCopyPackId(e.target.value)} options={[{ value: "", label: "Write my own" }, ...packs.map((p) => ({ value: p.id, label: `${CHANNEL_LABEL[p.channel]} copy · ${p.locale}${p.validation && !p.validation.ok ? " (claim issues)" : ""}` }))]} />}
+            {({ id }) => <Select id={id} value={copyPackId} onChange={(e) => setCopyPackId(e.target.value)} options={[{ value: "", label: "Write my own" }, ...packs.map((p) => ({ value: p.id, label: `${CHANNEL_LABEL[p.channel]} copy · ${p.locale}${p.validation && !p.validation.ok ? " (fact issues)" : ""}` }))]} />}
           </Field>
         ) : null}
         <Field label="Title" optional={channel !== "youtube"}>

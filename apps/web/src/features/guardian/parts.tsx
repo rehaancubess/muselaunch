@@ -6,12 +6,12 @@ import type { GlimmerInfo, ReviewBrief } from "./use-guardian";
 
 export const CATEGORY_LABEL: Record<BrandFinding["category"], string> = {
   tone: "Tone",
-  claim: "Claim",
+  claim: "Fact",
   prohibited: "Prohibited",
   palette: "Palette",
   typography: "Typography",
   logo: "Logo",
-  cta: "CTA",
+  cta: "Call to action",
   consistency: "Consistency",
   accessibility: "Readability",
   privacy: "Privacy",
@@ -45,12 +45,12 @@ export function EngineBadge({ reviewer, glimmer, className }: { reviewer?: Pick<
   const label = (reviewer?.label ?? glimmer?.label ?? "").trim();
   if (engine === "glimmer")
     return (
-      <Badge tone="accent" icon={<Cpu aria-hidden />} className={className} title="Muse Glimmer runs on your own GPU: reviews stay private and fast. Deterministic brand rules run too.">
+      <Badge tone="accent" icon={<Cpu aria-hidden />} className={className} title="Muse Glimmer runs on your own GPU: reviews stay private and fast. Fixed brand rules run too.">
         Local · Muse Glimmer{label ? ` (${label})` : ""}
       </Badge>
     );
   return (
-    <Badge tone="neutral" icon={<ShieldHalf aria-hidden />} className={className} title={reviewer?.note ?? "Muse Glimmer isn't connected, so only the deterministic brand rules run."}>
+    <Badge tone="neutral" icon={<ShieldHalf aria-hidden />} className={className} title={reviewer?.note ?? "Muse Glimmer isn't connected, so only the fixed brand rules run."}>
       Rules only — Glimmer offline
     </Badge>
   );
@@ -70,7 +70,7 @@ export function EvidenceChips({ finding, claim, preference }: { finding: BrandFi
         <Tooltip key={id} content={claim(id)?.text ?? id}>
           <span className={chip} tabIndex={0}>
             <BadgeCheck aria-hidden />
-            <span className="truncate">{claim(id) ? `Claim: ${truncate(claim(id)!.text, 34)}` : "Verified claim"}</span>
+            <span className="truncate">{claim(id) ? `Fact: ${truncate(claim(id)!.text, 34)}` : "Confirmed fact"}</span>
           </span>
         </Tooltip>
       ))}

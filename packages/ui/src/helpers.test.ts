@@ -15,7 +15,7 @@ describe("ui helpers", () => {
   it("humanizes statuses without inventing meaning", () => {
     expect(humanizeStatus("needs_approval")).toBe("Needs approval");
     expect(humanizeStatus("not_configured")).toBe("Not connected");
-    expect(humanizeStatus("concepts_ready")).toBe("Concepts ready");
+    expect(humanizeStatus("concepts_ready")).toBe("Ideas ready");
   });
 
   it("labels media origins with honest provenance", () => {

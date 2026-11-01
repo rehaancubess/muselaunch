@@ -16,7 +16,7 @@ export const isActive = (j: Pick<Job, "status"> | null | undefined) => Boolean(j
  * requires their own endpoints, which re-check the publish grant and approval. Hide Retry for them.
  */
 export const RETRY_ELSEWHERE: Partial<Record<Job["type"], string>> = {
-  "publish.post": "Publish it again from the calendar.",
+  "publish.post": "Post it again from Creator → Scheduled.",
   "outreach.send": "Send the draft again from outreach.",
 };
 export const canRetryGenerically = (j: Pick<Job, "type"> | null | undefined) => Boolean(j && !RETRY_ELSEWHERE[j.type]);

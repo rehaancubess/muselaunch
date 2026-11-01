@@ -40,7 +40,7 @@ export function AgentRunsList({ workspaceId, appId, limit = 20 }: { workspaceId:
             ))}
           </List>
         ) : (
-          <EmptyState icon={<Bot aria-hidden />} title="No agent runs yet" description="Runs appear here when Muse Wonder or Muse Spark works on this app — research, App DNA, concepts, storyboards and edits." />
+          <EmptyState icon={<Bot aria-hidden />} title="No agent runs yet" description="Runs appear here when Muse Wonder or Muse Spark works on this app — research, learning about your app, ideas, plans and edits." />
         )
       }
     </QueryState>

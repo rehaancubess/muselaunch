@@ -552,8 +552,8 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
         onCreated={() =>
           toast.toast({
             title: "Draft post created",
-            description: "Nothing is published yet: request approval in the Calendar, then publish or post it yourself.",
-            action: { label: "Open Calendar", onClick: () => router.push(routes.app(workspaceId, appId).calendar) },
+            description: "Nothing is posted yet: ask for approval in Scheduled, then MuseLaunch posts it or you post it yourself.",
+            action: { label: "Open Scheduled", onClick: () => router.push(routes.app(workspaceId, appId).scheduled) },
           })
         }
       />

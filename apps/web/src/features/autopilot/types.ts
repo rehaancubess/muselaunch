@@ -120,24 +120,24 @@ export function entityHref(workspaceId: string, appId: string, ap: Pick<Autopilo
     case "campaigns":
       return { href: app.campaign(ref.id), label: "Campaign" };
     case "campaignVariants":
-      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Concepts" } : null;
+      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Ideas" } : null;
     case "agentRuns":
       return { href: app.run(ref.id), label: "Agent run" };
     case "researchRuns":
       return { href: app.discover, label: "Research" };
     case "experiments":
     case "recommendations":
-      return { href: app.insights, label: ref.entity === "experiments" ? "Experiment" : "Recommendations" };
+      return { href: app.insights, label: ref.entity === "experiments" ? "Test" : "Recommendations" };
     case "scheduledPosts":
-      return { href: app.calendar, label: "Calendar" };
+      return { href: app.scheduled, label: "Scheduled" };
     case "brandProfiles":
-      return { href: app.brand, label: "Brand" };
+      return { href: app.about, label: "About your app" };
     case "brandReviews": {
       const r = reviews.find((x) => x.id === ref.id);
       return r?.subject.entity === "compositions" ? { href: app.studio(r.subject.id), label: "Review in Studio" } : null;
     }
     case "mediaAssets":
-      return { href: app.library, label: "Library" };
+      return { href: app.videos, label: "Videos" };
     default:
       return null;
   }

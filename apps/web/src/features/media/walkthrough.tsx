@@ -388,7 +388,7 @@ export function RecordingSegments({ workspaceId, appId, asset }: { workspaceId: 
           <p className="text-footnote text-ink-2 text-pretty">
             {items.length
               ? `${items.length} clip${items.length === 1 ? "" : "s"}, labelled by Muse Spark from the recording${items.some((s) => s.narration) ? " and what you said (Muse Voice Transcribe)" : ""}. Videos pick clips by feature.`
-              : "MuseLaunch finds each shot, labels it with Muse Spark and links it to your App DNA features."}
+              : "MuseLaunch finds each shot, labels it with Muse Spark and links it to the features in About your app."}
           </p>
         </div>
         {canWrite && q.data?.canAnalyze && !running ? (

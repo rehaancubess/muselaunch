@@ -43,7 +43,7 @@ async function expectNoLoadingFlash(page: Page) {
   }
 }
 
-test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studio, hooks (fixture mode)", async ({ page, request, browser }) => {
+test("phase-2 demo: paste → Autopilot → Needs you, object-aware Studio, hooks (fixture mode)", async ({ page, request, browser }) => {
   test.setTimeout(150 * 60_000); // 5 real final renders on a shared machine
   await expectFixtureMode(request);
   await signUp(page, shot, { email: `founder${Date.now() % 1_000_000}@tidylabs.dev` });
@@ -55,7 +55,7 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
   let studioUrl = "";
   let campaignUrl = "";
 
-  await test.step("Progress screen: Autopilot works on its own (App DNA accepted, plain steps with real results)", async () => {
+  await test.step("Progress screen: Autopilot works on its own (what it learned accepted, plain steps with real results)", async () => {
     loopUrl = page.url();
     homeUrl = `${base()}/creator`;
     await expect(page.getByRole("link", { name: "Check what we learned" })).toBeVisible({ timeout: 300_000 });
@@ -84,7 +84,7 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
     studioUrl = new URL((await page.getByRole("link", { name: "Edit", exact: true }).first().getAttribute("href"))!, page.url()).toString();
   });
 
-  await test.step("Show details: the goal came from App DNA; the audience choice cites real research", async () => {
+  await test.step("Show details: the goal came from About your app; the audience choice cites real research", async () => {
     await page.getByRole("button", { name: "Show details" }).click();
     await expect(page.getByRole("heading", { name: "Goal: Get more installs of Tidy Timer from students" })).toBeVisible();
     loopUrl = `${loopUrl}&details=1`;
@@ -192,14 +192,14 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
     await shot(page, "campaign", true);
   });
 
-  await test.step("Calendar: the loop's posts wait for approval", async () => {
-    await page.goto(`${base()}/calendar`);
+  await test.step("Scheduled: the run's posts wait for approval", async () => {
+    await page.goto(`${base()}/creator/scheduled`);
     await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
     await expect(page.getByText(/^Published$/)).toHaveCount(0);
     await shot(page, "calendar", true);
   });
 
-  await test.step("Insights: CSV import, the loop's experiment, what to try next", async () => {
+  await test.step("Insights: CSV import, the run's test, what to try next", async () => {
     await nav(page, "Insights");
     await page.waitForURL(/\/insights$/);
     await page.getByRole("tab", { name: "Data sources" }).click();
@@ -208,8 +208,8 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
     await expect(page.getByText("Import complete")).toBeVisible({ timeout: 120_000 });
     await page.getByRole("tab", { name: "Overview" }).click();
     await shot(page, "insights-overview", true);
-    await page.getByRole("tab", { name: "Experiments" }).click();
-    await expect(page.getByText("2 variants", { exact: false }).first()).toBeVisible();
+    await page.getByRole("tab", { name: "Tests" }).click();
+    await expect(page.getByText("2 versions", { exact: false }).first()).toBeVisible();
     await shot(page, "insights-experiments");
     await page.getByRole("tab", { name: "What to try next" }).click();
     await page.getByRole("button", { name: "Generate" }).click();
@@ -223,7 +223,7 @@ test("phase-2 demo: paste → Growth Autopilot → Needs you, object-aware Studi
       { name: "progress", path: loopUrl.replace(origin, "").replace("&details=1", ""), fullPage: true, wait: (m) => m.locator("video").first().waitFor() },
       { name: "home", path: homeUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByRole("heading", { level: 1 }).first().waitFor() },
       { name: "autopilot", path: loopUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Awaiting approval", { exact: true }).first().waitFor() },
-      { name: "campaign", path: campaignUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByText("Compositions").first().waitFor() },
+      { name: "campaign", path: campaignUrl.replace(origin, ""), fullPage: true, wait: (m) => m.getByRole("heading", { name: "Videos", exact: true }).first().waitFor() },
       { name: "studio", path: studioUrl.replace(origin, ""), wait: (m) => m.getByRole("button", { name: "Render", exact: true }).waitFor() },
     ]);
   });

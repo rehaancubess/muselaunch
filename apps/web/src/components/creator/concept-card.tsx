@@ -43,9 +43,9 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
     try {
       await api.post(`${campaignPath}/variants/${v.id}/${action}`);
       await invalidate(campaignPath);
-      if (action === "reject") toast.toast({ title: "Concept set aside", description: "Muse remembers this so future concepts avoid the same angle." });
+      if (action === "reject") toast.toast({ title: "Idea set aside", description: "Muse remembers this so future ideas avoid the same angle." });
     } catch (e) {
-      toast.error(action === "select" ? "Couldn’t select the concept" : "Couldn’t set the concept aside", errorMessage(e));
+      toast.error(action === "select" ? "Couldn’t select the idea" : "Couldn’t set the idea aside", errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -60,7 +60,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
       setProduceOpen(false);
       idem.current = newIdempotencyKey("produce");
       await invalidate(campaignPath);
-      toast.success("Production started", "Muse is writing the storyboard. The composition and preview render follow automatically.");
+      toast.success("Production started", "Muse is writing the plan. The video and a preview follow automatically.");
     } catch (e) {
       toast.error("Couldn’t start production", errorMessage(e));
     } finally {
@@ -122,7 +122,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
       </dl>
       <div className="mt-4 flex flex-wrap gap-1.5">
         {linkedClaims.map((c) => (
-          <Tooltip key={c.id} content={c.state === "verified" ? "Verified claim" : "Claim not verified yet; it won’t be stated until you verify it"}>
+          <Tooltip key={c.id} content={c.state === "verified" ? "Confirmed fact" : "Not confirmed yet: videos won’t say this until you confirm it"}>
             <span>
               <Badge tone={c.state === "verified" ? "success" : "warning"} icon={<CheckCircle2 aria-hidden />} className="max-w-56">
                 <span className="truncate">{c.text}</span>
@@ -190,7 +190,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
         open={produceOpen}
         onOpenChange={setProduceOpen}
         title={`Produce “${v.title}”`}
-        description="Muse Spark writes the storyboard, then builds an editable composition from your real screenshots and renders a preview."
+        description="Muse Spark writes the plan, then builds an editable video from your real screenshots and renders a preview."
         footer={
           <>
             <Button variant="ghost" onClick={() => setProduceOpen(false)}>
@@ -221,7 +221,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
           <WorkspaceCostEstimate
             operation="storyboard.generate"
             params={{ targetDurationSec: duration === "auto" ? (v.targetDurationSec ?? 60) : Number(duration) }}
-            note="Includes the storyboard; SAM focus lookups are charged only when used. The preview render costs a few more credits; final renders are estimated when you export."
+            note="Includes the plan; SAM focus lookups are charged only when used. The preview render costs a few more credits; final renders are estimated when you export."
           />
         </div>
       </Dialog>

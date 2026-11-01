@@ -8,15 +8,15 @@ import { ProgressBar } from "./feedback";
 
 const JOB_LABELS: Record<string, string> = {
   "app.import": "Importing app listing",
-  "app.analyze": "Analysing App DNA",
+  "app.analyze": "Learning about your app",
   "research.run": "Researching market",
   "strategy.run": "Planning strategy",
-  "campaign.generate_concepts": "Generating concepts",
-  "storyboard.generate": "Writing storyboard",
+  "campaign.generate_concepts": "Writing ideas",
+  "storyboard.generate": "Writing the video plan",
   "storyboard.resolve_media": "Finding lifestyle b-roll",
-  "composition.build": "Building composition",
+  "composition.build": "Building the video",
   "composition.edit": "Applying AI edit",
-  "composition.variants": "Making variants",
+  "composition.variants": "Making versions",
   "copy.generate": "Writing copy",
   "render.preview": "Rendering preview",
   "render.final": "Rendering final video",
@@ -37,7 +37,7 @@ const JOB_LABELS: Record<string, string> = {
   "analytics.sync": "Syncing analytics",
   "analytics.import_csv": "Importing CSV",
   "analytics.youtube_channel": "Analysing YouTube channel",
-  "experiment.analyze": "Analysing experiment",
+  "experiment.analyze": "Analysing the test",
   "recommendations.generate": "Generating recommendations",
   "memory.ingest": "Updating brand memory",
 };
@@ -120,10 +120,10 @@ export type StepState = "done" | "active" | "pending" | "failed" | "skipped" | "
 
 const STEP_LABEL: Record<PipelineStep, string> = {
   research: "Research",
-  concept: "Concepts",
-  storyboard: "Storyboard",
-  assets: "Assets",
-  composition: "Composition",
+  concept: "Ideas",
+  storyboard: "Plan",
+  assets: "Media",
+  composition: "Video",
   render: "Render",
   review: "Review",
 };
@@ -157,7 +157,7 @@ function StepDot({ state, index }: { state: StepState; index: number }) {
 /** research → concept → storyboard → assets → composition → render → review */
 export function PipelineSteps({ states, details, className, orientation = "auto" }: PipelineStepsProps) {
   const horizontal = (
-    <ol className={cn("items-start", orientation === "auto" ? "hidden md:flex" : "flex")} aria-label="Campaign pipeline">
+    <ol className={cn("items-start", orientation === "auto" ? "hidden md:flex" : "flex")} aria-label="Campaign steps">
       {PIPELINE_STEPS.map((s, i) => {
         const st = states[s] ?? "pending";
         return (
@@ -180,7 +180,7 @@ export function PipelineSteps({ states, details, className, orientation = "auto"
     </ol>
   );
   const vertical = (
-    <ol className={cn("space-y-0", orientation === "auto" ? "md:hidden" : "")} aria-label="Campaign pipeline">
+    <ol className={cn("space-y-0", orientation === "auto" ? "md:hidden" : "")} aria-label="Campaign steps">
       {PIPELINE_STEPS.map((s, i) => {
         const st = states[s] ?? "pending";
         return (

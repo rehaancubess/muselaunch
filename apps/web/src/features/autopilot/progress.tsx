@@ -269,8 +269,8 @@ function FinishedVideo({ video: v, detail, needs, canPost, workspaceId }: { vide
     postNote = (
       <>
         {post.status === "failed" ? "Posting didn’t work." : post.status === "draft" ? "Saved as a draft." : "The post is waiting for approval."}{" "}
-        <Link href={r.calendar} className="font-medium text-accent hover:underline">
-          Open the calendar
+        <Link href={r.scheduled} className="font-medium text-accent hover:underline">
+          Open Scheduled
         </Link>
       </>
     );

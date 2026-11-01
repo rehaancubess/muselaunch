@@ -260,7 +260,7 @@ export default function WorkspaceSettingsPage() {
         >
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Name">{(f) => <Input id={f.id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} disabled={!can("workspace.manage")} />}</Field>
-            <Field label="Time zone" hint="Used for the marketing calendar.">
+            <Field label="Time zone" hint="Used for scheduled posts.">
               {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={tz} onChange={(e) => setTz(e.target.value)} options={TIMEZONES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))} disabled={!can("workspace.manage")} />}
             </Field>
           </div>

@@ -172,7 +172,7 @@ export function TrackerSheet({ trackerId, onOpenChange, onRefresh }: { trackerId
                 <ObsList title="Recurring hooks" items={profile.hooks} empty="No sourced hooks yet." />
                 <ObsList title="Formats" items={profile.formats} empty="No sourced formats yet." />
                 {profile.other.length ? <ObsList title="Other observations" items={profile.other} empty="" /> : null}
-                <Section title="Compared with your verified claims">
+                <Section title="Compared with your confirmed facts">
                   {profile.comparison.length ? (
                     <div className="overflow-hidden rounded-xl border border-line">
                       <table className="w-full text-left text-footnote">
@@ -200,7 +200,7 @@ export function TrackerSheet({ trackerId, onOpenChange, onRefresh }: { trackerId
                       </table>
                     </div>
                   ) : (
-                    <p className="text-footnote text-ink-3">{profile.ourVerifiedClaims.length ? "No comparable, sourced claims found yet." : "Verify claims in App DNA to compare features."}</p>
+                    <p className="text-footnote text-ink-3">{profile.ourVerifiedClaims.length ? "No comparable, sourced facts found yet." : "Confirm facts in About your app to compare features."}</p>
                   )}
                   {profile.researchComparison.length ? (
                     <ul className="space-y-1 pt-2 text-footnote text-ink-2">
