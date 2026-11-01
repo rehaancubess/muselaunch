@@ -52,14 +52,14 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await shot(page, "campaign-produced", true);
   });
 
-  await test.step("Studio: AI edit, apply, undo", async () => {
+  await test.step("Studio (simple view): tell it what to change, apply, undo", async () => {
     await page.getByRole("link", { name: "Open in Studio" }).click();
     await page.waitForURL(/\/studio\//);
-    await expect(page.getByRole("tab", { name: "Ask Muse" })).toBeVisible();
+    const change = page.getByLabel("Tell me what to change");
+    await expect(change).toBeVisible();
     await shot(page, "studio");
-    await page.getByRole("tab", { name: "Ask Muse" }).click();
-    await page.getByLabel("Edit instruction").fill("Make the opening more engaging");
-    await page.getByLabel("Edit instruction").press("Enter");
+    await change.fill("Make the opening more engaging");
+    await change.press("Enter");
     await expect(page.getByRole("button", { name: "Apply" })).toBeVisible({ timeout: 120_000 });
     await shot(page, "studio-ai-edit");
     await page.getByRole("button", { name: "Apply" }).click();
