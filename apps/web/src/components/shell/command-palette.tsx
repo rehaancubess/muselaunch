@@ -1,21 +1,7 @@
 "use client";
 import { Kbd, cn } from "@muselaunch/ui";
 import { Command } from "cmdk";
-import {
-  BarChart3,
-  Clapperboard,
-  Compass,
-  CreditCard,
-  Dna,
-  FolderOpen,
-  Plug,
-  Sparkles,
-  Users,
-  Wand2,
-  CalendarDays,
-  Plus,
-  Rocket,
-} from "lucide-react";
+import { BarChart3, CalendarDays, Clapperboard, Compass, CreditCard, FolderOpen, Hand, Info, Plug, Plus, Rocket, Settings, Sparkles, Users, Wand2 } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -96,7 +82,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                     <Item
                       value={`__edit ${trimmed}`}
                       icon={<Wand2 aria-hidden />}
-                      hint="Edits this composition"
+                      hint="Edits this video"
                       onSelect={() => {
                         emitAiEdit({ compositionId, instruction: trimmed });
                         onOpenChange(false);
@@ -105,8 +91,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       Edit video: <span className="text-ink-2">“{trimmed}”</span>
                     </Item>
                   ) : null}
-                  <Item value={`__autopilot ${trimmed}`} icon={<Rocket aria-hidden />} hint="Bounded, approval-gated" onSelect={() => go(`${r.autopilot}?goal=${encodeURIComponent(trimmed)}`)}>
-                    Start Growth Autopilot: <span className="text-ink-2">“{trimmed}”</span>
+                  <Item value={`__autopilot ${trimmed}`} icon={<Rocket aria-hidden />} hint="Asks before anything goes out" onSelect={() => go(`${r.autopilot}?goal=${encodeURIComponent(trimmed)}`)}>
+                    Start Autopilot: <span className="text-ink-2">“{trimmed}”</span>
                   </Item>
                   <Item value={`__campaign ${trimmed}`} icon={<Clapperboard aria-hidden />} hint="New campaign" onSelect={() => go(`${r.newCampaign}?request=${encodeURIComponent(trimmed)}`)}>
                     Create campaign: <span className="text-ink-2">“{trimmed}”</span>
@@ -125,25 +111,31 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <Item value="insights analytics metrics experiments" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insights)}>
                     Insights
                   </Item>
-                  <Item value="growth autopilot autonomous loop goal" icon={<Rocket aria-hidden />} onSelect={() => go(r.autopilot)}>
-                    Growth Autopilot
+                  <Item value="autopilot growth autonomous loop goal" icon={<Rocket aria-hidden />} onSelect={() => go(r.autopilot)}>
+                    Autopilot
                   </Item>
                   <Item value="new campaign" icon={<Plus aria-hidden />} onSelect={() => go(r.newCampaign)}>
                     New campaign
                   </Item>
-                  <Item value="app dna brand kit claims audiences" icon={<Dna aria-hidden />} onSelect={() => go(r.brand)}>
-                    App DNA &amp; brand
+                  <Item value="videos files library assets uploads media screenshots renders" icon={<FolderOpen aria-hidden />} onSelect={() => go(r.videos)} hint="Creator">
+                    Videos and files
                   </Item>
-                  <Item value="library assets uploads media screenshots" icon={<FolderOpen aria-hidden />} onSelect={() => go(r.library)}>
-                    Library
+                  <Item value="scheduled posts calendar publishing schedule" icon={<CalendarDays aria-hidden />} onSelect={() => go(r.scheduled)} hint="Creator">
+                    Scheduled posts
                   </Item>
-                  <Item value="calendar publishing schedule" icon={<CalendarDays aria-hidden />} onSelect={() => go(r.calendar)}>
-                    Calendar
+                  <Item value="about your app dna brand kit facts claims audiences features" icon={<Info aria-hidden />} onSelect={() => go(r.about)}>
+                    About your app
                   </Item>
                 </Command.Group>
               ) : null}
 
               <Command.Group heading="Workspace">
+                <Item value="needs you decisions approvals inbox" icon={<Hand aria-hidden />} onSelect={() => go(routes.needsYou(workspaceId))}>
+                  Needs you
+                </Item>
+                <Item value="settings workspace autopilot sound profile" icon={<Settings aria-hidden />} onSelect={() => go(routes.settings.workspace(workspaceId))}>
+                  Settings
+                </Item>
                 <Item value="integrations providers connections models" icon={<Plug aria-hidden />} onSelect={() => go(routes.settings.integrations(workspaceId))}>
                   Integrations
                 </Item>

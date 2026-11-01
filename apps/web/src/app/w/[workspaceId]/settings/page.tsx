@@ -1,9 +1,13 @@
 "use client";
-import { Button, Field, Input, PageHeader, Section, Select, Switch, useToast } from "@muselaunch/ui";
+import { Badge, Button, Field, Input, List, ListRow, PageHeader, Section, Select, Switch, useToast } from "@muselaunch/ui";
+import { Plus } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { AppIcon } from "@/components/app-icon";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { countryOptions } from "@/lib/countries";
 import { useInvalidate } from "@/lib/query";
+import { routes } from "@/lib/routes";
 import { useMe, useWorkspace } from "@/lib/workspace";
 
 const TIMEZONES = (() => {
@@ -17,7 +21,7 @@ const TIMEZONES = (() => {
 })();
 
 /**
- * Growth Autopilot defaults: on = new apps start a run after import and Creator opens on it;
+ * Autopilot defaults: on = new apps start a run after import and Creator opens on it;
  * off = "I'll do it myself". Letting renders run without asking and the per-run limit pre-authorise
  * spending, so they need billing.manage (the API enforces both).
  */
@@ -52,12 +56,12 @@ function AutopilotSettings() {
         <span className="min-w-0 space-y-1">
           <span className="block text-body font-medium text-ink">Let MuseLaunch run growth (recommended)</span>
           <span className="block text-footnote text-ink-2 text-pretty">
-            New apps start Growth Autopilot after import: research, videos, checks and post drafts. Creator opens on what it’s doing. Turn off to do it yourself, step by step.
+            New apps start Autopilot after import: research, videos, checks and post drafts. Creator opens on what it’s doing. Turn off to do it yourself, step by step.
           </span>
         </span>
         <Switch
           id="ap-enabled"
-          label="Growth Autopilot"
+          label="Autopilot"
           checked={s.enabled}
           disabled={!manage || busy !== null}
           onCheckedChange={(v) => void save("enabled", { enabled: v }, v ? "Autopilot is on" : "Autopilot is off: you’re in control of each step")}
@@ -108,6 +112,46 @@ function AutopilotSettings() {
   );
 }
 
+const DNA_STATE: Record<string, string> = { none: "Not set up yet", drafting: "Learning about it…", needs_review: "Ready for you to check", confirmed: "Confirmed", failed: "Didn’t finish" };
+
+/** Each app's About page (what we know about it, its facts and brand kit), plus adding one. */
+function YourApps() {
+  const { apps, workspaceId, can } = useWorkspace();
+  return (
+    <Section
+      title="Your apps"
+      description="What MuseLaunch knows about each app, the facts it may use, and its brand kit."
+      actions={
+        can("apps.write") ? (
+          <Button variant="secondary" size="sm" asChild>
+            <Link href={routes.newApp(workspaceId)}>
+              <Plus className="size-3.5" aria-hidden />
+              Add an app
+            </Link>
+          </Button>
+        ) : null
+      }
+    >
+      {apps.length ? (
+        <List label="Your apps">
+          {apps.map((a) => (
+            <ListRow
+              key={a.id}
+              href={routes.app(workspaceId, a.id).about}
+              leading={<AppIcon app={a} workspaceId={workspaceId} size={36} />}
+              title={a.name}
+              subtitle={`About your app · ${DNA_STATE[a.dnaStatus] ?? a.dnaStatus}`}
+              trailing={a.dnaStatus === "needs_review" ? <Badge tone="warning">Check</Badge> : undefined}
+            />
+          ))}
+        </List>
+      ) : (
+        <p className="text-body-sm text-ink-2">No apps yet.</p>
+      )}
+    </Section>
+  );
+}
+
 const TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"];
 
 /**
@@ -148,12 +192,12 @@ function SoundSettings() {
   );
   return (
     <div className="divide-y divide-line rounded-xl bg-surface shadow-raised">
-      {row("snd-music", "Original music", "Every new video gets music composed for it by MuseLaunch, in the mood its storyboard asks for. Owned by you, no cost.", s.music, manage, (v) => void save("music", { music: v }, v ? "New videos get original music" : "New videos start without music"))}
+      {row("snd-music", "Original music", "Every new video gets music composed for it by MuseLaunch, in the mood its plan asks for. Owned by you, no cost.", s.music, manage, (v) => void save("music", { music: v }, v ? "New videos get original music" : "New videos start without music"))}
       {row("snd-sfx", "Sound effects", "Subtle whooshes on transitions, taps on app taps and a shimmer on the end card.", s.sfx, manage, (v) => void save("sfx", { sfx: v }, v ? "Sound effects on" : "Sound effects off"))}
       {row(
         "snd-voice",
         "AI voiceover",
-        `When a storyboard has narration, speak it with an AI voice (OpenAI TTS, external, labelled as AI) checked against the script with Muse Voice Transcribe. Uses credits per video.${money ? "" : " Only members who manage billing can change this."}`,
+        `When a video’s plan has narration, speak it with an AI voice (OpenAI TTS, external, labelled as AI), checked against the script with Muse Voice Transcribe. Uses credits per video.${money ? "" : " Only members who manage billing can change this."}`,
         s.aiVoiceover,
         money,
         (v) => void save("voice", { aiVoiceover: v }, v ? "AI voiceover on for new videos" : "AI voiceover off"),
@@ -188,10 +232,11 @@ export default function WorkspaceSettingsPage() {
 
   return (
     <div className="space-y-12">
-      <PageHeader title="Settings" className="pb-0" />
-      <Section title="Growth Autopilot" description="AI does the work by default. You approve what goes out.">
+      <PageHeader title="Settings" description="Your workspace, how Autopilot works, and your apps. Integrations, Team and Credits & billing have their own sections." className="pb-0" />
+      <Section title="Autopilot" description="AI does the work by default. You approve what goes out.">
         <AutopilotSettings />
       </Section>
+      <YourApps />
       <Section title="Sound" description="Music, effects and voice for new videos. Change any of it per video in Studio → Sound.">
         <SoundSettings />
       </Section>

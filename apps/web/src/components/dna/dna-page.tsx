@@ -495,7 +495,7 @@ export function DnaPage() {
         </div>
         <div className="flex justify-center">
           <Button variant="secondary" asChild>
-            <Link href={r.library}>Upload screenshots to the Library</Link>
+            <Link href={r.videos}>Upload screenshots</Link>
           </Button>
         </div>
       </div>
@@ -528,7 +528,7 @@ export function DnaPage() {
           }
           secondaryAction={
             <Button variant="ghost" asChild>
-              <Link href={r.library}>Add screenshots first</Link>
+              <Link href={r.videos}>Add screenshots first</Link>
             </Button>
           }
         />
@@ -559,11 +559,12 @@ export function DnaPage() {
         <div className="flex min-w-0 items-start gap-4">
           <AppIcon app={app} workspaceId={workspaceId} size={64} />
           <div className="min-w-0 space-y-2">
+            <p className="text-footnote font-medium text-ink-3">About your app</p>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-title-1 font-semibold">{app.name}</h1>
               <StatusPill status={statusKindOf(app.dnaStatus === "none" ? "draft" : app.dnaStatus)}>{app.dnaStatus === "none" ? "Not analysed" : humanizeStatus(app.dnaStatus)}</StatusPill>
             </div>
-            <p className="text-body text-ink-2">App DNA: what Muse knows about your product, and what it’s allowed to say.</p>
+            <p className="text-body text-ink-2">What MuseLaunch knows about your app, and what it’s allowed to say about it.</p>
             <div className="flex flex-wrap items-center gap-1.5">
               <SourceLinks app={app} />
             </div>

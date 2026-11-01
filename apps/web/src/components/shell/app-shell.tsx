@@ -1,25 +1,7 @@
 "use client";
 import type { App } from "@muselaunch/contracts";
-import { Avatar, Kbd, Menu, MenuContent, MenuItem, MenuLabel, MenuLink, MenuSeparator, MenuTrigger, SegmentedControl, cn } from "@muselaunch/ui";
-import {
-  BarChart3,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  Clapperboard,
-  Compass,
-  CreditCard,
-  Dna,
-  FolderOpen,
-  LogOut,
-  Plug,
-  Plus,
-  Rocket,
-  Search,
-  Settings,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { Avatar, Badge, Kbd, Menu, MenuContent, MenuItem, MenuLabel, MenuLink, MenuSeparator, MenuTrigger, SegmentedControl, cn } from "@muselaunch/ui";
+import { BarChart3, Check, ChevronDown, Clapperboard, Compass, CreditCard, Info, LogOut, Plus, Search, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -30,8 +12,11 @@ import { routes, type PrimaryTab } from "@/lib/routes";
 import { useMe, useWorkspace } from "@/lib/workspace";
 import { CommandPalette } from "./command-palette";
 import { JobsTray } from "./jobs-tray";
-import { NeedsYouButton } from "@/features/autopilot/needs-you";
+import { NeedsYouButton, NeedsYouTab } from "@/features/autopilot/needs-you";
 import { AutopilotChip } from "./autopilot-chip";
+
+/** Shell sections that belong to the one Settings page. */
+const SETTINGS_SECTIONS = new Set(["settings", "integrations", "team", "credits"]);
 
 const LAST_APP_KEY = (wid: string) => `ml.lastApp.${wid}`;
 
@@ -51,13 +36,18 @@ export function readLastApp(wid: string): string | null {
   }
 }
 
-/** App + workspace switcher, which also holds the secondary navigation. */
+/**
+ * App + workspace switcher. Short on purpose: your apps, Add an app, About your app, Settings
+ * (one page with Workspace, Integrations, Team and Credits & billing), and other workspaces.
+ * Library and Calendar live in Creator (Videos, Scheduled); Autopilot is reached from Creator.
+ */
 function AppSwitcher({ app, section }: { app: App | null; section?: string }) {
   const router = useRouter();
   const { workspaceId, workspace, apps } = useWorkspace();
   const me = useMe();
   const r = app ? routes.app(workspaceId, app.id) : null;
   const otherWorkspaces = me.data?.workspaces.filter((w) => w.workspace.id !== workspaceId) ?? [];
+  const go = (h: string) => router.push(h);
 
   return (
     <Menu>
@@ -65,7 +55,7 @@ function AppSwitcher({ app, section }: { app: App | null; section?: string }) {
         <button
           type="button"
           className="group flex h-9 min-w-0 items-center gap-2 rounded-full pl-1 pr-2.5 transition-colors hover:bg-mist focus-visible:outline-none focus-visible:shadow-focus data-[state=open]:bg-mist"
-          aria-label="Switch app and open app settings"
+          aria-label="Switch app, About your app and Settings"
         >
           {app ? <AppIcon app={app} workspaceId={workspaceId} size={28} /> : <LogoMark size={28} />}
           <span className="min-w-0 max-w-[16ch] truncate text-body-sm font-semibold text-ink sm:max-w-[22ch]">{app?.name ?? workspace?.name ?? "Workspace"}</span>
@@ -73,45 +63,28 @@ function AppSwitcher({ app, section }: { app: App | null; section?: string }) {
         </button>
       </MenuTrigger>
       <MenuContent className="w-72">
-        {r ? (
-          <>
-            <MenuLabel>{app?.name}</MenuLabel>
-            <MenuLink href={r.autopilot} icon={<Rocket />} active={section === "autopilot"} onNavigate={(h) => router.push(h)}>
-              Growth Autopilot
-            </MenuLink>
-            <MenuLink href={r.brand} icon={<Dna />} active={section === "brand"} onNavigate={(h) => router.push(h)}>
-              App DNA &amp; brand
-            </MenuLink>
-            <MenuLink href={r.library} icon={<FolderOpen />} active={section === "library"} onNavigate={(h) => router.push(h)}>
-              Library
-            </MenuLink>
-            <MenuLink href={r.calendar} icon={<CalendarDays />} active={section === "calendar"} onNavigate={(h) => router.push(h)}>
-              Calendar
-            </MenuLink>
-            <MenuSeparator />
-          </>
-        ) : null}
         {apps.length ? <MenuLabel>Apps in {workspace?.name ?? "this workspace"}</MenuLabel> : null}
         {apps.map((a) => (
-          <MenuLink key={a.id} href={routes.app(workspaceId, a.id).creator} icon={<AppIcon app={a} workspaceId={workspaceId} size={18} />} trailing={a.id === app?.id ? <Check className="size-4 text-accent" /> : null} onNavigate={(h) => router.push(h)}>
+          <MenuLink key={a.id} href={routes.app(workspaceId, a.id).creator} icon={<AppIcon app={a} workspaceId={workspaceId} size={18} />} trailing={a.id === app?.id ? <Check className="size-4 text-accent" /> : null} onNavigate={go}>
             {a.name}
           </MenuLink>
         ))}
-        <MenuLink href={routes.newApp(workspaceId)} icon={<Plus />} onNavigate={(h) => router.push(h)}>
+        <MenuLink href={routes.newApp(workspaceId)} icon={<Plus />} onNavigate={go}>
           Add an app
         </MenuLink>
         <MenuSeparator />
-        <MenuLabel>Workspace</MenuLabel>
-        <MenuLink href={routes.settings.integrations(workspaceId)} icon={<Plug />} active={section === "integrations"} onNavigate={(h) => router.push(h)}>
-          Integrations
-        </MenuLink>
-        <MenuLink href={routes.settings.team(workspaceId)} icon={<Users />} active={section === "team"} onNavigate={(h) => router.push(h)}>
-          Team
-        </MenuLink>
-        <MenuLink href={routes.settings.credits(workspaceId)} icon={<CreditCard />} active={section === "credits"} onNavigate={(h) => router.push(h)}>
-          Credits &amp; billing
-        </MenuLink>
-        <MenuLink href={routes.settings.workspace(workspaceId)} icon={<Settings />} active={section === "settings"} onNavigate={(h) => router.push(h)}>
+        {r ? (
+          <MenuLink
+            href={r.about}
+            icon={<Info />}
+            active={section === "brand"}
+            trailing={app?.dnaStatus === "needs_review" ? <Badge tone="warning">Check</Badge> : null}
+            onNavigate={go}
+          >
+            About your app
+          </MenuLink>
+        ) : null}
+        <MenuLink href={routes.settings.workspace(workspaceId)} icon={<Settings />} active={SETTINGS_SECTIONS.has(section ?? "")} onNavigate={go}>
           Settings
         </MenuLink>
         <MenuSeparator />
@@ -183,8 +156,9 @@ function tabItems(wid: string, appId: string | null) {
 
 /**
  * The app frame: translucent top bar with the app switcher, EXACTLY three primary tabs
- * (Discover, Creator, Insights), Ask Muse (⌘K), the jobs tray and the account menu.
- * On phones the tabs move to a bottom tab bar.
+ * (Discover, Creator, Insights) plus "Needs you" (every decision waiting on a person, with a
+ * count), Ask Muse (⌘K), the jobs tray and the account menu. On phones the tabs and Needs you move
+ * to a bottom tab bar.
  */
 export function AppShell({ children, tab, section, fullBleed }: { children: ReactNode; tab?: PrimaryTab | null; section?: string; fullBleed?: boolean }) {
   const { workspaceId, app, apps } = useWorkspace();
@@ -228,8 +202,9 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
           <div className="flex min-w-0 items-center">
             <AppSwitcher app={switcherApp} section={section} />
           </div>
-          <nav aria-label="Primary" className="hidden md:block">
+          <nav aria-label="Primary" className="hidden items-center gap-2 md:flex">
             <SegmentedControl label="Primary" items={items} value={(tab ?? "") as PrimaryTab} renderLink={renderLink} size="md" />
+            <NeedsYouButton workspaceId={workspaceId} current={section === "needs-you"} />
           </nav>
           <div className="flex items-center justify-end gap-1 sm:gap-1.5">
             <button
@@ -249,7 +224,6 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
             >
               <Search className="size-[18px]" aria-hidden />
             </button>
-            <NeedsYouButton workspaceId={workspaceId} />
             <AutopilotChip workspaceId={workspaceId} appId={app?.id} />
             <JobsTray workspaceId={workspaceId} />
             <AccountMenu />
@@ -263,7 +237,7 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
 
       {/* Phone tab bar */}
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-        <ul className="grid h-14 grid-cols-3">
+        <ul className="grid h-14 grid-cols-4">
           {items.map((it) => {
             const active = it.value === tab;
             return (
@@ -287,6 +261,9 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
               </li>
             );
           })}
+          <li>
+            <NeedsYouTab workspaceId={workspaceId} active={section === "needs-you"} />
+          </li>
         </ul>
       </nav>
 
