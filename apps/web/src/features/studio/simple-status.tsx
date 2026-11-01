@@ -153,7 +153,7 @@ export function BrandLine({
         icon={<ShieldCheck />}
         title="Brand check"
         status="not checked yet"
-        detail="Checks this version against your brand and facts. Runs on its own when you render."
+        detail="Your brand and facts, checked. Also runs when you render."
         action={
           canWrite ? (
             <Button size="sm" variant="secondary" loading={actions.busy === "run"} disabled={disabled} onClick={() => void runCheck()}>

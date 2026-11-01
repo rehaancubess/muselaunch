@@ -234,7 +234,8 @@ function ChangeBox({
   const toast = useToast();
   const invalidate = useInvalidate();
   const scope = sceneId && doc.scenes.some((s) => s.id === sceneId) ? [sceneId] : [];
-  const scene = doc.scenes.find((s) => s.id === sceneId);
+  const sceneIndex = doc.scenes.findIndex((s) => s.id === sceneId);
+  const scene = doc.scenes[sceneIndex];
   const engine = useTextEngine(scope.length ? "composition.edit.scoped" : "composition.edit");
   const { turns, sending, send, run } = useAiEdits({ base, baseVersion: data.composition.currentVersion, clipAnalysisIds });
   const [text, setText] = useState("");
@@ -318,7 +319,7 @@ function ChangeBox({
         out.push({ key: `spark:${f.id}`, label, hint: `Muse Spark watched the render: ${f.issue}`, fromSpark: true, act: () => void fixFinding(review, f, label) });
       }
     }
-    if (scene) out.push({ key: "punchier", label: `Make ${scene.name} punchier`, act: () => void send(`Make the scene "${scene.name}" punchier`, [scene.id]) });
+    if (scene) out.push({ key: "punchier", label: "Make this scene punchier", act: () => void send(`Make the scene "${scene.name}" punchier`, [scene.id]) });
     if (trackedLabels.length) out.push({ key: "behind", label: OBJECT_SUGGESTIONS[0]!, act: () => void send(OBJECT_SUGGESTIONS[0]!, []) });
     if (first && !sparkScenes.has(first.id)) out.push({ key: "opening", label: "Make the opening more engaging", act: () => void send("Make the opening more engaging", [first.id]) });
     const total = totalDuration(doc);
@@ -350,9 +351,10 @@ function ChangeBox({
               type="button"
               onClick={() => onSceneId(null)}
               className="inline-flex max-w-[55%] shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-caption font-medium text-accent-ink hover:bg-accent-soft/70 focus-visible:outline-none focus-visible:shadow-focus"
-              aria-label={`Only ${scene.name}. Change the whole video instead`}
+              aria-label={`Only scene ${sceneIndex + 1} (${scene.name}). Change the whole video instead`}
+              title={scene.name}
             >
-              <span className="truncate">Only {scene.name}</span>
+              <span className="truncate">Only scene {sceneIndex + 1}</span>
               <X className="size-3.5 shrink-0" aria-hidden />
             </button>
           ) : (
@@ -364,7 +366,7 @@ function ChangeBox({
             id="ml-change-box"
             rows={2}
             value={text}
-            placeholder={scene ? `e.g. Make ${scene.name} more exciting` : "e.g. Show my app on an animated iPhone"}
+            placeholder={scene ? "e.g. Make this scene more exciting" : "e.g. Show my app on an animated iPhone"}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -434,7 +436,20 @@ function ChangeBox({
       {turns.length ? (
         <ul className="space-y-4" aria-live="polite" aria-label="Your changes">
           {turns.map((t) => (
-            <TurnView key={t.id} turn={t} workspaceId={workspaceId} base={base} doc={doc as CompositionDoc} onApplied={onApplied} onUndo={onUndo} onPatchReady={() => void invalidate(`${base}/patches`)} disabled={saving} />
+            <TurnView
+              key={t.id}
+              turn={t}
+              workspaceId={workspaceId}
+              base={base}
+              doc={doc as CompositionDoc}
+              onApplied={(r) => {
+                onApplied(r);
+                void invalidate(`${base}/patches`);
+              }}
+              onUndo={onUndo}
+              onPatchReady={() => void invalidate(`${base}/patches`)}
+              disabled={saving}
+            />
           ))}
         </ul>
       ) : null}

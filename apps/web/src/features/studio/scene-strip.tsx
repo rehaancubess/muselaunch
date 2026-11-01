@@ -130,7 +130,8 @@ export function SceneStrip({
         <p className="min-w-0 truncate text-footnote text-ink-2">
           {selected ? (
             <>
-              Changes go to <span className="font-medium text-ink">{selected.name}</span> only
+              Changes go to <span className="font-medium text-ink">scene {doc.scenes.indexOf(selected) + 1}</span> only
+              <span className="text-ink-3"> · {selected.name}</span>
             </>
           ) : (
             "Tap a scene to change only that scene"
