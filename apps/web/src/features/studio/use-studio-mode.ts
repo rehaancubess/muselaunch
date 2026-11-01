@@ -1,6 +1,6 @@
 "use client";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 /**
  * Which Studio opens: the simple view (preview + "Tell me what to change") or the full editor.
@@ -39,7 +39,9 @@ export function useStudioMode(): { mode: StudioMode; fromUrl: boolean; setMode: 
   const params = useSearchParams();
   const urlMode = valid(params.get("mode"));
   const stored = useSyncExternalStore(subscribe, read, () => null);
-  const mode = urlMode ?? stored ?? "simple";
+  // A choice made on this page wins over the ?mode= it was opened with (until the URL changes again).
+  const [picked, setPicked] = useState<{ mode: StudioMode; url: StudioMode | null } | null>(null);
+  const mode = (picked && picked.url === urlMode ? picked.mode : null) ?? urlMode ?? stored ?? "simple";
 
   const setMode = useCallback(
     (m: StudioMode) => {
@@ -49,12 +51,13 @@ export function useStudioMode(): { mode: StudioMode; fromUrl: boolean; setMode: 
       } catch {
         /* remembered in memory only */
       }
-      // A ?mode= in the URL would keep overriding the choice: drop it.
-      if (urlMode) {
+      setPicked({ mode: m, url: urlMode });
+      // Keep the address honest: a ?mode= left in it would reopen the other view on reload.
+      if (urlMode && urlMode !== m) {
         const sp = new URLSearchParams(window.location.search);
         sp.delete("mode");
         const qs = sp.toString();
-        window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+        window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
       }
       window.dispatchEvent(new Event(EVENT));
     },

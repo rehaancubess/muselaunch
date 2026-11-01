@@ -27,9 +27,9 @@ import { OBJECT_SUGGESTIONS, TurnView, useAiEdits } from "./ai-panel";
 import type { SoundState } from "./audio-panel";
 import type { ClipObject } from "./clips";
 import { HooksDialog } from "./hooks-dialog";
-import { totalDuration } from "./ops";
+import { sceneStarts, totalDuration } from "./ops";
 import { PreviewPlayer, type PlayerHandle } from "./preview";
-import { SceneStrip } from "./scene-strip";
+import { SceneStrip, settledAt } from "./scene-strip";
 import { BrandLine, MadeWith, SoundLine } from "./simple-status";
 import { downloadAsset, RenderDialog, VersionsPopover } from "./topbar";
 import type { CommitResponse, CompositionResponse, MediaAsset, PreviewResponse } from "./types";
@@ -98,13 +98,25 @@ export function SimpleStudio(props: SimpleStudioProps) {
   const doc = data.version.doc;
   const c = data.composition;
   const review = props.videoReviews.data?.current ?? null;
-  // Real frames of this exact version (Spark watched its render), one per scene.
+  // Real frames of this exact version (Spark watched its render): per scene, the one closest to where
+  // the scene has settled (its text and device are on screen).
   const frames = useMemo(() => {
     const out: Record<string, string> = {};
     const urls = props.videoReviews.data?.frameUrls ?? {};
-    if (review?.status === "succeeded" && review.version === c.currentVersion) for (const f of review.frames) if (f.sceneId && !out[f.sceneId] && urls[f.ref]) out[f.sceneId] = urls[f.ref]!;
+    if (review?.status !== "succeeded" || review.version !== c.currentVersion) return out;
+    const starts = sceneStarts(doc);
+    const best = new Map<string, number>();
+    for (const f of review.frames) {
+      const i = doc.scenes.findIndex((s) => s.id === f.sceneId);
+      if (i < 0 || !urls[f.ref]) continue;
+      const d = Math.abs(f.atSec - ((starts[i] ?? 0) + settledAt(doc.scenes[i]!)));
+      if (d < (best.get(f.sceneId!) ?? Infinity)) {
+        best.set(f.sceneId!, d);
+        out[f.sceneId!] = urls[f.ref]!;
+      }
+    }
     return out;
-  }, [review, props.videoReviews.data?.frameUrls, c.currentVersion]);
+  }, [review, props.videoReviews.data?.frameUrls, c.currentVersion, doc]);
   const portrait = doc.height >= doc.width;
   const brandReviewer = props.brand.latest && props.brand.latest.status !== "queued" && props.brand.latest.status !== "running" && props.brand.latest.status !== "failed" ? props.brand.latest.reviewer : null;
 
@@ -279,10 +291,11 @@ function ChangeBox({
     void send(v, scope);
   };
 
-  const fixFinding = useCallback(
-    (r: VideoReview, f: VideoReviewFinding, label: string) =>
-      run(label, f.sceneId ? [f.sceneId] : [], async () => {
-        const out = await api.post<{ job: Job; patch: { id: string } }>(wsPath(workspaceId, `/video-reviews/${r.id}/fix`), { findingIds: [f.id] }, { idempotent: true });
+  /** Spark's "Fix these scenes": a scene-scoped edit proposed from the findings, reviewed like any edit. */
+  const fixFindings = useCallback(
+    (r: VideoReview, fs: VideoReviewFinding[], label: string) =>
+      run(label, [...new Set(fs.map((f) => f.sceneId).filter((id): id is string => Boolean(id)))], async () => {
+        const out = await api.post<{ job: Job; patch: { id: string } }>(wsPath(workspaceId, `/video-reviews/${r.id}/fix`), { findingIds: fs.map((f) => f.id) }, { idempotent: true });
         void videoReviews.refetch();
         return out;
       }),
@@ -309,14 +322,18 @@ function ChangeBox({
     const sparkScenes = new Set<string>();
     // Spark watched the render of this exact version: its open findings become one-tap fixes.
     if (review?.status === "succeeded" && review.version === data.composition.currentVersion) {
-      const open = review.findings
-        .filter((f) => !f.resolution && f.sceneId && doc.scenes.some((s) => s.id === f.sceneId))
-        .sort((a, b) => RANK[b.severity] - RANK[a.severity])
-        .slice(0, 2);
+      const open = review.findings.filter((f) => !f.resolution && f.sceneId && doc.scenes.some((s) => s.id === f.sceneId)).sort((a, b) => RANK[b.severity] - RANK[a.severity]);
+      // One chip per kind of problem (e.g. the phone frame in 2 scenes), worst first.
+      const groups = new Map<string, VideoReviewFinding[]>();
       for (const f of open) {
-        const label = FINDING_CHIP[f.check] || clip(f.fixInstruction, 40);
-        sparkScenes.add(f.sceneId!);
-        out.push({ key: `spark:${f.id}`, label, hint: `Muse Spark watched the render: ${f.issue}`, fromSpark: true, act: () => void fixFinding(review, f, label) });
+        const k = f.check === "other" ? `other:${f.id}` : f.check;
+        groups.set(k, [...(groups.get(k) ?? []), f]);
+      }
+      for (const [k, fs] of [...groups].slice(0, 2)) {
+        const base = FINDING_CHIP[fs[0]!.check] || clip(fs[0]!.fixInstruction, 40);
+        const label = fs.length > 1 ? `${base} in ${fs.length} scenes` : base;
+        for (const f of fs) sparkScenes.add(f.sceneId!);
+        out.push({ key: `spark:${k}`, label, hint: `Muse Spark watched the render: ${fs.map((f) => f.issue).join(" · ")}`, fromSpark: true, act: () => void fixFindings(review, fs, label) });
       }
     }
     if (scene) out.push({ key: "punchier", label: "Make this scene punchier", act: () => void send(`Make the scene "${scene.name}" punchier`, [scene.id]) });
@@ -329,7 +346,7 @@ function ChangeBox({
     }
     if (doc.audio.some((a) => a.kind === "music" && a.sourceLabel === "original_music")) out.push({ key: "music", label: "Change the music", hint: "New original music in another mood (free)", act: () => void changeMusic() });
     return out.slice(0, 4);
-  }, [doc, review, data.composition.currentVersion, scene, trackedLabels.length, fixFinding, send, changeMusic]);
+  }, [doc, review, data.composition.currentVersion, scene, trackedLabels.length, fixFindings, send, changeMusic]);
 
   const musicRunning = music.job && (music.job.status === "queued" || music.job.status === "running");
 
