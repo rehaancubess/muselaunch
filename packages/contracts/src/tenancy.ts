@@ -51,11 +51,11 @@ export const Workspace = BaseEntity.extend({
       defaultLocale: z.string().default("en"),
       /** Meta Model API data mode. Customer material defaults to Standard; never silently Contributor. */
       metaDataMode: z.enum(["standard"]).default("standard"),
-      /** Growth Autopilot is the default for everything; "I'll do it myself" turns it off. */
+      /** Autopilot is the default for everything; Settings → Autopilot turns the automatic start off. */
       autopilot: WorkspaceAutopilotSettings.default({ ...DEFAULT_AUTOPILOT_SETTINGS }),
       /**
-       * Video sound defaults (absent = `DEFAULT_SOUND_SETTINGS`: original music + effects on, AI
-       * voiceover off). Additive; read through `soundSettings()` (@muselaunch/media).
+       * Video sound defaults (absent = `DEFAULT_SOUND_SETTINGS`: original music, effects and the
+       * labelled AI voiceover on). Additive; read through `soundSettings()` (@muselaunch/media).
        */
       sound: WorkspaceSoundSettings.optional(),
     })
