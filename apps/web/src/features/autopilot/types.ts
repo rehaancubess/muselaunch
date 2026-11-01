@@ -83,14 +83,14 @@ export function statusKind(s: Autopilot["status"]): "running" | "attention" | "s
 }
 
 /**
- * The log is one list across iterations; the learn stage's "Next iteration: …" decision closes an
+ * The log is one list across iterations; the learn stage's "Next round: …" decision (older runs: "Next iteration: …") closes an
  * iteration. Returns the entries of each iteration (index 0 = iteration 1).
  */
 export function splitIterations(log: LogEntry[]): LogEntry[][] {
   const out: LogEntry[][] = [[]];
   for (const e of log) {
     out[out.length - 1]!.push(e);
-    if (e.stage === "learn" && e.kind === "decision" && e.summary.startsWith("Next iteration")) out.push([]);
+    if (e.stage === "learn" && e.kind === "decision" && (e.summary.startsWith("Next round") || e.summary.startsWith("Next iteration"))) out.push([]);
   }
   return out;
 }

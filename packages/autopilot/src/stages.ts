@@ -877,7 +877,7 @@ const learn: StageFn = async (env, step) => {
     ].join("\n\n"),
     tool: { name: "plan_next_iteration", description: "Record whether to run another iteration and its focus.", schema: Schema },
   });
-  env.note("decision", `${args.continueLoop ? `Next iteration: ${args.focus}` : "Stopping here"}. Why: ${args.rationale}`, [ref("agentRuns", runId)], runId);
+  env.note("decision", `${args.continueLoop ? `Next round: ${args.focus}` : "Stopping here"}. Why: ${args.rationale}`, [ref("agentRuns", runId)], runId);
   if (!args.continueLoop) return { kind: "done", summary: "Muse Wonder decided not to start another round." };
   env.set({
     iteration: env.iteration + 1,
