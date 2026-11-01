@@ -1,7 +1,7 @@
 import { fixture, fixtureJson, installFakeWeb, jsonRoute, png, resolvePlaceholders } from "@muselaunch/agents/testing";
 import { DEFAULT_AUTOPILOT_SETTINGS, type Autopilot, type WorkspaceMember } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
-import { autoRecommendOnNewData, needsYou, planAutoStart, startAutoAutopilot, tryStartAutoAutopilot } from "./index";
+import { autopilotDetail, autoRecommendOnNewData, needsYou, planAutoStart, startAutoAutopilot, tryStartAutoAutopilot } from "./index";
 import { autopilotPlatform } from "./testing";
 
 const IOS_URL = "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890";
@@ -61,6 +61,21 @@ describe("Autopilot by default (auto.ts)", () => {
     expect(plan.autoApproveCredits).toBe(Math.min(200, plan.maxCredits));
     const { autopilot } = await startAutoAutopilot(h.p, h.wid, appId, { member: OWNER, actor: "u1" });
     expect(autopilot.auto).toEqual({ goal: true, acceptDna: true });
+    // The plain-steps view before anything ran: reading the App Store page, everything else pending, no facts yet.
+    const before = (await autopilotDetail(h.p, h.wid, autopilot.id)).progress;
+    expect(before.source).toBe("app_store");
+    expect(before.steps.map((s) => [s.key, s.state])).toEqual([
+      ["read", "active"],
+      ["learn", "pending"],
+      ["research", "pending"],
+      ["ideas", "pending"],
+      ["make", "pending"],
+      ["check", "pending"],
+      ["finish", "pending"],
+      ["ready", "pending"],
+    ]);
+    expect(before.steps.every((s) => !Object.keys(s.facts).length)).toBe(true);
+    expect(before.videos).toEqual([]);
     await h.p.inline!.drain();
 
     const ap = (await h.ws.collection("autopilots").getOrThrow(autopilot.id)) as Autopilot;
@@ -93,6 +108,28 @@ describe("Autopilot by default (auto.ts)", () => {
     // Nothing was published.
     const posts = await h.ws.collection("scheduledPosts").getMany(ap.scheduledPostIds);
     expect(posts.every((x) => x.status === "awaiting_approval")).toBe(true);
+
+    // The plain-steps view at the end: every step done, each with a real one-line result.
+    const { progress } = await autopilotDetail(h.p, h.wid, ap.id);
+    expect(progress.steps.every((s) => s.state === "done")).toBe(true);
+    const f = Object.fromEntries(progress.steps.map((s) => [s.key, s.facts]));
+    const dnaNow = await h.ws.collection("brandProfiles").getOrThrow(appId);
+    expect(f.read!.screenshots).toBeGreaterThan(0);
+    expect(f.learn).toMatchObject({ features: dnaNow.features.length, audiences: dnaNow.audiences.length });
+    const rr = await h.ws.collection("researchRuns").getOrThrow(ap.researchRunId!);
+    expect(f.research).toEqual({ findings: rr.findingCount });
+    expect(f.ideas!.ideas).toBeGreaterThanOrEqual(2);
+    expect(f.ideas!.picked).toBe(2);
+    expect(f.make).toEqual({ videos: 2 });
+    expect((f.check!.passed ?? 0) + (f.check!.withNotes ?? 0) + (f.check!.blocked ?? 0)).toBe(2);
+    expect(f.finish).toEqual({ rendered: 2 });
+    expect(f.ready).toEqual({ posts: 2 });
+    // The finished MP4s are the run's own final renders.
+    expect(progress.videos.map((v) => v.compositionId).sort()).toEqual([...ap.compositionIds].sort());
+    for (const v of progress.videos) expect(await h.ws.collection("mediaAssets").getOrThrow(v.assetId)).toMatchObject({ role: "render", mimeType: "video/mp4" });
+    // "Made with" lists only models that really made metered calls for this run.
+    expect(progress.madeWith).toEqual(expect.arrayContaining(["Muse Wonder", "Muse Spark"]));
+    expect(progress.madeWith.every((m) => !/fixture/i.test(m))).toBe(true);
   });
 
   it("says so when credits are short and offers a smaller run; a per-run limit picks fewer videos; editors don't pre-approve renders", async () => {
@@ -136,6 +173,11 @@ describe("Autopilot by default (auto.ts)", () => {
     expect(ap.error?.userMessage).toMatch(/couldn't finish learning your app/);
     expect(await h.ws.collection("brandProfiles").get(appId)).toBeNull();
     expect(ap.researchRunId).toBeUndefined();
+    // The progress screen shows the failed step honestly, with nothing after it.
+    const { progress } = await autopilotDetail(h.p, h.wid, ap.id);
+    expect(progress.steps.map((s) => s.state)).toEqual(["failed", "pending", "pending", "pending", "pending", "pending", "pending", "pending"]);
+    expect(progress.steps[0]!.live).toMatchObject({ done: 1, total: 1 });
+    expect(progress.videos).toEqual([]);
   });
 
   it("generates recommendations when new measured data arrives (Autopilot on), once per cooldown; never when off", async () => {

@@ -179,7 +179,8 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
         { actor: ctx.actor },
       );
       rendered.push(comp.id);
-      return { refs: [{ entity: "mediaAssets", id }], creditsUsed: 8 };
+      // Same output shape as the real render.final handler (packages/render).
+      return { refs: [{ entity: "mediaAssets", id }], data: { assetId: id, durationSec: 15, width: 1080, height: 1920 }, creditsUsed: 8 };
     },
     // Stand-in for Spark watching the render (the stub render above is not a real MP4); follows a scripted plan.
     "video.review": async (ctx: JobContext<"video.review">) => {
