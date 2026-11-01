@@ -118,29 +118,67 @@ export interface ProgressInput {
   compositions: Composition[];
 }
 
-export async function autopilotProgress(p: Platform, workspaceId: string, input: ProgressInput): Promise<AutopilotProgress> {
-  const ws = p.db.ws(workspaceId);
-  const ap = input.autopilot;
-  const [app, dna, appJobs, research, made] = await Promise.all([
-    ws.collection("apps").get(ap.appId),
-    ws.collection("brandProfiles").get(ap.appId),
-    ws.collection("jobs").list({ where: [["appId", "==", ap.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 }),
-    ap.researchRunId ? ws.collection("researchRuns").get(ap.researchRunId) : Promise.resolve(null),
-    madeWith(ws, ap),
-  ]);
-  const importJob = appJobs.items.find((j) => j.type === "app.import") ?? null;
-  const analyzeJob = appJobs.items.find((j) => j.type === "app.analyze") ?? null;
+/** Facts that change slowly (where the app came from, screenshots saved, App DNA counts, models used). */
+interface Settled {
+  source: AutopilotProgress["source"];
+  screenshots?: number;
+  learn?: Step["facts"];
+  madeWith: string[];
+}
+
+/**
+ * GET /autopilots/:id is polled every few seconds while a run works; these reads (usage events,
+ * claims, assets) are cached per run state for a few seconds instead of re-read on every poll.
+ * The key includes the run's updatedAt, so every step the loop takes recomputes them.
+ */
+const settledCache = new Map<string, { at: number; value: Settled }>();
+const SETTLED_TTL_MS = 15_000;
+
+async function settledFacts(ws: WorkspaceDb, ap: Autopilot, importJob: Job | null): Promise<Settled> {
+  const key = `${ap.workspaceId}:${ap.id}:${ap.updatedAt}`;
+  const hit = settledCache.get(key);
+  if (hit && Date.now() - hit.at < SETTLED_TTL_MS) return hit.value;
+  const [app, dna, made] = await Promise.all([ws.collection("apps").get(ap.appId), ws.collection("brandProfiles").get(ap.appId), madeWith(ws, ap)]);
   const importId = app?.lastImportId ?? (importJob?.payload as { importId?: string } | undefined)?.importId;
   const imp = importId ? await ws.collection("appImports").get(importId) : null;
   const kinds = imp?.sources.map((s) => s.kind) ?? [];
-  const source: AutopilotProgress["source"] = kinds.includes("app_store") ? "app_store" : kinds.includes("google_play") ? "google_play" : kinds.includes("website") ? "website" : kinds.length ? "description" : null;
-  const waiting = await ws.collection("jobs").getMany(ap.waitingOn.jobIds);
+  const value: Settled = {
+    source: kinds.includes("app_store") ? "app_store" : kinds.includes("google_play") ? "google_play" : kinds.includes("website") ? "website" : kinds.length ? "description" : null,
+    madeWith: made,
+  };
+  // Screenshots are saved before the import moves on to analysis.
+  if (imp?.importedAssetIds.length && ["analyzing", "succeeded", "partial"].includes(imp.status)) {
+    const assets = await ws.collection("mediaAssets").getMany(imp.importedAssetIds.slice(0, 40));
+    value.screenshots = assets.filter((a) => a.role === "screenshot").length;
+  }
+  if (dna) {
+    const verified = await ws.collection("claims").list({ where: [["appId", "==", ap.appId], ["state", "==", "verified"]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
+    value.learn = { features: dna.features.length, audiences: dna.audiences.length, facts: verified.items.length };
+  }
+  if (settledCache.size > 500) settledCache.delete(settledCache.keys().next().value!);
+  settledCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+export async function autopilotProgress(p: Platform, workspaceId: string, input: ProgressInput): Promise<AutopilotProgress> {
+  const ws = p.db.ws(workspaceId);
+  const ap = input.autopilot;
+  // The app's own import/analysis jobs only matter while the run is still learning the app.
+  const appJobs = ap.stage === "understand" ? (await ws.collection("jobs").list({ where: [["appId", "==", ap.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items : [];
+  const importJob = appJobs.find((j) => j.type === "app.import") ?? null;
+  const analyzeJob = appJobs.find((j) => j.type === "app.analyze") ?? null;
+  const [settled, research, waiting] = await Promise.all([
+    settledFacts(ws, ap, importJob),
+    ap.researchRunId ? ws.collection("researchRuns").get(ap.researchRunId) : Promise.resolve(null),
+    ws.collection("jobs").getMany(ap.waitingOn.jobIds),
+  ]);
+  const { source } = settled;
   const reason = reasonText(ap.waitingOn.reason) || undefined;
 
   // Where the run is now.
   let cur: number;
   if (ap.stage === "understand") {
-    const reading = !dna && importJob && (!isTerminalJob(importJob) || (importJob.status !== "succeeded" && ap.status === "failed"));
+    const reading = !settled.learn && importJob && (!isTerminalJob(importJob) || (importJob.status !== "succeeded" && ap.status === "failed"));
     cur = AUTOPILOT_PROGRESS_STEPS.indexOf(reading ? "read" : "learn");
   } else {
     const key = STAGE_STEP[ap.stage];
@@ -151,14 +189,8 @@ export async function autopilotProgress(p: Platform, workspaceId: string, input:
 
   // Facts, from what exists.
   const facts: Record<AutopilotProgressStepKey, Step["facts"]> = { read: {}, learn: {}, research: {}, ideas: {}, make: {}, check: {}, finish: {}, ready: {} };
-  if (imp?.importedAssetIds.length && importJob?.status === "succeeded") {
-    const assets = await ws.collection("mediaAssets").getMany(imp.importedAssetIds.slice(0, 40));
-    facts.read.screenshots = assets.filter((a) => a.role === "screenshot").length;
-  }
-  if (dna) {
-    const verified = await ws.collection("claims").list({ where: [["appId", "==", ap.appId], ["state", "==", "verified"]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
-    facts.learn = { features: dna.features.length, audiences: dna.audiences.length, facts: verified.items.length };
-  }
+  if (settled.screenshots !== undefined) facts.read.screenshots = settled.screenshots;
+  if (settled.learn) facts.learn = settled.learn;
   if (research && (research.status === "succeeded" || research.status === "partial")) facts.research.findings = research.findingCount ?? 0;
   if (ap.campaignId && AUTOPILOT_PROGRESS_STEPS.indexOf("ideas") <= cur) {
     const variants = await ws.collection("campaignVariants").list({ where: [["campaignId", "==", ap.campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 });
@@ -224,5 +256,5 @@ export async function autopilotProgress(p: Platform, workspaceId: string, input:
     }
     return { key, state, facts: facts[key], ...(live ? { live } : {}) };
   });
-  return { source, steps, videos, madeWith: made };
+  return { source, steps, videos, madeWith: settled.madeWith };
 }
