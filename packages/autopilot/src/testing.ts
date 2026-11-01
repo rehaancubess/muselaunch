@@ -133,6 +133,8 @@ export interface PlatformOptions {
   reviewHandler?: boolean;
   /** Spark's video review outcome (default: no findings). */
   videoReviewPlan?: VideoReviewPlan;
+  /** Stand-in for the media module's screenshot check (`media.extract_ui`) taking this long (ms); absent = no handler. */
+  slowScreenCheckMs?: number;
 }
 
 /** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review), hooks and fake Meta. */
@@ -199,6 +201,17 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
       await repo.update(review.id, { status: "succeeded", verdict, score: plan.score, summary: `${findings.length} finding(s) (fixture)`, findings, reviewer: { model: "muse-spark-1.3", label: "Muse Spark" }, checkedAt: new Date().toISOString() }, { actor: ctx.actor });
       return { refs: [{ entity: "videoReviews", id: review.id }], creditsUsed: 6 };
     },
+    ...(opts.slowScreenCheckMs === undefined
+      ? {}
+      : {
+          // Stand-in for the media module's screenshot check: slow, then marks the app's screenshots as raw UI.
+          "media.extract_ui": async (ctx: JobContext<"media.extract_ui">) => {
+            await new Promise((r) => setTimeout(r, opts.slowScreenCheckMs));
+            const shots = (await ctx.ws.collection("mediaAssets").list({ where: [["appId", "==", ctx.payload.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items.filter((a) => a.role === "screenshot");
+            for (const a of shots) await ctx.ws.collection("mediaAssets").update(a.id, { screenshotKind: "raw_ui" }, { actor: ctx.actor });
+            return { creditsUsed: 0 };
+          },
+        }),
     ...(opts.reviewHandler === false
       ? {}
       : {

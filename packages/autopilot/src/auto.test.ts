@@ -10,8 +10,8 @@ const OWNER: Member = { role: "owner", canPublish: true, canManageAccounts: true
 const EDITOR: Member = { role: "editor", canPublish: false, canManageAccounts: false, status: "active" };
 
 /** A fresh workspace (Autopilot settings at their defaults unless given) with an owner and an editor. */
-async function setup(opts: { credits?: number; settings?: Partial<typeof DEFAULT_AUTOPILOT_SETTINGS> & { maxCreditsPerRun?: number }; failImport?: boolean } = {}) {
-  const h = autopilotPlatform({ routes: [jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req))] });
+async function setup(opts: { credits?: number; settings?: Partial<typeof DEFAULT_AUTOPILOT_SETTINGS> & { maxCreditsPerRun?: number }; failImport?: boolean; slowScreenCheckMs?: number } = {}) {
+  const h = autopilotPlatform({ routes: [jsonRoute("AppDna", (req) => resolvePlaceholders(fixtureJson("spark-app-dna.json"), req))], slowScreenCheckMs: opts.slowScreenCheckMs });
   const { p } = h;
   const shot = await png([250, 250, 250]);
   const icon = await png([92, 70, 220], [64, 64], [255, 190, 0]);
@@ -52,7 +52,7 @@ async function setup(opts: { credits?: number; settings?: Partial<typeof DEFAULT
 
 describe("Autopilot by default (auto.ts)", () => {
   it("added app → the run waits for the import, accepts App DNA, sets the goal from it, renders within budget and stops at Needs you", async () => {
-    const h = await setup();
+    const h = await setup({ slowScreenCheckMs: 400 }); // the screenshot check outlasts research + ideas
     const { appId } = await h.addApp();
     // Started before App DNA exists: provisional goal, analysis credits held back for the import chain.
     const plan = await planAutoStart(h.p, h.wid, appId, { member: OWNER });
@@ -88,6 +88,11 @@ describe("Autopilot by default (auto.ts)", () => {
     const dna = await h.ws.collection("brandProfiles").getOrThrow(appId);
     expect(dna).toMatchObject({ status: "confirmed", confirmedBy: `agent:autopilot:${ap.id}` });
     expect(await h.ws.collection("apps").getOrThrow(appId)).toMatchObject({ dnaStatus: "confirmed", status: "ready" });
+    // Storyboards were only written once the screenshot check (raw UI vs store image, SAM cut-outs) had finished.
+    const appJobs = (await h.ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
+    const screenChecks = appJobs.filter((j) => j.type === "media.extract_ui");
+    expect(screenChecks.length).toBeGreaterThan(0);
+    for (const s of screenChecks) for (const b of appJobs.filter((j) => j.type === "storyboard.generate")) expect(b.createdAt >= (s.finishedAt ?? s.updatedAt)).toBe(true);
     // Renders went ahead inside the budget, without a spend checkpoint; nothing went over budget.
     expect(ap.log.some((e) => e.kind === "decision" && e.summary.startsWith("Final render auto-approved"))).toBe(true);
     expect(ap.log.some((e) => e.kind === "checkpoint" && /needs your OK|needs more credits/i.test(e.summary))).toBe(false);

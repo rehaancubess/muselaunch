@@ -24,6 +24,16 @@ export function defaultGoal(app: Pick<App, "name" | "storeUrls">, dna: Pick<Bran
   return { goal: (store ? `Get more installs of ${name}${who}` : `Get more people to try ${name}${who}`).slice(0, 1000), fromDna: Boolean(dna) };
 }
 
+/**
+ * Screenshot checks still running for this app (`media.extract_ui`, queued after App DNA: raw app UI
+ * vs designed store image, and SAM 3.1 cut-outs of the real screen). Storyboards choose screenshots
+ * by that kind, so videos wait for it instead of framing a store image inside a device.
+ */
+export async function screenJobsInFlight(ws: WorkspaceDb, appId: string): Promise<Job[]> {
+  const page = await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 });
+  return page.items.filter((j) => j.type === "media.extract_ui" && (j.status === "queued" || j.status === "running"));
+}
+
 /** App import / analysis jobs for this app that haven't finished yet (App DNA is on its way). */
 export async function dnaJobsInFlight(ws: WorkspaceDb, appId: string): Promise<Job[]> {
   const page = await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 });

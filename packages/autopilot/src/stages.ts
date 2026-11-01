@@ -8,7 +8,7 @@ import { AppError, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
-import { defaultGoal, dnaJobsInFlight } from "./defaults";
+import { defaultGoal, dnaJobsInFlight, screenJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 import { isWatchTag, watchRenders, watchStep } from "./watch";
 
@@ -382,8 +382,13 @@ const planCreative: StageFn = async (env, step) => {
 
 const produce: StageFn = async (env, step) => {
   const campaignId = env.ap.campaignId!;
-  if (step.phase !== "resume") {
-    const per = env.estimate("storyboard.generate") + env.estimate("composition.build") + env.estimate("render.preview");
+  if (step.phase !== "resume" || step.tag === "produce:screens") {
+    // Storyboards pick screenshots by kind (raw app UI vs designed store image + its SAM cut-out).
+    // When that check is still running (it starts after App DNA), wait for it: otherwise a store
+    // image lands inside a device frame and fails verification.
+    const screens = await screenJobsInFlight(env.ws, env.appId);
+    if (screens.length) return { kind: "wait", jobIds: screens.map((j) => j.id), tag: "produce:screens", reason: "Finding the real app screens in your screenshots (SAM 3.1)" };
+    const per =env.estimate("storyboard.generate") + env.estimate("composition.build") + env.estimate("render.preview");
     const gate = await env.budgetGate(per * env.ap.variantIds.length, `${env.ap.variantIds.length} storyboard(s) and editable videos`, step.approved);
     if (gate) return gate;
     const jobs: Job[] = [];
