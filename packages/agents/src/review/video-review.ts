@@ -500,7 +500,7 @@ export async function videoReviewHandler(ctx: JobContext<"video.review">): Promi
         input: [{ type: "input_text", text }, ...images],
         schema: VideoReviewDraft,
         schemaName: "VideoReview",
-        maxOutputTokens: 6000,
+        maxOutputTokens: 12_000, // 16 frames + medium reasoning ran out at 6000 (live run 6, 1 Nov)
         reasoningEffort: "medium",
         cacheKey: "agents.video_review",
       },
