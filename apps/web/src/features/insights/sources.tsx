@@ -3,7 +3,7 @@ import type { AttributionLink, Campaign, Channel, ConnectedAccount, ImportBatch,
 import { MetricName } from "@muselaunch/contracts";
 import { Badge, Button, Card, Checkbox, Field, Input, JobProgress, Notice, Section, Select, StatusPill, statusKindOf, useToast } from "@muselaunch/ui";
 import { Copy, FileUp, KeyRound, Link2, PenLine, RefreshCw, Undo2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorMessage, newIdempotencyKey, uploadToSignedUrl, wsPath } from "@/lib/api";
 import type { CompleteUploadResponse, Page, UploadResponse } from "@/lib/api-types";
 import { useJob } from "@/lib/jobs";
@@ -20,12 +20,26 @@ const CURRENCIES = ["USD", "EUR", "GBP", "INR", "JPY", "CAD", "AUD", "BRL"].map(
 export function SourcesView({ workspaceId, appId, focus }: { workspaceId: string; appId: string; focus?: SourcesFocus }) {
   const invalidate = useInvalidate();
   const refresh = () => invalidate(wsPath(workspaceId, `/apps/${appId}`), wsPath(workspaceId, "/imports"));
+  // Opened for one source (e.g. "Connect" on How it's going): bring that section into view once.
+  useEffect(() => {
+    if (!focus) return;
+    const t = setTimeout(() => document.getElementById(`source-${focus}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    return () => clearTimeout(t);
+  }, [focus]);
   return (
     <div className="space-y-12">
-      <RevenueCatSection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "revenuecat"} />
-      <CsvImportSection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "csv"} />
-      <ManualEntrySection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "manual"} />
-      <TrackedLinksSection workspaceId={workspaceId} appId={appId} highlight={focus === "links"} />
+      <div id="source-revenuecat" className="scroll-mt-24">
+        <RevenueCatSection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "revenuecat"} />
+      </div>
+      <div id="source-csv" className="scroll-mt-24">
+        <CsvImportSection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "csv"} />
+      </div>
+      <div id="source-manual" className="scroll-mt-24">
+        <ManualEntrySection workspaceId={workspaceId} appId={appId} onChanged={refresh} highlight={focus === "manual"} />
+      </div>
+      <div id="source-links" className="scroll-mt-24">
+        <TrackedLinksSection workspaceId={workspaceId} appId={appId} highlight={focus === "links"} />
+      </div>
     </div>
   );
 }
