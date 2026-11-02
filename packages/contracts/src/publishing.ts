@@ -111,8 +111,47 @@ export const ScheduledPost = BaseEntity.extend({
   publicationId: Id.optional(),
   attempts: z.number().int().nonnegative().default(0),
   lastError: z.string().max(2000).optional(),
+  /** The newest fact-check fix for this post (`post.fix_facts` job: "Remove it" / "It's true, add it"). */
+  factFixJobId: Id.optional(),
 });
 export type ScheduledPost = z.infer<typeof ScheduledPost>;
+
+/**
+ * GET /posts/:id `factCheck`: whether the post's copy passed the fact check, in plain words, and
+ * what the two one-tap fixes would do. Only statements backed by a confirmed fact or the app's own
+ * listing/website pass; "It's true, add it" records the person's confirmation as a sourced fact.
+ */
+export const PostFactCheck = z.object({
+  copyPackId: Id,
+  ok: z.boolean(),
+  checkedAt: IsoDateTime.optional(),
+  /** Fact problems only (unsupported statements, figures, prohibited wording); limits stay in preflight. */
+  issues: z.array(
+    z.object({
+      itemId: Id,
+      kind: z.enum(["unsupported", "figure", "prohibited"]),
+      issue: z.string().max(500),
+      quote: z.string().max(300).optional(),
+      terms: z.array(z.string().max(80)).default([]),
+      statement: z.string().max(500).optional(),
+    }),
+  ),
+  /** e.g. "This post mentions racing and bowling, which aren't in your confirmed facts yet." */
+  message: z.string().max(600),
+  /** The words in the copy, e.g. "arcade, racing, bowling & co-op fun". */
+  quotes: z.array(z.string().max(300)).max(6).default([]),
+  /** What "It's true, add it" confirms as facts; empty when it can't be offered (prohibited wording only). */
+  statements: z.array(z.string().max(500)).max(3),
+  /** The preflight error this replaces in the UI (so it isn't shown twice). */
+  preflightError: z.string().max(2000).optional(),
+  /** A fix in progress or just finished (job id and which fix). */
+  fix: z.object({ jobId: Id, action: z.enum(["remove", "recheck"]), status: z.string().max(40) }).optional(),
+});
+export type PostFactCheck = z.infer<typeof PostFactCheck>;
+
+/** POST /posts/:id/facts/confirm: the person confirms the statements (defaults to the ones the fact check proposed). */
+export const ConfirmPostFactRequest = z.object({ statements: z.array(z.string().trim().min(4).max(500)).min(1).max(3).optional() });
+export type ConfirmPostFactRequest = z.infer<typeof ConfirmPostFactRequest>;
 
 /** A real publication record. `mode=api` requires a remote id/receipt; manual requires user confirmation. */
 export const Publication = BaseEntity.extend({

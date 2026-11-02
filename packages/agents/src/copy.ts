@@ -1,8 +1,8 @@
-import { Channel, CopyItemKind, type CopyPack } from "@muselaunch/contracts";
+import { Channel, CopyItemKind, type CopyPack, type CopyValidationIssue } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
-import { validateClaims } from "./claims";
+import { termsStillIn, validateClaims, type ClaimIssue } from "./claims";
 import { dnaSummary, loadAppContext, requireDna } from "./context";
 import { retrieveMemory } from "./memory";
 import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
@@ -57,6 +57,32 @@ export function copyLimitProblems(packs: CopyOutput["packs"]): string[] {
     }
   }
   return out;
+}
+
+/** A validator finding as stored on the copy pack (what the one-tap fixes read). */
+export function toPackIssue(x: ClaimIssue): CopyValidationIssue {
+  return { itemId: x.id, issue: clip(x.issue, 500), kind: x.kind, quote: x.quote, terms: x.terms?.length ? x.terms : undefined, statement: x.statement };
+}
+
+const firstQuoted = (s: string) => s.match(/"([^"]{1,300})"|“([^”]{1,300})”/)?.slice(1).find(Boolean);
+
+/**
+ * A stored issue with its kind, quote and terms filled in. Packs checked before issues carried them
+ * are read from their wording (`"racing, bowling" in "…" - …`), so a post held back earlier can be
+ * fixed, and its flagged words are still enforced after a rewrite.
+ */
+export function readPackIssue(i: CopyValidationIssue): CopyValidationIssue & { kind: NonNullable<CopyValidationIssue["kind"]>; terms: string[] } {
+  const kind = i.kind ?? (/^Exceeds the /.test(i.issue) ? "limit" : /^Uses a prohibited claim/.test(i.issue) ? "prohibited" : /is a (?:specific figure|superlative)/.test(i.issue) ? "figure" : "unsupported");
+  const quote = i.quote ?? (kind === "limit" ? undefined : firstQuoted(i.issue));
+  const terms = i.terms?.length ? i.terms : kind === "unsupported" && quote ? quote.split(/\s*(?:,|&|\/|\band\b|\bor\b)\s*/i).map((t) => t.trim()).filter((t) => t.length > 1) : quote ? [quote] : [];
+  return { ...i, kind, quote, terms: terms.slice(0, 8) };
+}
+
+function limitIssuesOf(channel: ChannelT, items: { id: string; kind: Kind; text: string }[]): CopyValidationIssue[] {
+  return items.flatMap((it) => {
+    const max = CHANNEL_RULES[channel]?.limits[it.kind];
+    return max && it.text.length > max ? [{ itemId: it.id, kind: "limit" as const, issue: `Exceeds the ${channel} ${it.kind} limit (${it.text.length}/${max} characters)` }] : [];
+  });
 }
 
 const INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's copywriter. Write channel-native publishing copy for an indie app's campaign.
@@ -127,11 +153,7 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
       if (!pack) continue;
       const items = pack.items.map((it, i) => ({ id: `${c}_${i + 1}`, kind: it.kind, text: it.text, claimIds: it.claimIds.filter((x) => verified.has(x)) }));
       const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: items.map((it) => ({ id: it.id, text: it.text })), onFallback: fallbackTo(rec) });
-      const limitIssues = items.flatMap((it) => {
-        const max = CHANNEL_RULES[c]?.limits[it.kind];
-        return max && it.text.length > max ? [{ itemId: it.id, issue: `Exceeds the ${c} ${it.kind} limit (${it.text.length}/${max} characters)` }] : [];
-      });
-      const issues = [...check.issues.map((x) => ({ itemId: x.id, issue: x.issue })), ...limitIssues];
+      const issues = [...check.issues.map(toPackIssue), ...limitIssuesOf(c, items)];
       const { entity } = await ws.collection("copyPacks").createIfAbsent(
         {
           id: hashId("cpy", ctx.job.id, c),
@@ -157,4 +179,116 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
     await rec.finish(err.code === "CANCELLED" ? "cancelled" : "failed", { error: err.toInfo() }).catch(() => {});
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// "Remove it": rewrite a held-back pack without the words the fact check flagged
+// ---------------------------------------------------------------------------
+
+const RevisionOutput = z.object({
+  items: z.array(z.object({ id: z.string().max(64), text: z.string().min(1).max(5000) })).min(1).max(40),
+  summary: z.string().max(300).describe("One plain sentence: what was changed"),
+});
+
+const REVISE_INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's copywriter. The fact check held back this post because some words state things about the app that aren't in its confirmed facts or its own listing.
+
+Rules:
+- Rewrite ONLY the items listed under "Items to fix" so they no longer say the flagged things. Remove or neutralise those words; never replace them with another product claim.
+- Keep everything else as close to the original as you can: voice, length, emojis, hashtags that are still true, [APP_LINK] placeholders, line breaks.
+- Any product statement you keep must be supported by the confirmed facts listed. Never invent numbers, reviews, awards, rankings, platforms, features or content.
+- Stay within the channel's limits. Return every item id you were given under "Items to fix", with its new text.`;
+
+/**
+ * "Remove it" on a post the fact check held back: Muse Spark rewrites the flagged items of the copy
+ * pack without the unsupported words, then the whole pack is checked again (deterministic checks +
+ * the claim validator). A flagged word that is still there keeps the pack held back, whatever the
+ * model says. Saves a NEW pack (`revisionOf` = the old one); the old pack is kept unchanged.
+ */
+export async function reviseCopyPack(ctx: JobContext, input: { appId: string; packId: string }): Promise<{ pack: CopyPack; removed: string[]; runId: string }> {
+  const p = ctx.platform;
+  const ws = ctx.ws;
+  const old = await ws.collection("copyPacks").getOrThrow(input.packId);
+  if (old.appId !== input.appId) throw new AppError("NOT_FOUND", "Copy pack not found");
+  const factIssues = (old.validation?.issues ?? []).map(readPackIssue).filter((i) => i.kind !== "limit");
+  const removed = [...new Set(factIssues.flatMap((i) => (i.terms.length ? i.terms : i.quote ? [i.quote] : [])))];
+  const id = hashId("cpy", ctx.job.id, old.channel);
+  const done = await ws.collection("copyPacks").get(id);
+  if (done) return { pack: done, removed, runId: done.generatedByRunId ?? "" };
+  if (!factIssues.length) throw new AppError("CONFLICT", "This copy has nothing for the fact check to remove", { userMessage: "This post's copy already passes the fact check." });
+
+  const app = await loadAppContext(ws, input.appId);
+  const planned = plannedEngine(p, "copy.generate");
+  const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "copywriting", model: planned.model, goal: `Rewrite ${old.channel} copy without: ${removed.join(", ") || "the flagged words"}`, appId: input.appId });
+  try {
+    const flagged = new Set(factIssues.map((i) => i.itemId));
+    const toFix = old.items.filter((it) => flagged.has(it.id));
+    const rules = CHANNEL_RULES[old.channel];
+    const promptInput = [
+      `Channel: ${old.channel}. Limits: ${Object.entries(rules?.limits ?? { caption: 2200 }).map(([k, v]) => `${k} ≤ ${v}`).join(", ")}. ${rules?.guide ?? ""}`,
+      "",
+      "Confirmed facts (the only product statements the copy may make):",
+      app.verifiedClaims.length ? app.verifiedClaims.map((c) => `- ${c.text}`).join("\n") : "- (none confirmed yet)",
+      "",
+      "What the fact check flagged:",
+      ...factIssues.map((i) => `- item ${i.itemId}: ${i.quote ? `"${i.quote}": ` : ""}${i.issue}`),
+      "",
+      "Items to fix (JSON lines):",
+      untrusted("copy_to_fix", toFix.map((it) => JSON.stringify({ id: it.id, kind: it.kind, text: it.text })).join("\n"), 30_000),
+      "",
+      "Other items of the same post (context only, unchanged):",
+      untrusted("copy_context", old.items.filter((it) => !flagged.has(it.id)).map((it) => JSON.stringify({ id: it.id, kind: it.kind, text: clip(it.text, 1000) })).join("\n") || "(none)", 10_000),
+    ].join("\n");
+    await ctx.progress(25, `${planned.name} is rewriting the post`);
+    const out = await sparkJson(p, rec, "copy.generate", { ctx: rec.callCtx("copy.revise"), instructions: REVISE_INSTRUCTIONS, input: promptInput, schema: RevisionOutput, schemaName: "CopyRevision", maxOutputTokens: 4000, reasoningEffort: "low", cacheKey: "agents.copy.revise" });
+    await rec.modelStep(`Rewrite without the flagged words (${engineName(out.model)})`, out, removed);
+    ctx.throwIfCancelled();
+    const revised = new Map(out.data.items.filter((x) => flagged.has(x.id)).map((x) => [x.id, x.text.trim()]));
+    const items = old.items.map((it) => ({ ...it, text: revised.get(it.id) || it.text }));
+
+    await ctx.progress(65, "checking the facts again");
+    const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId: input.appId, jobId: ctx.job.id, agentRunId: rec.id, texts: items.map((it) => ({ id: it.id, text: it.text })), onFallback: fallbackTo(rec) });
+    // Belt and braces: a flagged word that survived the rewrite keeps the post held back.
+    const survivors: CopyValidationIssue[] = factIssues.flatMap((i) => {
+      const it = items.find((x) => x.id === i.itemId);
+      const left = it ? termsStillIn(it.text, i.terms?.length ? i.terms : i.quote ? [i.quote] : []) : [];
+      return left.length ? [{ itemId: i.itemId, kind: "unsupported" as const, quote: left.join(", "), terms: left, statement: i.statement, issue: `Still mentions ${left.map((t) => `"${t}"`).join(", ")} after the rewrite` }] : [];
+    });
+    const issues: CopyValidationIssue[] = [...check.issues.map(toPackIssue), ...survivors, ...limitIssuesOf(old.channel, items)];
+    const { entity: pack } = await ws.collection("copyPacks").createIfAbsent(
+      {
+        id,
+        appId: old.appId,
+        campaignId: old.campaignId,
+        variantId: old.variantId,
+        channel: old.channel,
+        locale: old.locale,
+        items,
+        validation: { ok: issues.length === 0, issues, checkedAt: new Date().toISOString() },
+        revisionOf: old.id,
+        generatedByRunId: rec.id,
+      },
+      { actor: ctx.actor },
+    );
+    await rec.step({ kind: "decision", title: pack.validation?.ok ? "Fact check passed after the rewrite" : `Fact check still holds the post back (${issues.length} issue${issues.length === 1 ? "" : "s"})`, output: { removed, summary: out.data.summary, issues: issues.map((i) => i.issue) } });
+    await rec.finish("succeeded", { outputRefs: [{ entity: "copyPacks", id: pack.id }] });
+    return { pack, removed, runId: rec.id };
+  } catch (raw) {
+    const err = toAppError(raw);
+    await rec.finish(err.code === "CANCELLED" ? "cancelled" : "failed", { error: err.toInfo() }).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * "It's true, add it": check the same copy again now that the person confirmed a fact. Updates the
+ * pack's validation in place (the words didn't change; only what backs them did).
+ */
+export async function recheckCopyPack(ctx: JobContext, input: { appId: string; packId: string }): Promise<CopyPack> {
+  const ws = ctx.ws;
+  const pack = await ws.collection("copyPacks").getOrThrow(input.packId);
+  if (pack.appId !== input.appId) throw new AppError("NOT_FOUND", "Copy pack not found");
+  await ctx.progress(30, "checking the facts again");
+  const check = await validateClaims(ctx.platform, { workspaceId: ctx.workspaceId, appId: input.appId, jobId: ctx.job.id, texts: pack.items.map((it) => ({ id: it.id, text: it.text })) });
+  const issues = [...check.issues.map(toPackIssue), ...limitIssuesOf(pack.channel, pack.items)];
+  return ws.collection("copyPacks").update(pack.id, { validation: { ok: issues.length === 0, issues, checkedAt: new Date().toISOString() } }, { actor: ctx.actor });
 }

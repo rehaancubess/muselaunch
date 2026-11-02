@@ -18,6 +18,7 @@ const JOB_LABELS: Record<string, string> = {
   "composition.edit": "Applying AI edit",
   "composition.variants": "Making versions",
   "copy.generate": "Writing copy",
+  "post.fix_facts": "Fixing a fact in a post",
   "render.preview": "Rendering preview",
   "render.final": "Rendering final video",
   "package.export": "Packaging export",

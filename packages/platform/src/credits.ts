@@ -77,6 +77,10 @@ export function estimateCredits(prices: CreditPrices, operation: string, params:
         ],
       };
     }
+    case "post.fix_facts":
+      return params.action === "remove"
+        ? line("Rewrite the post without the unsupported words (Muse Spark) and check it again", prices["post.fix_facts_rewrite"] ?? 2)
+        : line("Check the post again against your facts", prices["post.fix_facts_recheck"] ?? 0);
     case "discover.refresh": {
       const n = Math.max(1, Array.isArray(params.trackedCreatorIds) && params.trackedCreatorIds.length ? params.trackedCreatorIds.length : num("trackers", 1));
       return line(`Check ${n} tracked account${n === 1 ? "" : "s"}`, n * (prices["discover.refresh_per_tracker"] ?? 2));

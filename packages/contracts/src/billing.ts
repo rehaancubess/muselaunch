@@ -121,6 +121,10 @@ export const DEFAULT_CREDIT_PRICES = {
   "composition.build": 2,
   "composition.edit": 3,
   "copy.generate": 4,
+  /** "Remove it" on a post the fact check held back: Muse Spark rewrites one post's copy, then it is checked again. */
+  "post.fix_facts_rewrite": 2,
+  /** "It's true, add it": the copy is checked again against the newly confirmed fact. */
+  "post.fix_facts_recheck": 0,
   "render.preview": 3,
   /** Per started 15 seconds of final video. */
   "render.final_per_15s": 8,

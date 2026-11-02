@@ -23,7 +23,7 @@ import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { attachAudio, buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
-import { AppError, createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
+import { AppError, createTestPlatform, workspaceKey, type HandlerRegistry, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
 import { setAutopilotClock } from "./state";
@@ -135,6 +135,8 @@ export interface PlatformOptions {
   videoReviewPlan?: VideoReviewPlan;
   /** Stand-in for the media module's screenshot check (`media.extract_ui`) taking this long (ms); absent = no handler. */
   slowScreenCheckMs?: number;
+  /** Extra job handlers (e.g. module E's `post.fix_facts`). */
+  handlers?: HandlerRegistry;
 }
 
 /** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review), hooks and fake Meta. */
@@ -145,6 +147,7 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
   const reviewPlan: ReviewPlan = opts.reviewPlan ?? (() => ({ status: "passed", findings: [] }));
   const videoReviewPlan: VideoReviewPlan = opts.videoReviewPlan ?? (() => ({ score: 8, findings: [] }));
   const p = createTestPlatform({ META_API_KEY: "test-key" }, {
+    ...opts.handlers,
     ...agentHandlers,
     ...analyticsHandlers,
     ...autopilotHandlers,
