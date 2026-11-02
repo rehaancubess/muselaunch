@@ -1,17 +1,29 @@
 import { AppError } from "@muselaunch/platform";
 import { expiresIn, uncertainOutcome } from "./http";
-import type { ProviderAdapter, PublishContext, PublishRequest, PublishResult } from "./types";
+import type { AccountIdentity, OAuthTokens, ProviderAdapter, PublishContext, PublishRequest, PublishResult } from "./types";
 
 // ---------------------------------------------------------------------------
-// Instagram API with Instagram Login (professional accounts)
-// OAuth: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
-// Publishing: https://developers.facebook.com/docs/instagram-platform/content-publishing/
+// Instagram professional accounts, two sign-in setups:
+// - Unified login (every Meta app created since 2026; used when INSTAGRAM_LOGIN_CONFIG_ID is set):
+//   Facebook Login for Business with a config_id → Business Integration System User token,
+//   accounts from /me/assigned_instagram_accounts, everything on graph.facebook.com.
+//   https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started
+// - Instagram Login (older apps): instagram.com/oauth/authorize → graph.instagram.com.
+//   https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
+// Publishing (same container → media_publish flow on either host):
+//   https://developers.facebook.com/docs/instagram-platform/content-publishing/
 // ---------------------------------------------------------------------------
 
 export const IG_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 export const IG_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 export const IG_GRAPH = "https://graph.instagram.com";
+export const FB_DIALOG_URL = "https://www.facebook.com/dialog/oauth";
 const IG_SCOPES = ["instagram_business_basic", "instagram_business_content_publish"];
+/** What the Unified login configuration grants (the configuration, not the URL, decides). */
+const IG_UNIFIED_SCOPES = ["instagram_basic", "instagram_content_publish"];
+const isUnified = (tokens: { extra?: Record<string, string> }) => tokens.extra?.login === "unified";
+/** Graph base for an Instagram connection: Unified login tokens only work on graph.facebook.com. */
+const igBase = (tokens: { extra?: Record<string, string> }, v: string) => (isUnified(tokens) ? `https://graph.facebook.com/${v}` : `${IG_GRAPH}/${v}`);
 
 async function igPublish(req: PublishRequest, ctx: PublishContext): Promise<PublishResult> {
   if (!req.media) throw new AppError("VALIDATION_FAILED", "Instagram posts need an image or video");
@@ -20,7 +32,7 @@ async function igPublish(req: PublishRequest, ctx: PublishContext): Promise<Publ
   const { http, tokens, settings } = ctx;
   const v = settings.graphApiVersion;
   const igId = ctx.externalAccountId;
-  const base = `${IG_GRAPH}/${v}`;
+  const base = igBase(tokens, v);
   const maxPolls = ctx.maxPolls ?? 10;
   const interval = ctx.pollIntervalMs ?? 30_000;
 
@@ -87,14 +99,24 @@ export const instagramAdapter: ProviderAdapter = {
   review: {
     required: true,
     summary:
-      "Meta app with the Instagram API (Instagram Login) product. Standard Access works only for professional accounts you own/manage and have added to the app; serving other users needs Advanced Access via App Review for instagram_business_basic + instagram_business_content_publish. Media must be on a publicly reachable URL; 100 API posts per 24h per account.",
-    docsUrl: "https://developers.facebook.com/docs/instagram-platform/content-publishing/",
+      "Meta app with the Instagram API use case. New apps use Unified login: set FACEBOOK_APP_ID / FACEBOOK_APP_SECRET and INSTAGRAM_LOGIN_CONFIG_ID (older apps with Instagram Login use INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET). Until App Review grants Advanced Access, only professional accounts added to the app as Instagram Testers can connect. Media must be on a publicly reachable URL; 100 API posts per 24h per account.",
+    docsUrl: "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started",
   },
   accepts: { video: true, image: true, textOnly: false },
   oauth: {
     pkce: false,
     scopes: IG_SCOPES,
-    authorizeUrl({ clientId, redirectUri, state }) {
+    authorizeUrl({ clientId, redirectUri, state, settings }) {
+      if (settings.instagramLoginConfigId) {
+        const u = new URL(FB_DIALOG_URL);
+        u.searchParams.set("client_id", clientId);
+        u.searchParams.set("config_id", settings.instagramLoginConfigId);
+        u.searchParams.set("redirect_uri", redirectUri);
+        u.searchParams.set("response_type", "code");
+        u.searchParams.set("override_default_response_type", "true");
+        u.searchParams.set("state", state);
+        return u.toString();
+      }
       const u = new URL(IG_AUTHORIZE_URL);
       u.searchParams.set("client_id", clientId);
       u.searchParams.set("redirect_uri", redirectUri);
@@ -104,7 +126,19 @@ export const instagramAdapter: ProviderAdapter = {
       u.searchParams.set("enable_fb_login", "false");
       return u.toString();
     },
-    async exchangeCode({ code, redirectUri, creds }, http) {
+    async exchangeCode({ code, redirectUri, creds, settings }, http) {
+      if (settings.instagramLoginConfigId) {
+        // Unified login: the code is redeemed with the Meta app; the result is a system-user token
+        // owned by the client's business portfolio (expiry set by the configuration; ours never expires).
+        const res = await http.request(`https://graph.facebook.com/${settings.graphApiVersion}/oauth/access_token`, {
+          op: "token exchange",
+          query: { client_id: creds.clientId, client_secret: creds.clientSecret, redirect_uri: redirectUri, code },
+        });
+        const j = res.json<{ access_token?: string; expires_in?: number }>();
+        if (!j.access_token) throw new AppError("PROVIDER_ERROR", "Instagram token response had no access_token");
+        const unified: OAuthTokens = { accessToken: j.access_token, expiresAt: expiresIn(j.expires_in), scope: IG_UNIFIED_SCOPES, extra: { login: "unified" } };
+        return unified;
+      }
       const short = await http.request(IG_TOKEN_URL, {
         op: "token exchange",
         method: "POST",
@@ -120,11 +154,31 @@ export const instagramAdapter: ProviderAdapter = {
       return { accessToken: lj.access_token, expiresAt: expiresIn(lj.expires_in), scope: perms, extra: { igUserId: String(row.user_id ?? "") } };
     },
     async refresh(tokens, _creds, http) {
+      // System-user tokens aren't refreshed this way; when one stops working the account reconnects.
+      if (isUnified(tokens)) return tokens;
       const res = await http.request(`${IG_GRAPH}/refresh_access_token`, { op: "token refresh", query: { grant_type: "ig_refresh_token", access_token: tokens.accessToken } });
       const j = res.json<{ access_token: string; expires_in?: number }>();
       return { ...tokens, accessToken: j.access_token, expiresAt: expiresIn(j.expires_in) };
     },
     async identity(tokens, http, settings) {
+      if (isUnified(tokens)) {
+        // With a system-user token /me is the business integration user, not the Instagram account.
+        const base = igBase(tokens, settings.graphApiVersion);
+        const res = await http.request(`${base}/me/assigned_instagram_accounts`, { op: "list Instagram accounts", bearer: tokens.accessToken, query: { fields: "id,username" } });
+        const accounts = res.json<{ data?: { id: string; username?: string }[] }>().data ?? [];
+        const acct = accounts[0];
+        if (!acct?.id) throw new AppError("PROVIDER_ERROR", "No Instagram account was shared", { userMessage: "Pick your Instagram professional account when connecting. Until the app passes Meta's review, only accounts added as Instagram testers can connect." });
+        let business = "";
+        try {
+          const me = await http.request(`${base}/me`, { op: "client business", bearer: tokens.accessToken, query: { fields: "client_business_id" } });
+          business = me.json<{ client_business_id?: string }>().client_business_id ?? "";
+        } catch {
+          /* optional: only needed to manage the token later */
+        }
+        const limitations = accounts.length > 1 ? [`Connected @${acct.username ?? acct.id}. ${accounts.length - 1} other account(s) were shared; reconnect to choose another.`] : [];
+        const found: AccountIdentity = { externalAccountId: acct.id, displayName: acct.username ? `@${acct.username}` : acct.id, extra: { username: acct.username ?? "", clientBusinessId: business }, limitations };
+        return found;
+      }
       const res = await http.request(`${IG_GRAPH}/${settings.graphApiVersion}/me`, { op: "me", bearer: tokens.accessToken, query: { fields: "user_id,username,account_type" } });
       const j = res.json<{ user_id?: string; id?: string; username?: string; account_type?: string }>();
       const id = String(j.user_id ?? j.id ?? tokens.extra?.igUserId ?? "");
@@ -217,7 +271,10 @@ export const facebookAdapter: ProviderAdapter = {
       u.searchParams.set("redirect_uri", redirectUri);
       u.searchParams.set("state", state);
       u.searchParams.set("response_type", "code");
-      u.searchParams.set("scope", FB_SCOPES.join(","));
+      // New Meta apps reject `scope` ("Invalid Scopes"); their Facebook Login for Business
+      // configuration lists the permissions instead.
+      if (settings.facebookLoginConfigId) u.searchParams.set("config_id", settings.facebookLoginConfigId);
+      else u.searchParams.set("scope", FB_SCOPES.join(","));
       return u.toString();
     },
     async exchangeCode({ code, redirectUri, creds, settings }, http) {

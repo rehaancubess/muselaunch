@@ -217,7 +217,7 @@ const common = [
       ]
     : []),
   // Social OAuth client ids (public) for the platforms configured in .env; their secrets are above.
-  ...["YOUTUBE_CLIENT_ID", "INSTAGRAM_APP_ID", "FACEBOOK_APP_ID", "TIKTOK_CLIENT_KEY", "TIKTOK_AUDITED", "LINKEDIN_CLIENT_ID", "LINKEDIN_API_VERSION", "X_CLIENT_ID"].filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
+  ...["YOUTUBE_CLIENT_ID", "INSTAGRAM_APP_ID", "FACEBOOK_APP_ID", "INSTAGRAM_LOGIN_CONFIG_ID", "FACEBOOK_LOGIN_CONFIG_ID", "META_GRAPH_API_VERSION", "TIKTOK_CLIENT_KEY", "TIKTOK_AUDITED", "LINKEDIN_CLIENT_ID", "LINKEDIN_API_VERSION", "X_CLIENT_ID"].filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
   `TASKS_LOCATION=${REGION}`,
   `TASKS_INVOKER_SA=${TASKS_SA}`,
   "JOB_DISPATCH=cloudtasks",

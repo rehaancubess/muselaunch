@@ -66,6 +66,8 @@ export function providerCatalog(p: Platform) {
   const { settings } = growthDeps(p);
   return Object.values(PROVIDER_ADAPTERS).map((a) => {
     const configured = Boolean(settings.creds[a!.provider]);
+    // New Meta apps sign in to Instagram with the Meta app itself plus a Unified login configuration.
+    const envNames = a!.provider === "instagram" ? ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "INSTAGRAM_LOGIN_CONFIG_ID"] : [a!.env.clientId, a!.env.clientSecret];
     const state: ProviderAvailability = !configured ? "not_configured" : a!.review.required && !(a!.provider === "tiktok" && settings.adapter.tiktokAudited) ? "pending_review" : "available";
     return {
       provider: a!.provider,
@@ -77,10 +79,10 @@ export function providerCatalog(p: Platform) {
       configured,
       state,
       review: a!.review,
-      env: [a!.env.clientId, a!.env.clientSecret],
+      env: envNames,
       redirectUri: redirectUriFor(p, a!.provider),
       detail: !configured
-        ? `Not configured on this deployment (set ${a!.env.clientId} / ${a!.env.clientSecret}). Use the export package + manual posting meanwhile.`
+        ? `Not configured on this deployment (set ${envNames.join(" / ")}). Use the export package + manual posting meanwhile.`
         : state === "pending_review"
           ? "Configured. Until the provider's review/verification is complete, only accounts registered with the developer app (testers/owned accounts) can connect, with the limits listed."
           : "Configured.",

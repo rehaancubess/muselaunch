@@ -42,6 +42,14 @@ export interface AdapterSettings {
   linkedinApiVersion: string;
   /** TikTok client passed the Content Posting audit (public posts allowed). */
   tiktokAudited: boolean;
+  /**
+   * Meta "Unified login" configuration for Instagram (Facebook Login for Business, system-user token).
+   * Meta apps created since 2026 can't use Instagram Login; when this is set, Instagram connects with
+   * the Meta app id/secret and this config_id instead.
+   */
+  instagramLoginConfigId?: string;
+  /** Facebook Login for Business configuration for Page posting (new Meta apps reject `scope`). */
+  facebookLoginConfigId?: string;
 }
 
 export interface OAuthSpec {
