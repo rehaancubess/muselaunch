@@ -1,5 +1,5 @@
 import { autopilotSettings, tryStartAutoAutopilot } from "@muselaunch/autopilot";
-import { CreateAppRequest, HttpUrl, type AutopilotAutoStart } from "@muselaunch/contracts";
+import { CreateAppRequest, HttpUrl, Platform, type AutopilotAutoStart } from "@muselaunch/contracts";
 import { AppError, assertSafeUrl } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -106,6 +106,8 @@ const UpdateApp = z.object({
   targetCountries: z.array(z.string().length(2)).max(20).optional(),
   targetLanguages: z.array(z.string().min(2).max(16)).max(10).optional(),
   stage: z.enum(["pre_launch", "launched", "growing", "mature"]).optional(),
+  /** Where the app runs (e.g. add "tv" for a TV game the import didn't recognise); decides device frames. */
+  platforms: z.array(Platform).max(7).optional(),
   iconAssetId: z.string().optional(),
 });
 

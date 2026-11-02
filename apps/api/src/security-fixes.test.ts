@@ -126,6 +126,14 @@ describe("F6/F7/F8: URL policy on app edits, signed storage URLs and uploads", (
     expect((await s.alice.patch(`${s.A}/apps/${s.appId}`, { storeUrls: { ios: "https://apps.apple.com/us/app/focusly/id123456789" } })).status).toBe(200);
   });
 
+  it("PATCH /apps sets where the app runs (e.g. a TV game) and refuses unknown platforms", async () => {
+    const s = await workspaceWithEditor();
+    const ok = await s.alice.patch(`${s.A}/apps/${s.appId}`, { platforms: ["web", "tv"] });
+    expect(ok.status).toBe(200);
+    expect(ok.body.app.platforms).toEqual(["web", "tv"]);
+    expect((await s.alice.patch(`${s.A}/apps/${s.appId}`, { platforms: ["toaster"] })).status).toBe(422);
+  });
+
   it("never signs or deletes an object outside the caller's workspace, even if an asset row points there", async () => {
     const s = await workspaceWithEditor();
     const bobKey = workspaceKey(s.wsB, "uploads", "ast_bob", "private.png");
