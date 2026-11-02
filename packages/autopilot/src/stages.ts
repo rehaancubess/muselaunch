@@ -386,8 +386,12 @@ const produce: StageFn = async (env, step) => {
     // Storyboards pick screenshots by kind (raw app UI vs designed store image + its SAM cut-out).
     // When that check is still running (it starts after App DNA), wait for it: otherwise a store
     // image lands inside a device frame and fails verification.
+    // Same for a walkthrough recording that is still being cut into clips (Muse Spark labels each shot).
     const screens = await screenJobsInFlight(env.ws, env.appId);
-    if (screens.length) return { kind: "wait", jobIds: screens.map((j) => j.id), tag: "produce:screens", reason: "Finding the real app screens in your screenshots (SAM 3.1)" };
+    if (screens.length) {
+      const cutting = screens.some((j) => j.type === "media.analyze_recording");
+      return { kind: "wait", jobIds: screens.map((j) => j.id), tag: "produce:screens", reason: cutting ? "Cutting your walkthrough recording into clips (Muse Spark)" : "Finding the real app screens in your screenshots (SAM 3.1)" };
+    }
     const per =env.estimate("storyboard.generate") + env.estimate("composition.build") + env.estimate("render.preview");
     const gate = await env.budgetGate(per * env.ap.variantIds.length, `planning and making ${env.ap.variantIds.length} video${env.ap.variantIds.length === 1 ? "" : "s"}`, step.approved);
     if (gate) return gate;

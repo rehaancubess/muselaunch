@@ -102,7 +102,7 @@ const DOING: Record<Step["key"], string> = {
 /** The current step's line: what it's doing plus the real progress of the jobs behind it (done count, %). */
 function liveLine(step: Step, stage: string, waitingFor?: string): string {
   const l = step.live;
-  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : waitingFor?.startsWith("[produce:screens]") ? "Finding the real app screens in your screenshots first" : DOING[step.key];
+  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : waitingFor?.startsWith("[produce:screens]") ? (waitingFor.includes("walkthrough") ? "Cutting your walkthrough recording into clips first" : "Finding the real app screens in your screenshots first") : DOING[step.key];
   if (!l) return what;
   const parts = [what, l.total > 1 ? `${l.done} of ${l.total} done` : null, typeof l.pct === "number" && l.pct > 0 && l.pct < 100 ? `${l.pct}%` : null].filter(Boolean);
   return parts.join(" · ");

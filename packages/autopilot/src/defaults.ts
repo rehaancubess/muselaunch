@@ -31,7 +31,9 @@ export function defaultGoal(app: Pick<App, "name" | "storeUrls">, dna: Pick<Bran
  */
 export async function screenJobsInFlight(ws: WorkspaceDb, appId: string): Promise<Job[]> {
   const page = await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 });
-  return page.items.filter((j) => j.type === "media.extract_ui" && (j.status === "queued" || j.status === "running"));
+  // Screenshot checks, and walkthrough recordings still being cut into labelled clips: the video
+  // plans should use that real footage, so they wait for it.
+  return page.items.filter((j) => (j.type === "media.extract_ui" || j.type === "media.analyze_recording") && (j.status === "queued" || j.status === "running"));
 }
 
 /** App import / analysis jobs for this app that haven't finished yet (App DNA is on its way). */
