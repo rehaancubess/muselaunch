@@ -68,7 +68,7 @@ export type TodayVideo = z.infer<typeof TodayVideo>;
 
 export const TodayResponse = z.object({
   appId: Id,
-  /** Waiting for approval first (in the order they'd go out), then ready for you to post, then posts Muse is changing. */
+  /** Waiting for approval, ready for you to post, or being changed by Muse: in the order they'd go out. */
   posts: z.array(TodayPost),
   /** Every other Needs-you item for this app (decisions, suggestions, spend, checks). */
   needs: z.array(NeedsYouItem),

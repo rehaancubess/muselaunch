@@ -55,7 +55,9 @@ export interface ChangeablePost {
 export function ChangeProgress({ change }: { change: PostChange }) {
   const { workspaceId } = useWorkspace();
   const job = useJob(workspaceId, change.jobId).job;
-  const pct = job?.status === "running" || job?.status === "succeeded" ? Math.round(job.progress?.pct ?? 0) : null;
+  // A finished step (100%) waits for the next one to start: show a quiet bar, not a full one.
+  const raw = job?.status === "running" ? Math.round(job.progress?.pct ?? 0) : null;
+  const pct = raw !== null && raw > 0 && raw < 100 ? raw : null;
   const steps = change.part === "video" ? (change.status === "editing" ? "Step 1 of 2" : "Step 2 of 2") : null;
   return (
     <div className="space-y-2 rounded-xl bg-mist/70 px-4 py-3" aria-live="polite">
@@ -63,19 +65,19 @@ export function ChangeProgress({ change }: { change: PostChange }) {
         <Spinner size={14} className="shrink-0" />
         <span className="min-w-0 text-pretty">
           {DOING[change.status]}
-          {pct !== null && pct > 0 && pct < 100 ? <span className="font-normal text-ink-2"> · {pct}%</span> : null}
+          {pct !== null ? <span className="font-normal text-ink-2"> · {pct}%</span> : null}
         </span>
       </p>
       <ProgressBar value={pct} label={DOING[change.status]} className="h-1" />
       <p className="text-footnote text-ink-2 text-pretty">
-        {steps ? `${steps} · ` : ""}“{change.instruction}”. You can leave this page; the post waits for your OK again when it’s ready.
+        {steps ? `${steps} · ` : ""}“{change.instruction}”. You can leave this page. When it’s ready, the post waits for your OK again.
       </p>
     </div>
   );
 }
 
 /** One line on the last change: what changed, or why it didn't. */
-export function ChangeResult({ change, className }: { change: PostChange; className?: string }) {
+export function ChangeResult({ change, waiting, className }: { change: PostChange; waiting?: boolean; className?: string }) {
   if (change.status === "failed") {
     return (
       <p className={cn("flex items-start gap-2 text-footnote text-ink-2 text-pretty", className)} role="status">
@@ -94,7 +96,7 @@ export function ChangeResult({ change, className }: { change: PostChange; classN
       <span>
         <span className="font-medium text-ink">{change.part === "video" ? "Muse changed the video" : "Muse changed the caption"}{change.summary ? ": " : "."}</span>
         {change.summary ? `${change.summary.replace(/[.\s]+$/, "")}.` : null}
-        {change.note ? ` ${change.note}` : change.hadApproval ? " It’s waiting for your OK again." : ""}
+        {change.note ? ` ${change.note}` : waiting ? " It’s waiting for your OK again." : ""}
       </span>
     </p>
   );
@@ -127,7 +129,7 @@ export function PostTellMuse({ post, autoFocus, className, hideLabel, onStarted 
     }
   };
 
-  if (!changeable) return post.change ? <ChangeResult change={post.change} className={className} /> : null;
+  if (!changeable) return post.change ? <ChangeResult change={post.change} waiting={post.status === "awaiting_approval"} className={className} /> : null;
   const cost = est.data ? (short ? `Needs about ${est.data.credits} credits; ${Math.max(0, est.data.available)} left` : `Uses about ${est.data.credits} credits`) : null;
   return (
     <TellMuse
@@ -141,12 +143,13 @@ export function PostTellMuse({ post, autoFocus, className, hideLabel, onStarted 
       placeholder={part === "video" ? "e.g. Make the opening shorter" : "e.g. Make it friendlier and shorter"}
       chips={(part === "video" ? VIDEO_CHIPS : hasVideo ? [...CAPTION_CHIPS, { key: "video", label: "Change the video", target: "video", text: "" }] : CAPTION_CHIPS).map((c) => ({ ...c, disabled: running }))}
       busy={busy}
+      submitLabel="Make this change"
       disabled={running || short}
       onSubmit={(t, o) => submit(t, o)}
       footnote={[cost, part === "video" ? "Only the scenes it needs to touch change" : "Checked against your facts again", "you OK the new version before it posts"].filter(Boolean).join(" · ")}
       detailHref={hasVideo ? routes.app(workspaceId, post.appId).studio(post.compositionId!) : undefined}
     >
-      {post.change && running ? <ChangeProgress change={post.change} /> : post.change ? <ChangeResult change={post.change} /> : null}
+      {post.change && running ? <ChangeProgress change={post.change} /> : post.change ? <ChangeResult change={post.change} waiting={post.status === "awaiting_approval"} /> : null}
     </TellMuse>
   );
 }

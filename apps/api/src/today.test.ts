@@ -82,7 +82,9 @@ describe("Today and “Tell Muse what to change”", () => {
     expect(posts.every((x: J) => x.status === "awaiting_approval")).toBe(true);
     const t = await getToday();
     const needs = NeedsYouResponse.parse((await alice.get(`${W()}/needs-you?appId=${appId}`)).body);
-    expect(t.posts.map((x) => x.id)).toEqual(needs.items.filter((i) => i.kind === "post").map((i) => i.subject.id));
+    expect(t.posts.map((x) => x.id).sort()).toEqual(needs.items.filter((i) => i.kind === "post").map((i) => i.subject.id).sort());
+    // In the order they'd go out.
+    expect(t.posts.map((x) => x.scheduledAt ?? "")).toEqual(t.posts.map((x) => x.scheduledAt ?? "").sort());
     const first = t.posts[0]!;
     expect(first.decision).toEqual(needs.items.find((i) => i.subject.id === first.id));
     expect(first.decision).toMatchObject({ kind: "post", canDecide: true, approve: { path: expect.stringMatching(/^\/approvals\/.+\/approve$/) } });
@@ -130,8 +132,12 @@ describe("Today and “Tell Muse what to change”", () => {
     expect(r.status).toBe(202);
     expect(r.body.change).toMatchObject({ part: "video", status: "editing", spoken: true, hadApproval: true, fromVersion: comp.currentVersion, by: "eddie" });
     expect(r.body.job).toMatchObject({ type: "composition.edit", payload: { compositionId: comp.id, baseVersion: comp.currentVersion, autoApply: true, sceneIds: [] } });
-    // One change at a time.
+    // One change at a time; while Muse works, the old version can't be approved (or go out).
     expect((await alice.post(`${W()}/posts/${id}/change`, { part: "caption", instruction: "Shorter" })).status).toBe(409);
+    expect(r.body.post).toMatchObject({ status: "draft" });
+    expect(r.body.post.approvalId).toBeUndefined();
+    expect((await ws().collection("approvals").getOrThrow(oldApproval)).status).toBe("expired");
+    expect((await alice.post(`${W()}/approvals/${oldApproval}/approve`, { snapshotHash: (await ws().collection("approvals").getOrThrow(oldApproval)).snapshotHash })).status).toBe(409);
     await p.inline!.drain();
 
     const after = await ws().collection("scheduledPosts").getOrThrow(id);
@@ -164,8 +170,7 @@ describe("Today and “Tell Muse what to change”", () => {
     const t = await getToday();
     const mine = t.posts.find((x) => x.id === posts[0].id)!;
     expect(mine).toMatchObject({ status: "manual_post_needed", decision: null, canChange: true });
-    // Waiting for approval comes first.
-    expect(t.posts[0]!.id).toBe(posts[1].id);
+    expect(t.posts.find((x) => x.id === posts[1].id)?.decision?.kind).toBe("post");
   });
 
   it("a caption change: Muse Spark rewrites the copy as asked, the fact check runs again, the post shows it and asks for approval again", async () => {
@@ -198,7 +203,10 @@ describe("Today and “Tell Muse what to change”", () => {
     const after = await ws().collection("scheduledPosts").getOrThrow(id);
     expect(after.change).toMatchObject({ status: "failed" });
     expect(after.change!.note).toMatch(/left the caption as it was\. Try saying it another way\. The caption is as it was\.$/);
-    expect(after).toMatchObject({ caption: before.caption, status: "awaiting_approval", approvalId: before.approvalId });
+    // Not changed: the same words wait for approval again (a fresh request for the same version).
+    expect(after).toMatchObject({ caption: before.caption, status: "awaiting_approval" });
+    expect(after.approvalId).not.toBe(before.approvalId);
+    expect((await ws().collection("approvals").getOrThrow(after.approvalId!)).snapshotHash).toBe((await ws().collection("approvals").getOrThrow(before.approvalId!)).snapshotHash);
     // It can be asked again straight away.
     expect((await alice.post(`${W()}/posts/${id}/change`, { part: "caption", instruction: "Make it friendlier" })).status).toBe(202);
     await p.inline!.drain();

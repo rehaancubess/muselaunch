@@ -9,11 +9,12 @@
  */
 import type { InsightsOverview, TodayVideo } from "@muselaunch/contracts";
 import { Button, Dialog, Skeleton, cn } from "@muselaunch/ui";
-import { ArrowRight, CalendarClock, Clapperboard, Play, Repeat } from "lucide-react";
+import { ArrowRight, CalendarClock, Clapperboard, MonitorSmartphone, Play, Repeat, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { AlwaysOnSettings, AlwaysOnStatusLine, useAlwaysOn } from "@/features/autopilot/always-on";
+import { useWalkthroughs, WalkthroughPrompt } from "@/features/media/walkthrough";
 import { topPicks, type FeedResponse } from "@/features/discover/picks";
 import { IdeaCard } from "@/features/discover/simple";
 import { fmtNumber } from "@/features/insights/shared";
@@ -105,7 +106,7 @@ export function MuseFound({ appId }: { appId: string }) {
     <section aria-labelledby="today-found" className="space-y-3">
       <SectionHead id="today-found" title="Muse found" href={r.discover} />
       {picks.length ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
           {picks.map((item) => (
             <IdeaCard key={item.id} item={item} appId={appId} compact />
           ))}
@@ -244,6 +245,58 @@ export function AllClear({ appId, working }: { appId: string; working?: string |
           </Link>
         </Button>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * No screen recording yet: one quiet line (the full explainer and upload open in a dialog). Hidden
+ * once there is a recording, or after "Not now" (the same per-browser choice as before).
+ */
+export function RecordingOffer({ appId }: { appId: string }) {
+  const { workspaceId, can } = useWorkspace();
+  const { recordings, loading } = useWalkthroughs(workspaceId, appId);
+  const key = `ml.walkthrough.dismissed.${appId}`;
+  const [dismissed, setDismissed] = useState(true);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    try {
+      setDismissed(window.localStorage.getItem(key) === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, [key]);
+  if (loading || dismissed || recordings.length || !can("content.write")) return null;
+  return (
+    <section aria-labelledby="today-recording" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-mist/60 py-2 pl-4 pr-2">
+      <MonitorSmartphone className="size-5 shrink-0 text-ink-3" aria-hidden />
+      <p className="min-w-0 flex-1 basis-56 py-1.5 text-footnote text-ink-2 text-pretty">
+        <span id="today-recording" className="font-medium text-ink">
+          Optional: a screen recording of your app.
+        </span>{" "}
+        The best videos show your real app moving.
+      </p>
+      <Button size="lg" variant="ghost" className="ml-auto shrink-0 text-accent" onClick={() => setOpen(true)}>
+        Add one
+      </Button>
+      <button
+        type="button"
+        aria-label="Not now"
+        onClick={() => {
+          try {
+            window.localStorage.setItem(key, "1");
+          } catch {
+            /* per-viewer convenience only */
+          }
+          setDismissed(true);
+        }}
+        className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:shadow-focus"
+      >
+        <X className="size-4" aria-hidden />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen} title="Add a screen recording" size="lg" hideTitle>
+        <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="inline" />
+      </Dialog>
     </section>
   );
 }

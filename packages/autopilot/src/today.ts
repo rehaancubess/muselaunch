@@ -1,9 +1,9 @@
 /**
  * Creator → Today (GET /apps/:appId/today): what's waiting on the person for one app, in one read.
  *
- *  - posts: waiting for approval first (the same Needs-you items, so "Looks good" calls the same
- *    route with the same permission and snapshot checks), in the order they'd go out; then approved
- *    posts the person posts themselves; then posts Muse is changing (or just changed) for them;
+ *  - posts: in the order they'd go out: waiting for approval (the same Needs-you items, so "Looks
+ *    good" calls the same route with the same permission and snapshot checks), approved posts the
+ *    person posts themselves, and posts Muse is changing (or just changed) for them;
  *  - needs: every other Needs-you item for the app;
  *  - videos: the newest finished video (final render) per composition.
  *
@@ -42,7 +42,8 @@ export async function today(p: Platform, wid: string, member: Member, appId: str
   const changing = posts
     .filter((x) => x.change && CHANGEABLE_POST.includes(x.status) && x.status !== "manual_post_needed" && !decisions.has(x.id) && (isPostChangeRunning(x.change) || now - Date.parse(x.change.finishedAt ?? x.change.startedAt) < DAY_MS))
     .sort(byTime);
-  const shown = [...new Map([...waiting, ...yours, ...changing].map((x) => [x.id, x])).values()].slice(0, MAX_POSTS);
+  // In the order they'd go out (a post Muse is changing keeps its place, so the next post stays the next post).
+  const shown = [...new Map([...waiting, ...yours, ...changing].map((x) => [x.id, x])).values()].sort(byTime).slice(0, MAX_POSTS);
 
   const assetIds = [...new Set(shown.flatMap((x) => x.assetIds))];
   const [assets, comps, accounts, links] = await Promise.all([

@@ -10,8 +10,9 @@
  *  - caption: `post.revise_copy` (Muse Spark rewrites the copy as asked, the fact check runs again)
  *    → the post shows it (growth `usePostCopyPack`), same approval rule.
  *
- * A post that was waiting for approval (or approved) asks for approval again afterwards, through the
- * same Brand Guardian gate Autopilot uses, so it shows up in Needs you / Today again. The post
+ * Asking for a change ends the approval waiting (or given) for the old version, so it can't go out
+ * meanwhile; afterwards (changed or not) the post asks for approval again, through the same Brand
+ * Guardian gate Autopilot uses, so it shows up in Needs you / Today again. The post
  * remembers the newest change (`post.change`) with honest progress (the job running now) and one
  * plain line on what changed. Steps advance from the job lifecycle hook (hooks.ts) and, if a hook
  * was missed, when Today is read (repairPostChanges).
@@ -20,7 +21,7 @@ import { brandGate, rewriteCopyForPost } from "@muselaunch/agents";
 import { totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
 import { isPostChangeRunning, TERMINAL_JOB_STATUSES, type ChangePostRequest, type Job, type PostChange, type ScheduledPost } from "@muselaunch/contracts";
-import { factCheckOfPack, requestPostApproval, usePostCopyPack, usePostRender } from "@muselaunch/growth";
+import { expireApprovals, factCheckOfPack, requestPostApproval, usePostCopyPack, usePostRender } from "@muselaunch/growth";
 import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { hashId } from "./state";
 
@@ -105,7 +106,10 @@ export async function requestPostChange(p: Platform, wid: string, postId: string
     );
     change = { ...base, status: "editing", jobId: job.id, editJobId: job.id, patchId: patch.id, fromVersion: comp.currentVersion };
   }
-  const updated = await ws.collection("scheduledPosts").update(post.id, { change }, { actor });
+  // Asking for a change means "not this version": the approval waiting (or given) for it ends now,
+  // so the old version can't go out while Muse works. It's asked for again when the change is done.
+  if (base.hadApproval) await expireApprovals(ws, { entity: "scheduledPosts", id: post.id }, post.appId, actor, "Asked Muse for a change");
+  const updated = await ws.collection("scheduledPosts").update(post.id, { change, ...(base.hadApproval ? { status: "draft" as const, approvalId: undefined, publishState: undefined } : {}) }, { actor });
   await p.jobs.dispatch(job);
   return { post: updated, change, job };
 }
@@ -136,7 +140,11 @@ export async function advancePostChange(p: Platform, wid: string, postId: string
     if (fresh.change?.id !== c.id || !isPostChangeRunning(fresh.change)) return fresh;
     return ws.collection("scheduledPosts").update(post.id, { change: { ...fresh.change, ...patch } }, { actor: c.by });
   };
-  const fail = (note: string, extra: Partial<PostChange> = {}) => save({ ...extra, status: "failed", note: clip(note, 500), finishedAt: nowIso() });
+  // Not changed: the post is as it was, so it waits for approval again if it was before.
+  const fail = async (note: string, extra: Partial<PostChange> = {}) => {
+    const again = c.hadApproval ? await askAgain(p, wid, post.id, c.by) : undefined;
+    return save({ ...extra, status: "failed", note: clip(again ? `${note} ${again}` : note, 500), finishedAt: nowIso() });
+  };
   const jobMessage = (j: Job) => j.error?.userMessage ?? (j.status === "cancelled" ? "It was stopped." : "That didn’t work.");
 
   if (c.status === "rewriting") {

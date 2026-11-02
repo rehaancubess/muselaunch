@@ -23,14 +23,13 @@ import { AppIcon } from "@/components/app-icon";
 import { DOING, NeedsYouList, useNeedsYou } from "@/features/autopilot/needs-you";
 import { MadeWith, RunProgress } from "@/features/autopilot/progress";
 import { isActive, isWorking, type AutopilotDetail, type AutopilotListItem } from "@/features/autopilot/types";
-import { WalkthroughPrompt } from "@/features/media/walkthrough";
 import { errorMessage, wsPath } from "@/lib/api";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useCurrentApp, useWorkspace } from "@/lib/workspace";
 import { Composer } from "./composer";
 import { NextPostCard, ThenList } from "./next-post";
-import { AllClear, AlwaysOnLine, HowItsGoing, KeepItGoing, MuseFound, SectionHead, YourVideos } from "./sections";
+import { AllClear, AlwaysOnLine, HowItsGoing, KeepItGoing, MuseFound, RecordingOffer, SectionHead, YourVideos } from "./sections";
 
 function TodaySkeleton() {
   return (
@@ -149,7 +148,7 @@ export function TodayPage() {
       <MuseFound appId={appId} />
       <YourVideos appId={appId} videos={today.data?.videos ?? []} />
       <KeepItGoing appId={appId} />
-      <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} />
+      <RecordingOffer appId={appId} />
 
       <footer className="space-y-3 border-t border-line pt-5">
         {d ? <MadeWith names={d.progress.madeWith} /> : null}

@@ -20,6 +20,9 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 
+/** A change that finished in the last day (its one-line result is still news). */
+const recent = (iso?: string) => Boolean(iso && Date.now() - Date.parse(iso) < 86_400_000);
+
 /** "Thu 7 PM" in the workspace's time zone (":00" dropped). */
 export function whenShort(iso: string | undefined, tz: string | undefined, withDate = false): string {
   if (!iso) return "No time set";
@@ -70,11 +73,11 @@ export function PostVideo({ post, className }: { post: Pick<TodayPost, "video" |
                 setPlaying(true);
                 void ref.current?.play().catch(() => {});
               }}
-              className="group absolute inset-0 flex items-center justify-center focus-visible:outline-none"
+              className="group absolute inset-0 focus-visible:outline-none"
               aria-label={`Play ${label}`}
             >
-              <span className="flex size-12 items-center justify-center rounded-full bg-white/90 text-ink shadow-float transition-transform group-hover:scale-105 group-focus-visible:shadow-focus">
-                <Play className="ml-0.5 size-5 fill-current" aria-hidden />
+              <span className="absolute bottom-2 left-2 flex size-10 items-center justify-center rounded-full bg-white/90 text-ink shadow-float transition-transform group-hover:scale-105 group-focus-visible:shadow-focus sm:size-11">
+                <Play className="ml-0.5 size-4 fill-current" aria-hidden />
               </span>
               {v.durationSec ? <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-medium tabular text-white">{Math.round(v.durationSec)}s</span> : null}
             </button>
@@ -160,9 +163,9 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
             </p>
           ) : null}
           <div>
-            <p id={`cap-${post.id}`} className={cn("whitespace-pre-line break-words text-body-sm text-ink-2 sm:text-body", !more && "line-clamp-2")}>
+            <p id={`cap-${post.id}`} className={cn("break-words text-body-sm text-ink-2 sm:text-body", more ? "whitespace-pre-line" : "line-clamp-2")}>
               {post.title ? <span className="font-medium text-ink">{post.title} · </span> : null}
-              {post.caption}
+              {more ? post.caption : post.caption.replace(/\s+/g, " ")}
             </p>
             {longCaption ? (
               <button type="button" aria-expanded={more} aria-controls={`cap-${post.id}`} onClick={() => setMore((m) => !m)} className="min-h-11 text-footnote font-medium text-accent hover:underline sm:min-h-0">
@@ -175,17 +178,8 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
       </div>
 
       <div className="space-y-4 border-t border-line px-4 pb-4 pt-4 sm:px-6 sm:pb-6">
-        {manual && post.status !== "manual_post_needed" ? (
-          <div className="flex items-start gap-2.5 rounded-xl bg-mist/70 px-3.5 py-3 text-footnote text-ink-2">
-            <Info className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
-            <p className="text-pretty">
-              <span className="font-medium text-ink">{channel} isn’t connected, so MuseLaunch won’t post this for you.</span> After you OK it, download the video and copy the caption to post it yourself.{" "}
-              <Link href={`${r.scheduled}?connections=1`} className="font-medium text-accent hover:underline" title={post.manualReason}>
-                Connections
-              </Link>
-            </p>
-          </div>
-        ) : null}
+        {/* What Muse is doing to this post, or what it just changed: first, so it's seen. */}
+        {running && post.change ? <ChangeProgress change={post.change} /> : post.change && !changing && recent(post.change.finishedAt) ? <ChangeResult change={post.change} waiting={Boolean(post.decision)} /> : null}
 
         {running ? null : post.decision && decision ? (
           post.decision.canDecide && post.decision.approve && !post.decision.stale ? (
@@ -239,26 +233,34 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
           </div>
         )}
 
-        {manual && post.decision && !running ? (
-          <div className="flex flex-wrap gap-2">
-            <DownloadVideo post={post} />
-            <CopyCaption post={post} />
-          </div>
+        {changing && !running ? (
+          <PostTellMuse post={{ id: post.id, appId, status: post.status, compositionId: post.compositionId, change: post.change }} autoFocus onStarted={() => setChanging(false)} className="border-t border-line pt-4" />
         ) : null}
 
-        {running && post.change ? (
-          <ChangeProgress change={post.change} />
-        ) : changing ? (
-          <PostTellMuse post={{ id: post.id, appId, status: post.status, compositionId: post.compositionId, change: post.change }} autoFocus onStarted={() => setChanging(false)} className="border-t border-line pt-4" />
-        ) : post.change ? (
-          <ChangeResult change={post.change} />
+        {/* Not connected: say so plainly, with the post-it-yourself path right there. */}
+        {manual && post.status !== "manual_post_needed" && !running ? (
+          <div className="space-y-3 rounded-xl bg-mist/70 px-3.5 py-3">
+            <p className="flex items-start gap-2.5 text-footnote text-ink-2 text-pretty">
+              <Info className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
+              <span>
+                <span className="font-medium text-ink">{channel} isn’t connected, so you post this one yourself.</span> After you OK it, download the video and copy the caption.{" "}
+                <Link href={`${r.scheduled}?connections=1`} className="font-medium text-accent hover:underline" title={post.manualReason}>
+                  Connections
+                </Link>
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-2 sm:pl-6">
+              <DownloadVideo post={post} />
+              <CopyCaption post={post} />
+            </div>
+          </div>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <button type="button" onClick={() => setSheet(true)} className="min-h-11 text-footnote font-medium text-ink-2 hover:text-ink sm:min-h-0">
             Post details
           </button>
-          {post.compositionId ? (
+          {post.compositionId && !changing ? (
             <Link href={r.studio(post.compositionId)} className="inline-flex min-h-11 items-center text-footnote font-medium text-ink-2 hover:text-ink sm:min-h-0">
               Edit the video in detail
             </Link>
