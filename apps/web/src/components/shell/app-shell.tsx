@@ -1,7 +1,7 @@
 "use client";
 import type { App } from "@muselaunch/contracts";
 import { Avatar, Badge, Kbd, Menu, MenuContent, MenuItem, MenuLabel, MenuLink, MenuSeparator, MenuTrigger, SegmentedControl, cn } from "@muselaunch/ui";
-import { BarChart3, Check, ChevronDown, Clapperboard, Compass, CreditCard, Info, LogOut, Plus, Search, Settings, Sparkles } from "lucide-react";
+import { Activity, BarChart3, Check, ChevronDown, Clapperboard, Compass, CreditCard, Info, LogOut, Plus, Search, Settings, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -11,9 +11,8 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { routes, type PrimaryTab } from "@/lib/routes";
 import { useMe, useWorkspace } from "@/lib/workspace";
 import { CommandPalette } from "./command-palette";
-import { JobsTray } from "./jobs-tray";
+import { ActivitySheet, JobsTray } from "./jobs-tray";
 import { NeedsYouButton, NeedsYouTab } from "@/features/autopilot/needs-you";
-import { AutopilotChip } from "./autopilot-chip";
 
 /** Shell sections that belong to the one Settings page. */
 const SETTINGS_SECTIONS = new Set(["settings", "integrations", "team", "credits"]);
@@ -106,7 +105,9 @@ function AccountMenu() {
   const { user, signOut, mode } = useAuth();
   const router = useRouter();
   const { credits, workspaceId } = useWorkspace();
+  const [activity, setActivity] = useState(false);
   return (
+    <>
     <Menu>
       <MenuTrigger asChild>
         <button type="button" aria-label="Account" className="rounded-full focus-visible:outline-none focus-visible:shadow-focus">
@@ -123,6 +124,9 @@ function AccountMenu() {
         <MenuLink href={routes.settings.credits(workspaceId)} icon={<CreditCard />} trailing={credits ? <span className="tabular">{credits.available.toLocaleString()}</span> : null} onNavigate={(h) => router.push(h)}>
           Credits
         </MenuLink>
+        <MenuItem icon={<Activity />} onSelect={() => setActivity(true)}>
+          Activity
+        </MenuItem>
         <MenuSeparator />
         <MenuItem
           icon={<LogOut />}
@@ -134,6 +138,8 @@ function AccountMenu() {
         </MenuItem>
       </MenuContent>
     </Menu>
+    <ActivitySheet workspaceId={workspaceId} open={activity} onOpenChange={setActivity} />
+    </>
   );
 }
 
@@ -155,10 +161,11 @@ function tabItems(wid: string, appId: string | null) {
 }
 
 /**
- * The app frame: translucent top bar with the app switcher, EXACTLY three primary tabs
+ * The app frame: a calm translucent top bar with the app switcher, EXACTLY three primary tabs
  * (Discover, Creator, Insights) plus "Needs you" (every decision waiting on a person, with a
- * count), Ask Muse (⌘K), the jobs tray and the account menu. On phones the tabs and Needs you move
- * to a bottom tab bar.
+ * count), Ask Muse (⌘K) and the account menu (Credits, Activity, Sign out). The jobs icon only shows
+ * while something is running; Autopilot's status lives on Creator → Today. On phones the tabs and
+ * Needs you move to a bottom tab bar.
  */
 export function AppShell({ children, tab, section, fullBleed }: { children: ReactNode; tab?: PrimaryTab | null; section?: string; fullBleed?: boolean }) {
   const { workspaceId, app, apps } = useWorkspace();
@@ -224,7 +231,6 @@ export function AppShell({ children, tab, section, fullBleed }: { children: Reac
             >
               <Search className="size-[18px]" aria-hidden />
             </button>
-            <AutopilotChip workspaceId={workspaceId} appId={app?.id} />
             <JobsTray workspaceId={workspaceId} />
             <AccountMenu />
           </div>

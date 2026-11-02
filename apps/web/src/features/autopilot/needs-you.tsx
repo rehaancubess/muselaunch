@@ -48,7 +48,7 @@ const PRIMARY_LABEL: Record<NeedsYouItem["kind"], string> = {
 };
 const SECONDARY_LABEL: Record<NeedsYouItem["kind"], string> = { post: "Not this one", outreach: "Don’t send", spend: "Not now", decision: "Pause", app_dna: "", brand_check: "", suggestion: "Not now" };
 
-const WHO: Record<string, string> = {
+export const WHO: Record<string, string> = {
   publish: "someone who can publish",
   "outreach.send": "someone who can send outreach",
   "billing.manage": "someone who manages billing",
@@ -77,14 +77,16 @@ function when(iso?: string) {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** One decision, ready for a single tap. */
-export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; appName?: string; compact?: boolean }) {
+/**
+ * Make a Needs-you decision: calls the item's own route (which keeps its permission and snapshot
+ * checks), says what happened, and refreshes everything that shows decisions. Also used by Creator →
+ * Today's next post ("Looks good" / "Skip").
+ */
+export function useNeedsYouDecision(item: NeedsYouItem) {
   const { workspaceId } = useWorkspace();
   const toast = useToast();
   const invalidate = useInvalidate();
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-  const review = item.reviewPath ? `/w/${workspaceId}${item.reviewPath}` : null;
-  const opensPage = OPENS_PAGE(item.kind);
   const decide = async (which: "approve" | "reject") => {
     const route = which === "approve" ? item.approve : item.reject;
     if (!route) return;
@@ -103,13 +105,22 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
             ? "Autopilot is paused. Resume it whenever you like."
             : "Nothing was sent."),
       );
-      await invalidate(wsPath(workspaceId, "/needs-you"), wsPath(workspaceId, "/autopilots"), wsPath(workspaceId, "/apps"), wsPath(workspaceId, "/approvals"));
+      await invalidate(wsPath(workspaceId, "/needs-you"), wsPath(workspaceId, "/autopilots"), wsPath(workspaceId, "/apps"), wsPath(workspaceId, "/approvals"), wsPath(workspaceId, "/posts"));
     } catch (e) {
       toast.error("Couldn’t record that", errorMessage(e));
     } finally {
       setBusy(null);
     }
   };
+  return { busy, decide };
+}
+
+/** One decision, ready for a single tap. */
+export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; appName?: string; compact?: boolean }) {
+  const { workspaceId } = useWorkspace();
+  const { busy, decide } = useNeedsYouDecision(item);
+  const review = item.reviewPath ? `/w/${workspaceId}${item.reviewPath}` : null;
+  const opensPage = OPENS_PAGE(item.kind);
   const pv = item.preview;
   // The run waits for real footage of the app: the upload is right in the card, then Continue.
   const media = item.kind === "decision" && Boolean(pv?.needsMedia) && Boolean(item.appId);
@@ -257,7 +268,7 @@ export function NeedsYouList({ items, showApp, group, compact = showApp }: { ite
 }
 
 /** What a loop is doing, in plain words (from its stage; the loop page has the detailed log). */
-const DOING: Record<AutopilotListItem["stage"], string> = {
+export const DOING: Record<AutopilotListItem["stage"], string> = {
   understand: "Learning about your app",
   research: "Researching your audience",
   select_audience: "Choosing who to reach",

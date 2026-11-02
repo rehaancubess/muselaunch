@@ -1,19 +1,19 @@
 "use client";
 /**
- * The simple Studio (default): the live preview, one "Tell me what to change" box (typed or spoken,
+ * The simple Studio (default): the live preview, one "Tell Muse what to change" box (typed or spoken,
  * with one-tap suggestions), the scenes as a strip, the status that matters (Brand check, sound) and
  * Render / Download / Post. Every change goes through the same APIs as the full editor (scene-scoped
  * AI edits reviewed before they apply, validated Brand check fixes, versions with undo); everything
  * else stays one tap away behind "Edit in detail".
  */
 import type { CompositionDoc, Job, VideoReview, VideoReviewFinding } from "@muselaunch/contracts";
-import { Button, IconButton, JobProgress, Notice, Spinner, Textarea, Tooltip, cn, useToast } from "@muselaunch/ui";
-import { ChevronLeft, Clapperboard, Download, Mic, Redo2, ScanEye, Send, SlidersHorizontal, Sparkles, Undo2, X } from "lucide-react";
+import { Button, IconButton, JobProgress, Notice, Spinner, Tooltip, cn, useToast } from "@muselaunch/ui";
+import { ChevronLeft, Clapperboard, Download, Redo2, Send, SlidersHorizontal, Undo2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 import type { ApplyFindingResponse } from "@/features/guardian/use-guardian";
-import { VoiceRecorder } from "@/features/media";
+import { TellMuse } from "@/features/change/tell-muse";
 import { NewPostDialog } from "@/features/publishing/new-post";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useAiEditCommand } from "@/lib/commands";
@@ -251,8 +251,6 @@ function ChangeBox({
   const scene = doc.scenes[sceneIndex];
   const engine = useTextEngine(scope.length ? "composition.edit.scoped" : "composition.edit");
   const { turns, sending, send, run } = useAiEdits({ base, baseVersion: data.composition.currentVersion, clipAnalysisIds });
-  const [text, setText] = useState("");
-  const [voice, setVoice] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
   const [musicJob, setMusicJob] = useState<{ id: string; mood: string } | null>(null);
   const music = useJob(workspaceId, musicJob?.id ?? null, {
@@ -285,12 +283,6 @@ function ChangeBox({
     ),
   );
 
-  const submit = () => {
-    const v = text.trim();
-    if (!v || disabled) return;
-    setText("");
-    void send(v, scope);
-  };
 
   /** Spark's "Fix these scenes": a scene-scoped edit proposed from the findings, reviewed like any edit. */
   const fixFindings = useCallback(
@@ -352,103 +344,33 @@ function ChangeBox({
   const musicRunning = music.job && (music.job.status === "queued" || music.job.status === "running");
 
   return (
-    <section className="space-y-3">
-      <form
-        className="space-y-2.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <label htmlFor="ml-change-box" className="text-headline font-semibold text-ink">
-            Tell me what to change
-          </label>
-          {scene ? (
-            <button
-              type="button"
-              onClick={() => onSceneId(null)}
-              className="inline-flex max-w-[55%] shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-caption font-medium text-accent-ink hover:bg-accent-soft/70 focus-visible:outline-none focus-visible:shadow-focus"
-              aria-label={`Only scene ${sceneIndex + 1} (${scene.name}). Change the whole video instead`}
-              title={scene.name}
-            >
-              <span className="truncate">Only scene {sceneIndex + 1}</span>
-              <X className="size-3.5 shrink-0" aria-hidden />
-            </button>
-          ) : (
-            <span className="shrink-0 rounded-full bg-mist px-2.5 py-1 text-caption font-medium text-ink-2">Whole video</span>
-          )}
-        </div>
-        <div className="rounded-2xl border border-line-strong bg-surface transition-shadow focus-within:border-accent focus-within:shadow-focus">
-          <Textarea
-            id="ml-change-box"
-            rows={2}
-            value={text}
-            placeholder={scene ? "e.g. Make this scene more exciting" : "e.g. Show my app on an animated iPhone"}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            maxLength={2000}
-            disabled={disabled}
-            className="min-h-[64px] resize-none rounded-2xl border-0 bg-transparent px-3.5 pt-3 text-body shadow-none focus:shadow-none"
-          />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            <Button type="button" size="sm" variant={voice ? "secondary" : "ghost"} icon={<Mic className="size-4" aria-hidden />} onClick={() => setVoice((v) => !v)} disabled={disabled} aria-pressed={voice}>
-              {voice ? "Close" : "Speak"}
-            </Button>
-            <Button type="submit" size="sm" icon={<Sparkles className="size-4" aria-hidden />} loading={sending} disabled={disabled || !text.trim()}>
-              Change
-            </Button>
-          </div>
-        </div>
-        <p className="text-caption text-ink-3" title={engine.label}>
-          {engine.name === "The AI" ? "AI edit" : engine.name} · you approve each change{credits !== null ? ` · ${credits} credit${credits === 1 ? "" : "s"}` : ""}
-        </p>
-      </form>
-
-      {voice ? (
-        <VoiceRecorder
-          appId={appId}
-          purpose="voice_command"
-          onTranscript={(t) => {
-            const v = t.trim();
-            setVoice(false);
-            if (v) void send(v, scope, true);
-          }}
-        />
-      ) : null}
-
-      {chips.length && canWrite ? (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Suggestions">
-          {chips.map((chip) => (
-            <li key={chip.key}>
-              <button
-                type="button"
-                title={chip.hint}
-                disabled={saving || (chip.key === "music" && !!musicRunning)}
-                onClick={chip.act}
-                className={cn(
-                  "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-footnote transition-colors focus-visible:outline-none focus-visible:shadow-focus disabled:opacity-50",
-                  chip.fromSpark ? "border-accent/30 bg-accent-soft/60 text-accent-ink hover:bg-accent-soft" : "border-line text-ink hover:border-line-strong hover:bg-mist",
-                )}
-              >
-                {chip.fromSpark ? (
-                  <>
-                    <ScanEye className="size-3.5" aria-hidden />
-                    <span className="sr-only">From Muse Spark&apos;s review: </span>
-                  </>
-                ) : null}
-                {chip.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
+    <TellMuse
+      appId={appId}
+      placeholder={scene ? "e.g. Make this scene more exciting" : "e.g. Show my app on an animated iPhone"}
+      busy={sending}
+      disabled={disabled}
+      onSubmit={(v, o) => {
+        void send(v, scope, o.spoken);
+      }}
+      headerRight={
+        scene ? (
+          <button
+            type="button"
+            onClick={() => onSceneId(null)}
+            className="inline-flex max-w-[55%] shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-caption font-medium text-accent-ink hover:bg-accent-soft/70 focus-visible:outline-none focus-visible:shadow-focus"
+            aria-label={`Only scene ${sceneIndex + 1} (${scene.name}). Change the whole video instead`}
+            title={scene.name}
+          >
+            <span className="truncate">Only scene {sceneIndex + 1}</span>
+            <X className="size-3.5 shrink-0" aria-hidden />
+          </button>
+        ) : (
+          <span className="shrink-0 rounded-full bg-mist px-2.5 py-1 text-caption font-medium text-ink-2">Whole video</span>
+        )
+      }
+      chips={canWrite ? chips.map((chip) => ({ key: chip.key, label: chip.label, hint: chip.hint, fromSpark: chip.fromSpark, act: chip.act, disabled: saving || (chip.key === "music" && !!musicRunning) })) : []}
+      footnote={<span title={engine.label}>{engine.name === "The AI" ? "AI edit" : engine.name} · you approve each change{credits !== null ? ` · ${credits} credit${credits === 1 ? "" : "s"}` : ""}</span>}
+    >
       {music.job && music.job.status !== "succeeded" ? <JobProgress job={music.job} variant="row" title={`Composing ${musicJob?.mood ?? "new"} music`} onRetry={() => void music.retry()} retrying={music.retrying} /> : null}
 
       {turns.length ? (
@@ -471,7 +393,7 @@ function ChangeBox({
           ))}
         </ul>
       ) : null}
-    </section>
+    </TellMuse>
   );
 }
 
