@@ -85,6 +85,7 @@ Rules (non-negotiable):
 - screenshotObservations describe what is literally visible on a screenshot (UI elements, screens, text shown); use the exact asset id given for that image.
 - Audiences, problems and differentiators are positioning hypotheses; cite evidence where possible.
 - Claims are short marketing statements. support="direct" only when the listing or founder text literally states it; otherwise "inferred". Confidence reflects how well the evidence supports the claim.
+- What the listing or website plainly states about the product is a direct fact: its categories or groups, the names of its games, features or modes, the platforms it runs on, and counts it gives (e.g. "15 games"). Cover them as features and as claims with support="direct" that cite the evidence ids stating them (e.g. "Racing games: Pocket GP, Mud Slingers" citing the evidence that lists them). Keep the listing's own words; never widen them (a "Sports" group with a bowling game supports "bowling", not "every sport").
 - Platforms: where the app runs, only from the evidence. Use "tv" when it runs on a TV (Fire TV, Apple TV, Android TV, smart TV), e.g. a TV game whose players use their phones as controllers.
 - Monetization: use only pricing evidence (price, in-app purchases, subscription wording). Use "unknown" if there is none.
 - Tone: describe the voice the listing already uses; styleKeywords describe the visual style of the screenshots and icon.
@@ -177,7 +178,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
       ...listings.map((l) => untrusted(`${l.source} listing ${l.url}`, `Name: ${l.name ?? ""}\nDeveloper: ${l.developer ?? ""}\nCategory: ${l.category ?? ""}\nPrice: ${l.price ?? ""}\n\n${l.description ?? ""}`, 8000)),
       "",
       "Evidence (id | kind | source | fact):",
-      untrusted("app_evidence", evidence.map((e) => `${e.id} | ${e.kind} | ${e.source.kind} | ${clip(e.fact, 400)}`).join("\n") || "(none)", 30_000),
+      untrusted("app_evidence", evidence.map((e) => `${e.id} | ${e.kind} | ${e.source.kind} | ${clip(e.fact, 600)}`).join("\n") || "(none)", 40_000),
       "",
       "Images attached, in order:",
       ...imaged.map((a, i) => `Image ${i + 1}: asset ${a.id} — ${a.role}${a.title ? ` (${a.title})` : ""}`),
