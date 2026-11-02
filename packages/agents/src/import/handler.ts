@@ -5,6 +5,7 @@ import { clip, hashId, hostOf, isHttpUrl, nowIso } from "../util";
 import { importListingImage } from "./media";
 import {
   descriptionBullets,
+  descriptionStatements,
   extractWebsite,
   firstParagraph,
   itunesLookupUrl,
@@ -14,15 +15,26 @@ import {
   parsePlayUrl,
   playListingUrl,
   pricingSentences,
+  sectionFact,
   type ItunesResult,
+  type WebsiteExtract,
 } from "./parsers";
 
 const LABEL: Record<StoreListing["source"], string> = { app_store: "App Store", google_play: "Google Play", website: "website" };
 
 type EvidenceInput = Pick<AppEvidence, "kind" | "fact" | "source"> & { assetId?: string };
 
-/** Literal facts from a public listing, each with provenance. Never paraphrased. */
-export function listingEvidence(listing: StoreListing, screenshots: MediaAsset[], extraBullets: string[] = []): EvidenceInput[] {
+/** What a website import read beyond the listing fields (parsers.extractWebsite). */
+export type WebsiteExtras = Partial<Pick<WebsiteExtract, "bullets" | "sections" | "cards" | "statements" | "pricing">>;
+
+/**
+ * Literal facts from a public listing, each with provenance. Never paraphrased. Besides the listing
+ * fields this keeps what the page itself states plainly: its line-up (a heading and the names under
+ * it, e.g. "Racing: Pocket GP, Mud Slingers"), named items with their one-line description, and
+ * sentences naming platforms or counts ("Join once and hop between all 15 games").
+ */
+export function listingEvidence(listing: StoreListing, screenshots: MediaAsset[], extras: WebsiteExtras | string[] = {}): EvidenceInput[] {
+  const web: WebsiteExtras = Array.isArray(extras) ? { bullets: extras } : extras;
   const label = listing.source === "website" ? hostOf(listing.url) : LABEL[listing.source];
   const source = (excerpt?: string) => ({
     kind: listing.source === "website" ? ("url" as const) : ("store_listing" as const),
@@ -33,7 +45,13 @@ export function listingEvidence(listing: StoreListing, screenshots: MediaAsset[]
     excerpt: excerpt ? clip(excerpt, 2000) : undefined,
   });
   const out: EvidenceInput[] = [];
-  const add = (kind: EvidenceInput["kind"], fact: string, assetId?: string) => out.push({ kind, fact: clip(fact, 1000), source: source(fact), assetId });
+  const seen = new Set<string>();
+  const add = (kind: EvidenceInput["kind"], fact: string, assetId?: string) => {
+    const key = fact.trim().toLowerCase();
+    if (!key || (!assetId && seen.has(key))) return;
+    seen.add(key);
+    out.push({ kind, fact: clip(fact, 1000), source: source(fact), assetId });
+  };
   if (listing.name) add("other", `Listed as "${listing.name}"${listing.developer ? ` by ${listing.developer}` : ""} on ${label}`);
   if (listing.subtitle) add("positioning", listing.subtitle);
   if (listing.category) add("positioning", `${label} category: ${listing.category}`);
@@ -46,17 +64,27 @@ export function listingEvidence(listing: StoreListing, screenshots: MediaAsset[]
   }
   if (listing.description) {
     add("positioning", firstParagraph(listing.description));
-    const bullets = listing.source === "website" ? extraBullets : descriptionBullets(listing.description);
-    const pricing = pricingSentences(listing.description).filter((x) => !bullets.includes(x));
+    const website = listing.source === "website";
+    const statements = website ? (web.statements ?? []) : descriptionStatements(listing.description);
+    for (const s of statements.filter((x) => x.kind === "platform")) add("platform", s.text);
+    // The page's line-up first (it is what campaigns talk about), then its named items.
+    for (const s of web.sections ?? []) add("feature", sectionFact(s));
+    for (const c of web.cards ?? []) add("feature", `${c.name}: ${c.description}`);
+    const bullets = website ? (web.bullets ?? []) : descriptionBullets(listing.description);
+    // A website's text is one long run of blocks: its pricing sentences are read block by block.
+    const pricing = (website ? (web.pricing ?? []) : pricingSentences(listing.description)).filter((x) => !bullets.includes(x));
     for (const b of bullets) add(pricingSentences(b).length ? "pricing" : "feature", b);
+    for (const s of statements.filter((x) => x.kind === "count")) add("feature", s.text);
     for (const x of pricing) add("pricing", x);
   }
   if (listing.releaseNotes) add("other", `Latest release notes: ${listing.releaseNotes}`);
-  screenshots.forEach((a, i) => add("visual", `Screenshot ${i + 1} of ${screenshots.length} from the ${label} listing`, a.id));
-  return out.slice(0, 40);
+  // Screenshots always keep their evidence (one per image), even when the text facts are many.
+  const text = out.slice(0, 60);
+  screenshots.forEach((a, i) => text.push({ kind: "visual", fact: `Screenshot ${i + 1} of ${screenshots.length} from the ${label} listing`, source: source(`Screenshot ${i + 1} of ${screenshots.length} from the ${label} listing`), assetId: a.id }));
+  return text;
 }
 
-async function fetchListing(ctx: JobContext, kind: AppImport["sources"][number]["kind"], url: string, defaultCountry: string): Promise<{ listing: StoreListing; bullets?: string[]; iconUrl?: string; discovered?: { ios?: string; android?: string } }> {
+async function fetchListing(ctx: JobContext, kind: AppImport["sources"][number]["kind"], url: string, defaultCountry: string): Promise<{ listing: StoreListing; web?: WebsiteExtras; iconUrl?: string; discovered?: { ios?: string; android?: string } }> {
   const fetcher = fetcherFor(ctx.platform);
   const fetchedAt = nowIso();
   if (kind === "app_store") {
@@ -88,7 +116,7 @@ async function fetchListing(ctx: JobContext, kind: AppImport["sources"][number][
   const res = await fetcher(url, { accept: ["text/html", "application/xhtml"], maxBytes: 3 * 1024 * 1024, signal: ctx.signal });
   if (res.status !== 200) throw new AppError(res.status >= 500 ? "PROVIDER_UNAVAILABLE" : "PROVIDER_ERROR", `Website returned ${res.status}`);
   const site = extractWebsite(res.text(), res.url, fetchedAt);
-  return { listing: site.listing, bullets: site.bullets, iconUrl: site.iconUrl, discovered: { ios: site.appStoreUrl, android: site.playStoreUrl } };
+  return { listing: site.listing, web: { bullets: site.bullets, sections: site.sections, cards: site.cards, statements: site.statements, pricing: site.pricing }, iconUrl: site.iconUrl, discovered: { ios: site.appStoreUrl, android: site.playStoreUrl } };
 }
 
 /**
@@ -159,7 +187,7 @@ export async function appImportHandler(ctx: JobContext<"app.import">): Promise<J
           warnings.push(`${provider}: could not download screenshot ${n + 1} (${toAppError(err).message})`);
         }
       }
-      for (const e of listingEvidence(listing, shots, got.bullets)) {
+      for (const e of listingEvidence(listing, shots, got.web)) {
         const id = hashId("evd", appId, listing.url, e.kind, e.fact);
         await ws.collection("appEvidence").createIfAbsent({ id, appId, kind: e.kind, fact: e.fact, source: e.source, assetId: e.assetId, observedAt: listing.fetchedAt, reviewState: "verified" }, { actor: ctx.actor });
         evidenceIds.push(id);

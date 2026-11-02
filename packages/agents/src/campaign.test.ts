@@ -24,7 +24,7 @@ import {
 /** Claim validator fixture: flags any text containing "#1"; everything else passes (deterministic checks still run). */
 const claimRoute = jsonRoute("ClaimValidation", (req) => {
   const lines = requestText(req).split("\n").filter((l) => l.startsWith('{"id":'));
-  return { results: lines.map((l) => JSON.parse(l) as { id: string; text: string }).map((t) => ({ id: t.id, issues: t.text.includes("#1") ? [`"#1" is not supported by evidence`] : [] })) };
+  return { results: lines.map((l) => JSON.parse(l) as { id: string; text: string }).map((t) => ({ id: t.id, issues: t.text.includes("#1") ? [{ quote: "#1", terms: ["#1"], statement: "It is the #1 app.", problem: "not supported by evidence" }] : [] })) };
 });
 
 /** Sequence of structured responses for one schema name (first, then repaired...). */

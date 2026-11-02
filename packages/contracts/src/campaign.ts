@@ -209,6 +209,30 @@ export const CopyItemKind = z.enum([
   "maker_comment",
 ]);
 
+/**
+ * What kind of problem the fact check found in a piece of copy:
+ * - unsupported: a product statement no confirmed fact or listing evidence backs (the person can
+ *   remove it, or confirm it as a fact);
+ * - figure: a number, multiplier or superlative that isn't in the confirmed facts or listing;
+ * - prohibited: something the founder asked never to say (can only be removed);
+ * - limit: longer than the channel allows (not a fact problem).
+ */
+export const CopyIssueKind = z.enum(["unsupported", "figure", "prohibited", "limit"]);
+export type CopyIssueKind = z.infer<typeof CopyIssueKind>;
+
+export const CopyValidationIssue = z.object({
+  itemId: Id,
+  issue: z.string().max(500),
+  kind: CopyIssueKind.optional(),
+  /** The exact words in the copy that aren't backed (e.g. "racing, bowling"). */
+  quote: z.string().max(300).optional(),
+  /** Just the unsupported things, in plain words (e.g. ["racing", "bowling"]). */
+  terms: z.array(z.string().max(80)).max(8).optional(),
+  /** The product fact the copy asserts, as a sentence a founder could confirm. */
+  statement: z.string().max(500).optional(),
+});
+export type CopyValidationIssue = z.infer<typeof CopyValidationIssue>;
+
 export const CopyPack = BaseEntity.extend({
   appId: Id,
   campaignId: Id,
@@ -217,9 +241,9 @@ export const CopyPack = BaseEntity.extend({
   locale: Locale.default("en"),
   items: z.array(z.object({ id: Id, kind: CopyItemKind, text: z.string().max(5000), claimIds: z.array(Id).default([]) })).max(40),
   /** Result of the claim validator over every item. */
-  validation: z
-    .object({ ok: z.boolean(), issues: z.array(z.object({ itemId: Id, issue: z.string().max(500) })).default([]), checkedAt: IsoDateTime })
-    .optional(),
+  validation: z.object({ ok: z.boolean(), issues: z.array(CopyValidationIssue).default([]), checkedAt: IsoDateTime }).optional(),
+  /** The pack this one rewrites (a fact-check fix: "Remove it"). */
+  revisionOf: Id.optional(),
   generatedByRunId: Id.optional(),
 });
 export type CopyPack = z.infer<typeof CopyPack>;

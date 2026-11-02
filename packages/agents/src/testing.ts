@@ -296,6 +296,67 @@ export function textRoute(needle: string, text: string): MetaRoute {
   return (req) => (String(req.instructions ?? "").includes(needle) && !schemaName(req) ? responsesBody({ text }) : undefined);
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const hasWord = (text: string, word: string) => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(word)}(?:$|[^\\p{L}\\p{N}])`, "iu").test(text);
+
+/**
+ * Claim-validator stand-in (FIXTURE ONLY) that behaves like the model on a small vocabulary: a word
+ * from `vocabulary` used in a text is flagged unless the confirmed facts or the listing evidence
+ * sent with the request contain it. `lenient()` true = flag nothing (a model that misses it).
+ */
+export function factCheckRoute(opts: { vocabulary: string[]; statement?: (terms: string[]) => string; lenient?: () => boolean }): MetaRoute {
+  return jsonRoute("ClaimValidation", (req) => {
+    const text = requestText(req);
+    const at = text.indexOf("Texts to check");
+    const support = at >= 0 ? text.slice(0, at) : "";
+    const lines = text
+      .slice(Math.max(0, at))
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; text: string });
+    return {
+      results: lines.map((t) => {
+        const terms = opts.lenient?.() ? [] : opts.vocabulary.filter((w) => hasWord(t.text, w) && !hasWord(support, w));
+        return {
+          id: t.id,
+          issues: terms.length ? [{ quote: terms.join(", "), terms, statement: opts.statement?.(terms) ?? `The app has ${terms.join(" and ")}.`, problem: `no confirmed fact or listing evidence mentions ${terms.join(" or ")}` }] : [],
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * "Remove it" stand-in (FIXTURE ONLY) for the CopyRevision schema: deletes the flagged words from
+ * each item to fix and tidies the punctuation, or returns the items unchanged when `keep()` is true
+ * (a rewrite that didn't remove them).
+ */
+export function copyRevisionRoute(opts: { keep?: () => boolean } = {}): MetaRoute {
+  return jsonRoute("CopyRevision", (req) => {
+    const text = requestText(req);
+    const flagged = text.split("What the fact check flagged:")[1]?.split("Items to fix")[0] ?? "";
+    // The words to drop: the quote at the start of each flagged line (`- item <id>: "<quote>": <issue>`).
+    const words = [...flagged.matchAll(/^- item [^:]+: "([^"]+)":/gm)].flatMap((m) => m[1]!.split(/\s*(?:,|&|\band\b)\s*/)).map((w) => w.trim()).filter((w) => w.length > 1);
+    const items = (text.split("Items to fix (JSON lines):")[1]?.split("Other items of the same post")[0] ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; text: string });
+    const scrub = (s: string) => {
+      let t = s;
+      for (const w of words) t = t.replace(new RegExp(`\\s*#?\\b${escapeRe(w)}\\b`, "gi"), "");
+      return t
+        .replace(/,(\s*,)+/g, ",")
+        .replace(/,\s*&/g, " &")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/[ \t]+([,.!?])/g, "$1")
+        .replace(/^[,&\s]+/, "")
+        .trim()
+        .replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+    };
+    return { items: items.map((it) => ({ id: it.id, text: opts.keep?.() ? it.text : scrub(it.text) || it.text })), summary: `Fixture: removed ${words.join(", ") || "nothing"}` };
+  });
+}
+
 export interface SeededApp {
   appId: string;
   screenshotIds: string[];

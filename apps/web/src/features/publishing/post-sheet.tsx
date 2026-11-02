@@ -10,6 +10,7 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useMemberName, useWorkspace } from "@/lib/workspace";
 import { ApprovalCard } from "./approval-card";
+import { FactCheckFix } from "./fact-check";
 import type { JobOut, ManualPackage, PostView } from "./types";
 
 export const POST_STATUS_KIND = (s: string) =>
@@ -65,6 +66,7 @@ function PostBody({ view }: { view: PostView }) {
   };
   const P = (suffix: string) => wsPath(workspaceId, `/posts/${post.id}${suffix}`);
   const terminal = ["published", "manually_posted", "cancelled"].includes(post.status);
+  const otherErrors = preflight.errors.filter((e) => e !== view.factCheck?.preflightError);
 
   return (
     <div className="space-y-6">
@@ -108,10 +110,12 @@ function PostBody({ view }: { view: PostView }) {
       ) : null}
 
       {post.lastError && !terminal ? <Notice tone={post.status === "failed" ? "danger" : "warning"}>{post.lastError}</Notice> : null}
-      {preflight.errors.length && !terminal ? (
+      {/* The fact check, with its one-tap fixes (its preflight error isn't repeated below). */}
+      {!terminal ? <FactCheckFix view={view} /> : null}
+      {otherErrors.length && !terminal ? (
         <Notice tone="danger" title="Fix before approval">
           <ul className="list-disc pl-4">
-            {preflight.errors.map((e) => (
+            {otherErrors.map((e) => (
               <li key={e}>{e}</li>
             ))}
           </ul>

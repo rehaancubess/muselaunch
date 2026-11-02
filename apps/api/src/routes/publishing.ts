@@ -1,9 +1,10 @@
 import { brandGate, reviewBrief } from "@muselaunch/agents";
-import { can, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
+import { can, ConfirmPostFactRequest, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
 import {
   calendar,
   CalendarQuery,
   cancelPost,
+  confirmPostFacts,
   copyForManual,
   createPost,
   CreatePostRequest,
@@ -27,6 +28,7 @@ import {
   purgeExpiredPendingConnections,
   ReminderRequest,
   requestDraftApproval,
+  requestFactRemoval,
   requestPackage,
   requestPostApproval,
   resetDraftSend,
@@ -213,6 +215,27 @@ async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outre
 publishingRoutes.post("/posts/:id/request-approval", requireCap("content.write"), async (c) => {
   const brandReview = await guardianGate(c, { entity: "scheduledPosts", id: c.req.param("id") });
   return c.json({ ...(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
+});
+
+/**
+ * One-tap fixes when the fact check holds a post back (202 + the `post.fix_facts` job):
+ * - remove: Muse Spark rewrites the copy without the flagged words, then it is checked again
+ *   (content.write: it changes the post);
+ * - confirm: the person confirms the statement as a fact sourced to them (apps.write: it changes the
+ *   app's facts; confirmed straight away only with content.approve, otherwise it goes to review and
+ *   no re-check starts), then the copy is checked again.
+ * Autopilot's drafts then ask for publish approval as Autopilot would (they appear in Needs you).
+ */
+publishingRoutes.post("/posts/:id/facts/remove", requireCap("content.write"), async (c) => {
+  const out = await requestFactRemoval(p(c), wid(c), c.req.param("id"), actorOf(c));
+  return c.json(out, 202);
+});
+
+publishingRoutes.post("/posts/:id/facts/confirm", requireCap("content.write"), requireCap("apps.write"), async (c) => {
+  const input = await body(c, ConfirmPostFactRequest);
+  const out = await confirmPostFacts(p(c), wid(c), c.req.param("id"), input, c.get("member"), actorOf(c));
+  await audit(p(c), wid(c), actorOf(c), "post.fact_confirmed", { postId: out.post.id, claimIds: out.claims.map((x) => x.id), confirmed: out.confirmed });
+  return c.json(out, out.job ? 202 : 201);
 });
 
 publishingRoutes.post("/posts/:id/publish", requireCap("publish"), async (c) => {

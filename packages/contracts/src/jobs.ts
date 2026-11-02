@@ -33,6 +33,12 @@ export const JobPayloads = {
   }),
   "composition.variants": z.object({ appId: Id, compositionId: Id, mode: z.enum(["aspect", "audience", "hooks"]), targets: z.array(z.string().max(200)).min(1).max(5) }),
   "copy.generate": z.object({ appId: Id, campaignId: Id, variantId: Id.optional(), channels: z.array(z.string()).min(1) }),
+  /**
+   * One-tap fix for a post whose copy failed the fact check. `remove`: Muse Spark rewrites the copy
+   * without the flagged words, then it is checked again. `recheck`: check the copy again after the
+   * person confirmed a fact. Either way the post's approval is requested when it was Autopilot's draft.
+   */
+  "post.fix_facts": z.object({ appId: Id, postId: Id, copyPackId: Id, action: z.enum(["remove", "recheck"]), claimId: Id.optional() }),
   "render.preview": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1) }),
   "render.final": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), format: z.enum(["mp4", "png", "jpeg"]).default("mp4") }),
   "package.export": z.object({ appId: Id, campaignId: Id, compositionIds: z.array(Id).default([]), includeCopy: z.boolean().default(true) }),
@@ -110,6 +116,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "composition.edit": "agents",
   "composition.variants": "agents",
   "copy.generate": "agents",
+  "post.fix_facts": "agents",
   "render.preview": "render",
   "render.final": "render",
   "package.export": "render",

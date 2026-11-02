@@ -1,4 +1,4 @@
-import type { Approval, Channel, ConnectedAccount, Job, OutreachDraft, OutreachProspect, Publication, ScheduledPost, SourceRef } from "@muselaunch/contracts";
+import type { Approval, Channel, ConnectedAccount, Job, OutreachDraft, OutreachProspect, PostFactCheck, Publication, ScheduledPost, SourceRef } from "@muselaunch/contracts";
 
 /** Response shapes of module E routes (apps/api/src/routes/{publishing,discover}.ts). */
 
@@ -12,6 +12,8 @@ export type PostView = {
   preflight: Preflight;
   snapshotHash: string;
   statusLabel: string;
+  /** The fact check of the post's generated copy, with the one-tap fixes (null without a copy pack). */
+  factCheck: PostFactCheck | null;
 };
 
 export type CalendarItem = {

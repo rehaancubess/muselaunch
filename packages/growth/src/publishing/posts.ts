@@ -1,10 +1,11 @@
-import { Channel, HttpUrl, Id, IsoDateTime, APP_LINK_TOKEN, fillAppLink, type Approval, type ConnectedAccount, type CopyPack, type MediaAsset, type Publication, type ScheduledPost } from "@muselaunch/contracts";
+import { Channel, HttpUrl, Id, IsoDateTime, APP_LINK_TOKEN, fillAppLink, type Approval, type ConnectedAccount, type CopyPack, type MediaAsset, type PostFactCheck, type Publication, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso, type WorkspaceDb } from "@muselaunch/db";
 import { AppError, assertKeyInWorkspace, trackedLinkUrl, type Platform } from "@muselaunch/platform";
 import { MANUAL_ONLY_CHANNELS, providerAdapter, publishingAdapterForChannel } from "@muselaunch/providers";
 import { z } from "zod";
 import { assertApproved, consumeApproval, expireApprovals, postSnapshot, requestApproval } from "../approvals";
 import { growthDeps } from "../deps";
+import { factPreflightErrors, postFactCheck } from "./facts";
 import { manualInstructions, POST_URL_HOSTS } from "./manual";
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ async function renderAssetFor(ws: WorkspaceDb, appId: string, compositionId: str
   return hit;
 }
 
-function captionFromCopyPack(pack: CopyPack, channel: Channel): { title?: string; caption?: string; tags: string[] } {
+export function captionFromCopyPack(pack: CopyPack, channel: Channel): { title?: string; caption?: string; tags: string[] } {
   const first = (k: string) => pack.items.find((i) => i.kind === k)?.text;
   const hashtagsText = first("hashtags") ?? "";
   const tags = [...hashtagsText.matchAll(/#?([\p{L}\p{N}_]{2,})/gu)].map((m) => m[1]!).slice(0, 30);
@@ -161,8 +162,10 @@ export async function preflight(ws: WorkspaceDb, post: ScheduledPost): Promise<P
     for (const l of acc?.limitations ?? []) warnings.push(l);
   }
   if (post.copyPackId) {
+    // Generated copy may only say what the app's confirmed facts or its own listing back (plain words;
+    // the post view offers the one-tap fixes: remove the words, or confirm them as a fact).
     const pack = await ws.collection("copyPacks").get(post.copyPackId);
-    if (pack?.validation && !pack.validation.ok) errors.push(`The copy pack failed claim validation: ${pack.validation.issues.map((i) => i.issue).join("; ").slice(0, 300)}`);
+    if (pack) errors.push(...factPreflightErrors(pack));
   }
   if (post.scheduledAt && Date.parse(post.scheduledAt) < Date.now() - 5 * 60_000 && post.status !== "published") warnings.push("The scheduled time is in the past; it will publish as soon as it's approved and started.");
   return { errors, warnings };
@@ -444,13 +447,15 @@ export async function requestPackage(p: Platform, wid: string, id: string, actor
 export async function postView(p: Platform, wid: string, id: string) {
   const ws = p.db.ws(wid);
   const post = await loadPost(ws, id);
-  const [approval, publication, account, pf, snap] = await Promise.all([
+  const [approval, publication, account, pf, snap, facts] = await Promise.all([
     post.approvalId ? ws.collection("approvals").get(post.approvalId) : null,
     post.publicationId ? ws.collection("publications").get(post.publicationId) : null,
     post.accountId ? ws.collection("connectedAccounts").get(post.accountId) : null,
     preflight(ws, post),
     postSnapshot(ws, post),
+    postFactCheck(ws, post),
   ]);
+  const factCheck: PostFactCheck | null = facts ? { ...facts, preflightError: pf.errors.find((e) => e.startsWith(facts.message)) } : null;
   return {
     post,
     approval,
@@ -459,6 +464,7 @@ export async function postView(p: Platform, wid: string, id: string) {
     preflight: pf,
     snapshotHash: snap.hash,
     statusLabel: statusLabel(post),
+    factCheck,
   };
 }
 

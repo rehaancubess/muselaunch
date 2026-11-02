@@ -31,7 +31,7 @@ export function BrandGuardianBadge({ subject, version, className }: { subject: G
       {latest && isRunning(latest) ? <p className="text-footnote text-ink-2">Reviewing this {version ? `version` : "content"} now…</p> : null}
       {latest && !isRunning(latest) && latest.status !== "failed" ? (
         <p className="text-footnote text-ink-2">
-          {blocking.length ? `${blocking.length} blocking issue${blocking.length === 1 ? "" : "s"}: ${blocking[0]!.message}` : warn ? `${warn} warning${warn === 1 ? "" : "s"} to consider.` : "On brand and backed by confirmed facts."}
+          {blocking.length ? `${blocking.length} blocking issue${blocking.length === 1 ? "" : "s"}: ${blocking[0]!.message}` : warn ? `${warn} warning${warn === 1 ? "" : "s"} to consider.` : "On brand: tone, wording and style fit your brand."}
         </p>
       ) : null}
     </div>

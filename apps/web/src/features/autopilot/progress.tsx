@@ -12,6 +12,7 @@ import { AlertTriangle, ArrowUpRight, Check, Download, Hand, Pause, PenSquare, P
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useAssetUrl } from "@/components/app-icon";
+import { PostFactCheckFix } from "@/features/publishing/fact-check";
 import { NewPostDialog } from "@/features/publishing/new-post";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { CHANNEL_LABEL } from "@/lib/labels";
@@ -309,6 +310,8 @@ function FinishedVideo({ video: v, detail, needs, canPost, workspaceId }: { vide
         </Button>
       </div>
       {postNote ? <p className="text-footnote text-ink-2">{postNote}</p> : null}
+      {/* A draft the fact check held back: fix it here in one tap (renders nothing otherwise). */}
+      {post && !item && (post.status === "draft" || post.status === "failed") ? <PostFactCheckFix postId={post.id} /> : null}
       {item ? (
         <Dialog open={posting} onOpenChange={setPosting} title="Post this video" description="Check the caption and time. It goes out only after you approve it.">
           <NeedsYouCard item={item} />
