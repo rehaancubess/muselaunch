@@ -29,7 +29,7 @@ import {
   type TemplateId,
   type Theme,
 } from "@muselaunch/contracts";
-import { deviceGeometry, luminance, screenAlign, TV } from "./compile";
+import { deviceGeometry, isWideDevice, luminance, screenAlign, TV } from "./compile";
 import { estimateTextHeight } from "./lint";
 import { validateDoc } from "./validate";
 
@@ -485,26 +485,31 @@ type FocusOpt = Region01 & { zoom?: number; atSec?: number; ring?: boolean };
  * information is blurred, and focus/tap/tilt come in as fractions of the media and leave as fractions
  * of the visible screen.
  */
+/**
+ * Which part of real footage a scene plays: a walkthrough segment trimmed in (sped up to at most 1.5×
+ * when longer than the scene), or a whole recording continuing where the previous scene stopped.
+ */
+function footageTiming(ctx: SceneCtx, m: ScreenMedia, start = 0): { trimIn: number; trimOut?: number; rate?: number } {
+  const asset = m.asset;
+  if (asset.kind !== "video") return { trimIn: 0 };
+  const slot = Math.max(0.5, ctx.durationSec - start);
+  if (m.segment) {
+    const len = m.segment.endSec - m.segment.startSec;
+    return { trimIn: m.segment.startSec, trimOut: m.segment.endSec, ...(len > slot * 1.02 ? { rate: Math.round(Math.min(1.5, len / slot) * 100) / 100 } : {}) };
+  }
+  // A whole recording shown again continues where the previous scene stopped.
+  const cur = ctx.clipCursor.get(asset.id) ?? 0;
+  const trimIn = cur + 1 < (asset.durationSec ?? Infinity) ? cur : 0;
+  ctx.clipCursor.set(asset.id, trimIn + slot);
+  return { trimIn };
+}
+
 function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<typeof box>, o: { enter?: TextOpts["enter"]; loop?: string; start?: number; rotation?: number; focus?: FocusOpt; tap?: { x: number; y: number; atSec?: number }; tilt?: { x: number; y: number; swing?: boolean } } = {}): Layer {
   const { f, app } = ctx;
   const asset = m.asset;
   const { device } = deviceFor(app, asset);
   const video = asset.kind === "video";
-  let trimIn = 0;
-  let trimOut: number | undefined;
-  let rate: number | undefined;
-  const slot = Math.max(0.5, ctx.durationSec - (o.start ?? 0));
-  if (video && m.segment) {
-    trimIn = m.segment.startSec;
-    trimOut = m.segment.endSec;
-    const len = m.segment.endSec - m.segment.startSec;
-    if (len > slot * 1.02) rate = Math.round(Math.min(1.5, len / slot) * 100) / 100;
-  } else if (video) {
-    // A whole recording shown again continues where the previous scene stopped.
-    const cur = ctx.clipCursor.get(asset.id) ?? 0;
-    trimIn = cur + 1 < (asset.durationSec ?? Infinity) ? cur : 0;
-    ctx.clipCursor.set(asset.id, trimIn + slot);
-  }
+  const { trimIn, trimOut, rate } = footageTiming(ctx, m, o.start ?? 0);
   const g = deviceGeometry(device, b.w * f.W, b.h * f.H);
   const screenAspect = g.screen.width / Math.max(1, g.screen.height);
   const mediaAspect = asset.width && asset.height ? asset.width / asset.height : screenAspect;
@@ -715,11 +720,16 @@ function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpt
   return { template: o.template ?? "device-demo", layers, background: bg };
 }
 
-/** Close-up: the device pushes in on the region that matters, with a soft highlight ring. */
+/**
+ * Close-up: the device pushes in on the region that matters, with a soft highlight ring. Landscape
+ * footage (a TV, desktop or web recording, usually a game in motion) gets no ring: its region was
+ * picked on one still, and a fixed ring over moving footage soon frames an empty patch.
+ */
 function focusZoom(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
   const d = ctx.durationSec;
   const region = sceneFocus(ctx, m);
-  return deviceDemo(ctx, textValue, m, { template: "focus-zoom", focus: { ...region, atSec: Math.max(0.3, Math.min(0.9, d * 0.28)), ring: true }, deviceEnter: { preset: "fade", durationSec: 0.6, delaySec: 0, easing: "smooth" } });
+  const ring = !(m.asset.kind === "video" && isWideDevice(deviceFor(ctx.app, m.asset).device));
+  return deviceDemo(ctx, textValue, m, { template: "focus-zoom", focus: { ...region, atSec: Math.max(0.3, Math.min(0.9, d * 0.28)), ring }, deviceEnter: { preset: "fade", durationSec: 0.6, delaySec: 0, easing: "smooth" } });
 }
 
 /** The action: a finger dot taps the control (centre of the focus region), with a gentle push-in. */
@@ -1118,9 +1128,12 @@ function kineticType(ctx: SceneCtx, textValue: string): Built {
   let wordsBefore = 0;
   const layers: Layer[] = [];
   const pace = 1 / 3; // seconds per word: about 3 words per second
+  // As the opening scene the whole line is on screen from the first frame (the thumbnail); later
+  // lines wait their turn everywhere else.
+  const opening = ctx.index === 0;
   lines.forEach((line, i) => {
     const words = line.split(/\s+/).filter(Boolean).length;
-    const start = Math.min(Math.max(0, ctx.durationSec - 1), r4(0.15 + wordsBefore * pace));
+    const start = opening ? 0 : Math.min(Math.max(0, ctx.durationSec - 1), r4(0.15 + wordsBefore * pace));
     const last = i === lines.length - 1 && lines.length > 1;
     layers.push(
       text(`${sceneId}_line${i + 1}`, line, box(0.5 - tw / 2, y, tw, lineH, 3), {
@@ -1131,7 +1144,7 @@ function kineticType(ctx: SceneCtx, textValue: string): Built {
         letterSpacing: -0.045,
         align: f.landscape ? "left" : "center",
         start,
-        enter: { preset: "words", durationSec: r4(Math.min(5, words * pace)), easing: "snappy" },
+        enter: { preset: "words", durationSec: r4(Math.min(5, words * pace)), delaySec: opening ? r4(i * 0.08) : 0, easing: "snappy" },
         claimIds: ctx.sb.claimIds,
       }),
     );
@@ -1227,6 +1240,82 @@ function fullscreenShowcase(ctx: SceneCtx, textValue: string, m: ScreenMedia): B
   return { template: "fullscreen-showcase", layers, background: cover ? { kind: "solid", color: "#000000", angle: 180, dim: 0 } : { kind: "blur", assetId: a.id, color: "#000000", angle: 180, dim: 0.25 } };
 }
 
+/** Landscape footage (TV, desktop and web apps and games): clearly wider than tall. */
+export const isLandscapeMedia = (a: Pick<MediaAsset, "width" | "height">) => !!a.width && !!a.height && a.width / a.height > 1.15;
+
+/**
+ * The part of the media a `cover` fit shows in a box of `boxAspect`, centred on `center` (fractions
+ * of the media) as far as the edges allow, and the matching CSS object-position. Uniform scale only:
+ * the media keeps its own aspect, it is never stretched.
+ */
+export function coverCrop(mediaAspect: number, boxAspect: number, center: { x: number; y: number }): { visible: Region01; position: { x: number; y: number } } {
+  const along = (k: number, c: number) => {
+    if (k >= 1) return { start: 0, pos: 0.5 };
+    const start = Math.max(0, Math.min(1 - k, c - k / 2));
+    return { start, pos: start / (1 - k) };
+  };
+  const kx = mediaAspect > boxAspect ? boxAspect / mediaAspect : 1;
+  const ky = mediaAspect < boxAspect ? mediaAspect / boxAspect : 1;
+  const x = along(kx, center.x);
+  const y = along(ky, center.y);
+  return { visible: { x: r4(x.start), y: r4(y.start), w: r4(Math.min(1, kx)), h: r4(Math.min(1, ky)) }, position: { x: r4(x.pos), y: r4(y.pos) } };
+}
+
+/**
+ * Real landscape footage full-bleed: the recording (or a landscape screenshot) fills the frame,
+ * cover-cropped around the action (Spark's focus box, else the centre) at its own aspect, with a slow
+ * push and the headline on a dark scrim. In a tall frame a TV or browser would be small in a lot of
+ * empty space. Portrait (phone) media keeps its device frame.
+ */
+function fullscreenRecording(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const { f, sceneId, theme } = ctx;
+  const a = m.asset;
+  if (!isLandscapeMedia(a)) return deviceDemo(ctx, textValue, m);
+  const focus = ctx.sb.focus;
+  const center = focus ? { x: focus.x + focus.w / 2, y: focus.y + focus.h / 2 } : { x: 0.5, y: 0.5 };
+  const crop = coverCrop(a.width! / a.height!, f.W / f.H, center);
+  const v = crop.visible;
+  // Flagged personal information, from fractions of the footage to fractions of the frame.
+  const blur = (m.segment?.privacy.flagged ? m.segment.privacy.regions : [])
+    .map((r) => {
+      const x0 = clamp01((r.x - v.x) / v.w);
+      const y0 = clamp01((r.y - v.y) / v.h);
+      return { x: r4(x0), y: r4(y0), w: r4(clamp01((r.x + r.w - v.x) / v.w) - x0), h: r4(clamp01((r.y + r.h - v.y) / v.h) - y0) };
+    })
+    .filter((r) => r.w >= 0.02 && r.h >= 0.01);
+  const common = { id: `${sceneId}_media`, name: "App recording (full screen)", assetId: a.id, fit: "cover", objectPosition: crop.position, radiusPx: 0, box: box(0, 0, 1, 1, 1), timing: { start: 0 }, locked: false, hidden: false };
+  const media: Layer =
+    a.kind === "video"
+      ? (() => {
+          const t = footageTiming(ctx, m);
+          return { ...common, type: "video", trimInSec: r4(t.trimIn), ...(t.trimOut !== undefined ? { trimOutSec: r4(t.trimOut) } : {}), playbackRate: t.rate ?? 1, muted: true, volume: 1, ...(blur.length ? { blurRegions: blur.slice(0, 8) } : {}), animation: { loop: "slow-zoom" } } as Layer;
+        })()
+      : ({ ...common, type: "image", shadow: false, animation: { loop: "slow-zoom" } } as Layer);
+  const tw = f.landscape ? 0.5 : 1 - f.safe.left - f.safe.right - 0.04;
+  const fit = fitText(f, textValue, (f.portrait ? 86 : 74) * f.u, tw, { maxLines: f.portrait ? 3 : 2 });
+  const headTop = f.safe.top + 0.01;
+  const headBox = f.landscape ? box(0.06, headTop, tw, fit.h, 4) : box(0.5 - tw / 2, headTop, tw, fit.h, 4);
+  // A dark scrim behind the whole headline, then a soft fade below it: white text stays readable on
+  // any footage (bright skies and menus included).
+  const headBottom = Math.min(0.5, headTop + fit.h + 0.015);
+  const layers: Layer[] = [
+    media,
+    { ...shape(`${sceneId}_scrim`, "rect", box(0, 0, 1, headBottom, 2), "#000000B8", { gradientTo: "#0000008C" }), name: "Headline scrim" } as Layer,
+    { ...shape(`${sceneId}_scrimfade`, "rect", box(0, headBottom, 1, f.portrait ? 0.1 : 0.14, 2), "#0000008C", { gradientTo: "#00000000" }), name: "Headline scrim fade" } as Layer,
+    text(`${sceneId}_headline`, textValue, headBox, {
+      size: fit.size,
+      weight: 760,
+      color: "#FFFFFF",
+      align: f.landscape ? "left" : "center",
+      shadow: true,
+      enter: ENTER_HEAD,
+      highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.35) },
+      claimIds: ctx.sb.claimIds,
+    }),
+  ];
+  return { template: "fullscreen-recording", layers, background: { kind: "solid", color: "#000000", angle: 180, dim: 0 } };
+}
+
 function carouselSlide(ctx: SceneCtx, textValue: string, m: ScreenMedia | undefined): Built {
   const { f, sceneId, app } = ctx;
   const parts = splitParts(textValue);
@@ -1266,6 +1355,8 @@ function transitionFor(prev: TemplateId | undefined, next: TemplateId, durationS
   if (prev === "hook-title" || prev === "kinetic-type") return { kind: "zoom", durationSec: cap(0.5) };
   if (next === "cta-endcard" || next === "store-cta") return { kind: "fade", durationSec: cap(0.5) };
   if (next === "icon-reveal") return { kind: "zoom", durationSec: cap(0.5) };
+  // Into full-screen footage: like diving into the screen.
+  if (next === "fullscreen-recording") return { kind: "zoom", durationSec: cap(0.45) };
   if (next === "focus-zoom" || next === "tap-demo") return { kind: "cut", durationSec: 0 };
   if (next === "stat-card" || next === "quote-proof") return { kind: "blur", durationSec: cap(0.45) };
   if (next === "founder-cutout" || next === "text-over-media" || next === "fullscreen-showcase") return { kind: "fade", durationSec: cap(0.4) };
@@ -1430,6 +1521,10 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
     case "fullscreen-showcase": {
       const a = picker.showcase(sb);
       return a ? fullscreenShowcase(ctx, txt, a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "fullscreen-recording": {
+      const a = picker.screen(sb, "app_recording");
+      return a ? fullscreenRecording(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
     }
     case "feature-callout": {
       const a = picker.screen(sb, "screenshot");
@@ -1715,5 +1810,5 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
 
 export { frameFor as _frameFor, mix as mixColor };
 export type { Frame as LayoutFrame };
-export const _test = { emphasisWords, splitParts, themeFromBrand, kineticLines, deviceFor, deviceBox };
+export const _test = { emphasisWords, splitParts, themeFromBrand, kineticLines, deviceFor, deviceBox, coverCrop };
 export type { CompositionDoc };

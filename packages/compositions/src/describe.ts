@@ -23,6 +23,11 @@ function anim(l: Layer) {
   return parts.length ? ` anim[${parts.join(" ")}]` : "";
 }
 
+/** objectPosition of a cover-cropped image/video: the part of the media kept in view. */
+function pos(p: { x: number; y: number } | undefined) {
+  return p ? ` objectPosition(x=${f(p.x)},y=${f(p.y)})` : "";
+}
+
 function describeLayer(l: Layer): string {
   return describeLayerBase(l) + (l.anchor ? ` anchor[follows ${l.anchor.segmentationId}/${l.anchor.objectId} at ${l.anchor.point}${l.anchor.offset.x || l.anchor.offset.y ? ` offset(${f(l.anchor.offset.x)},${f(l.anchor.offset.y)})` : ""}${l.anchor.scaleWithObject ? " scaled" : ""} whenLost=${l.anchor.whenLost}]` : "");
 }
@@ -38,9 +43,9 @@ function describeLayerBase(l: Layer): string {
       return `${head} role=${l.role} text=${q(l.text)} ${box(l)} ${t} style[${style}]${l.claimIds.length ? ` claims=${l.claimIds.join(",")}` : ""}${anim(l)}${flags}`;
     }
     case "image":
-      return `${head} asset=${l.assetId} fit=${l.fit}${l.radiusPx ? ` radius=${l.radiusPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
+      return `${head} asset=${l.assetId} fit=${l.fit}${pos(l.objectPosition)}${l.radiusPx ? ` radius=${l.radiusPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "video":
-      return `${head} asset=${l.assetId} trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)} rate=${l.playbackRate}${l.muted ? " muted" : ""}${l.mask ? ` mask=${l.mask.mode}(seg ${l.mask.segmentationId}, fallback ${l.mask.fallback})` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
+      return `${head} asset=${l.assetId}${l.fit === "cover" && l.objectPosition ? ` fit=cover${pos(l.objectPosition)}` : ""} trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)} rate=${l.playbackRate}${l.muted ? " muted" : ""}${l.mask ? ` mask=${l.mask.mode}(seg ${l.mask.segmentationId}, fallback ${l.mask.fallback})` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "device": {
       const extra = [
         l.screenKind === "video" ? ` trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)}${l.playbackRate && l.playbackRate !== 1 ? ` rate=${l.playbackRate}` : ""}` : "",

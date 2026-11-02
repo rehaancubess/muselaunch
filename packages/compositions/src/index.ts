@@ -12,8 +12,9 @@ export { sceneHash, docHash, sceneHashes, canonicalJson, sha256Hex } from "./has
 export { TEMPLATE_CATALOG, TEMPLATE_SHOT, DEVICE_TEMPLATES, PRODUCT_SCENE_TEMPLATES, CTA_TEMPLATES, type TemplateInfo, type TemplateNeed, type ShotSize } from "./catalog";
 export { BLOCK_IDS, BLOCK_PARAMS, type BlockId } from "./blocks";
 export { attachAudio, placeSfx, soundStale, musicAccents, speechRanges, duckingLane, compileAudioTags, SOUND_LEVELS, type AttachAudioOptions, type AttachMusic, type AttachVoiceover, type SfxCue } from "./audio";
-export { compileToHtml, collectAssetRefs, deviceGeometry, ROOT_COMPOSITION_ID, type CompileOptions, type CompileResult, type DeviceGeometry, type SegmentationInfo } from "./compile";
-export { buildFromStoryboard, mediaToScreen, themeFromBrand, type BuildInput, type ScreenMedia } from "./build";
+export { compileToHtml, collectAssetRefs, deviceGeometry, isWideDevice, ROOT_COMPOSITION_ID, type CompileOptions, type CompileResult, type DeviceGeometry, type SegmentationInfo } from "./compile";
+export { buildFromStoryboard, coverCrop, isLandscapeMedia, mediaToScreen, themeFromBrand, type BuildInput, type ScreenMedia } from "./build";
+export { opensOnFirstFrame, settleTiming, enterEndSec, OPENING_START_SEC } from "./opening";
 export { registerCompileRuntime, getCompileRuntime, type CompileRuntime } from "./runtime";
 export { adaptToAspect } from "./variants";
 export { posterTimeSec } from "./poster";

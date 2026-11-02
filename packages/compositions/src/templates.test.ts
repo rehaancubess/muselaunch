@@ -115,7 +115,12 @@ describe("scene variety templates", () => {
     const kt = byTemplate("kinetic-type").layers.filter((l) => l.type === "text");
     expect(kt.length).toBeGreaterThanOrEqual(2);
     expect(kt.every((l) => l.animation.enter?.preset === "words")).toBe(true);
-    expect(kt[1]!.timing.start).toBeGreaterThan(kt[0]!.timing.start); // later lines wait their turn (~3 words/s)
+    // As the opening scene (the thumbnail) the whole hook is on screen from the first frame…
+    expect(kt.every((l) => l.timing.start === 0)).toBe(true);
+    // …anywhere else later lines wait their turn (~3 words/s).
+    const later = buildFromStoryboard({ storyboard: storyboard([scene("hook-title", { purpose: "hook" }), scene("kinetic-type", { purpose: "problem", onScreenText: "Lost that booking again?" })]), app, brand, assets });
+    const kt2 = later.scenes[1]!.layers.filter((l) => l.type === "text");
+    expect(kt2[1]!.timing.start).toBeGreaterThan(kt2[0]!.timing.start);
     const icon = byTemplate("icon-reveal").layers.find((l) => l.type === "image");
     expect(icon).toMatchObject({ assetId: "ast_icon" });
     const pills = byTemplate("store-cta").layers.find((l) => l.type === "block");

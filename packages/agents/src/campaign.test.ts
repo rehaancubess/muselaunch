@@ -146,7 +146,7 @@ describe("storyboard.generate", () => {
     expect(sb.calls).toBe(2); // UI-depicting generated image → one repair
     const updated = await s.ws.collection("campaignVariants").getOrThrow(variant.id);
     const story = await s.ws.collection("storyboards").getOrThrow(updated.storyboardId!);
-    expect(story.scenes.map((x) => x.template)).toEqual(["hook-title", "device-demo", "feature-callout", "cta-endcard"]);
+    expect(story.scenes.map((x) => x.template)).toEqual(["hook-title", "device-demo", "feature-callout", "store-cta"]); // one end card: the store-cta
     expect(story.scenes.reduce((n, x) => n + x.durationSec, 0)).toBeCloseTo(15, 5);
     for (const scene of story.scenes.filter((x) => x.purpose === "demo" || x.purpose === "feature")) {
       const real = scene.assets.filter((h) => h.kind === "screenshot");
