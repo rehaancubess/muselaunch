@@ -4,7 +4,7 @@
  * as facts and stored as `measured` findings when Spark doesn't report the same problem itself.
  */
 import type { CompositionDoc, Layer, MediaAsset, Scene, VideoReviewCheck, VideoReviewSeverity } from "@muselaunch/contracts";
-import { sceneStarts } from "@muselaunch/compositions";
+import { opensOnFirstFrame, sceneStarts } from "@muselaunch/compositions";
 import sharp from "sharp";
 
 /** Comfortable on-screen reading speed for short-form video (words per second). */
@@ -54,10 +54,11 @@ export const wordCount = (s: string) => s.split(/\s+/).filter((w) => /[\p{L}\p{N
 /** Block params that carry visible copy (Track 2 templates are blocks with text params). */
 const TEXT_PARAM = /(^|_)(title|headline|subtitle|subhead|text|label|caption|cta|quote|line\d*|body|tagline|kicker|eyebrow)$/i;
 
-function layerTexts(scene: Scene, l: Layer): SceneText[] {
+function layerTexts(scene: Scene, l: Layer, sceneIndex: number): SceneText[] {
   if (l.hidden) return [];
   const enter = l.animation.enter;
-  const readableFrom = Math.min(scene.durationSec, l.timing.start + (enter ? enter.delaySec + enter.durationSec : 0));
+  // The opening scene's text is on screen (and readable) from the first frame: its entrance only settles it into place.
+  const readableFrom = opensOnFirstFrame(sceneIndex, l) ? 0 : Math.min(scene.durationSec, l.timing.start + (enter ? enter.delaySec + enter.durationSec : 0));
   const until = Math.min(scene.durationSec, l.timing.end ?? scene.durationSec);
   if (l.type === "text") return [{ layerId: l.id, role: l.role, text: l.text, readableFrom, until }];
   if (l.type === "block") {
@@ -79,7 +80,7 @@ function stillMediaOf(l: Layer): string[] {
 export function sceneFacts(doc: CompositionDoc): SceneFacts[] {
   const starts = sceneStarts(doc);
   return doc.scenes.map((s, index) => {
-    const texts = s.layers.flatMap((l) => layerTexts(s, l)).filter((t) => t.role !== "caption");
+    const texts = s.layers.flatMap((l) => layerTexts(s, l, index)).filter((t) => t.role !== "caption");
     const words = texts.reduce((n, t) => n + wordCount(t.text), 0);
     const from = texts.length ? Math.min(...texts.map((t) => t.readableFrom)) : 0;
     const to = texts.length ? Math.max(...texts.map((t) => t.until)) : s.durationSec;
@@ -191,7 +192,10 @@ export async function frameStats(buf: Buffer): Promise<{ mean: number; stdev: nu
   return { mean: ch.reduce((n, c) => n + c.mean, 0) / Math.max(1, ch.length), stdev: Math.max(...ch.map((c) => c.stdev)) };
 }
 
-/** Flat-colour frames: a blank, black or missing-media scene (the very first frame may be a fade-in). */
+/**
+ * Flat-colour frames: a blank, black or missing-media scene. The very first frame is no exception: it
+ * is the thumbnail in the feed and shows the hook (the opening scene never fades in from nothing).
+ */
 export function blankFrameFindings(stats: FrameStats[], facts: SceneFacts[]): MeasuredFinding[] {
   const out: MeasuredFinding[] = [];
   for (const f of stats) {
@@ -201,7 +205,7 @@ export function blankFrameFindings(stats: FrameStats[], facts: SceneFacts[]): Me
     const first = f.kind === "first";
     out.push({
       sceneId: f.sceneId,
-      severity: first ? "warn" : "blocker",
+      severity: "blocker",
       check: "broken_frame",
       issue: first
         ? `The very first frame (${f.ref}) is a single ${black ? "black" : "flat"} colour, so the video opens on an empty frame in the feed.`

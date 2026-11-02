@@ -12,6 +12,7 @@ import { compileAudioTags } from "./audio";
 import { BLOCK_PARAMS, isBlockId } from "./blocks";
 import { estimateTextHeight } from "./lint";
 import { anchorPoint, clipMapping, holdGaps, sampleTrack, trackTweens, trackUsable, type SegmentationInfo } from "./objects";
+import { opensOnFirstFrame, settleTiming } from "./opening";
 import { getCompileRuntime } from "./runtime";
 import { round3, sceneStarts, totalDuration } from "./validate";
 
@@ -388,7 +389,7 @@ function compileScene(ctx: Ctx, scene: Scene, index: number, win: Window, sceneE
   const layers = scene.layers
     .map((l, li) => ({ l, li }))
     .filter(({ l }) => !l.hidden)
-    .map(({ l, li }) => compileLayer(ctx, scene, l, li, win, sceneEnd))
+    .map(({ l, li }) => compileLayer(ctx, scene, l, li, win, sceneEnd, index))
     .filter(Boolean);
   const flash = !ctx.still && scene.transitionIn.kind === "flash" ? `<div class="flash" id="fl-${scene.id}"></div>` : "";
   return `<section id="s-${scene.id}" class="scene clip" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-track-index="${index % 2}" style="z-index:${index + 1}">
@@ -403,9 +404,11 @@ function layerWindow(layer: Layer, sceneStart: number, sceneEnd: number, sceneWi
   return { start, end: Math.max(end, round3(start + 0.04)) };
 }
 
-function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin: Window, sceneEnd: number): string {
+function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin: Window, sceneEnd: number, sceneIndex = -1): string {
   const { W, H } = ctx;
   const win = layerWindow(layer, sceneWin.start, sceneEnd, sceneWin);
+  // The first frame is the thumbnail: the opening scene's layers are on screen from frame 0 (./opening.ts).
+  const opening = opensOnFirstFrame(sceneIndex, layer);
   const b = layer.box;
   const left = b.x * W;
   const top = b.y * H;
@@ -419,7 +422,7 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
     case "image": {
       const crop = layer.crop ? `;object-view-box:inset(${n(layer.crop.y * 100)}% ${n((1 - layer.crop.x - layer.crop.w) * 100)}% ${n((1 - layer.crop.y - layer.crop.h) * 100)}% ${n(layer.crop.x * 100)}%)` : "";
       const shadow = layer.shadow ? `;box-shadow:0 ${px(h * 0.03)} ${px(h * 0.08)} rgba(0,0,0,.22)` : "";
-      inner = mediaElement(ctx, layer.assetId, `i-${layer.id}`, win, { cls: "media", style: `object-fit:${layer.fit};border-radius:${px(layer.radiusPx)}${crop}${shadow}`, trimIn: 0, rate: 1, muted: true, video: false });
+      inner = mediaElement(ctx, layer.assetId, `i-${layer.id}`, win, { cls: "media", style: `object-fit:${layer.fit}${objectPosition(layer.objectPosition)};border-radius:${px(layer.radiusPx)}${crop}${shadow}`, trimIn: 0, rate: 1, muted: true, video: false });
       break;
     }
     case "video": {
@@ -428,7 +431,7 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
       const radius = layer.radiusPx ? `;border-radius:${px(layer.radiusPx)}` : "";
       inner = mediaElement(ctx, src.assetId, `v-${layer.id}`, win, {
         cls: "media",
-        style: `object-fit:${layer.fit}${radius}`,
+        style: `object-fit:${layer.fit}${objectPosition(layer.objectPosition)}${radius}`,
         trimIn: layer.trimInSec,
         rate: layer.playbackRate,
         muted: layer.muted,
@@ -454,7 +457,7 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
       const fx = effectHtml(ctx, scene, layer, win, sceneWin.start);
       if (fx === null) return "";
       const id = `l-${layer.id}`;
-      if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start);
+      if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start, opening);
       const op = b.opacity !== 1 ? `opacity:${n(b.opacity)};` : "";
       return `<div id="${id}" class="layer clip l-effect" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-track-index="${2 + li}" style="left:0;top:0;width:${W}px;height:${H}px;z-index:${b.z};pointer-events:none;${op}"><div class="lk" id="${id}-k"><div class="le" id="${id}-e"><div class="ll" id="${id}-l">${fx}</div></div></div></div>`;
     }
@@ -462,7 +465,7 @@ function compileLayer(ctx: Ctx, scene: Scene, layer: Layer, li: number, sceneWin
   const rot = b.rotation ? `transform:rotate(${n(b.rotation, 2)}deg);` : "";
   const op = b.opacity !== 1 ? `opacity:${n(b.opacity)};` : "";
   const id = `l-${layer.id}`;
-  if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start);
+  if (!ctx.still) animateLayer(ctx, layer, id, win, sceneWin.start, opening);
   if (layer.anchor) anchorLayer(ctx, scene, layer, id, win, sceneWin.start);
   return `<div id="${id}" class="layer clip l-${layer.type}" data-start="${n(win.start)}" data-duration="${n(win.end - win.start)}" data-track-index="${2 + li}" style="left:${px(left)};top:${px(top)};width:${px(w)};height:${px(h)};z-index:${b.z};${rot}${op}"><div class="lk" id="${id}-k"><div class="le" id="${id}-e"><div class="ll" id="${id}-l">${inner}</div></div></div></div>`;
 }
@@ -604,6 +607,11 @@ function resolveMask(ctx: Ctx, assetId: string, mask: MaskUse | undefined): { as
   return mask.fallback === "hide" ? null : { assetId };
 }
 
+/** `;object-position:X% Y%` for a cover-cropped image/video (omitted = the browser's centred default). */
+function objectPosition(p: { x: number; y: number } | undefined): string {
+  return p ? `;object-position:${n(p.x * 100, 2)}% ${n(p.y * 100, 2)}%` : "";
+}
+
 // --- text ---------------------------------------------------------------------------------------
 
 function splitWords(text: string): string[] {
@@ -666,24 +674,43 @@ function textHtml(ctx: Ctx, layer: Extract<Layer, { type: "text" }>, w: number, 
 
 type DeviceL = Extract<Layer, { type: "device" }>;
 
+/** Frames for landscape footage (TV, desktop, web): wide screens that sit small in a tall video frame. */
+const WIDE_DEVICES = new Set(["tv", "browser", "macbook"]);
+export const isWideDevice = (device: string) => WIDE_DEVICES.has(device);
+/** An automatic push-in never makes a wide screen more than this many frame widths wide. */
+const WIDE_ZOOM_MAX_FRAME_WIDTHS = 1.75;
+
 /** Push-in scale + translation that brings the focus region to a comfortable size near the device's centre. */
 function focusMove(ctx: Ctx, layer: DeviceL, g: DeviceGeometry, left: number, top: number, w: number, h: number) {
   const f = layer.focus!;
   const { W, H } = ctx;
   const landscape = W > H * 1.1;
   const portrait = H > W * 1.1;
+  const wide = isWideDevice(layer.device);
   const rw = Math.max(4, f.w * g.screen.width);
   const rh = Math.max(4, f.h * g.screen.height);
   const ox = g.screen.left + (f.x + f.w / 2) * g.screen.width;
   const oy = g.screen.top + (f.y + f.h / 2) * g.screen.height;
   const auto = Math.min(((landscape ? 0.5 : 0.78) * W) / rw, ((portrait ? 0.42 : 0.6) * H) / rh);
-  const S = f.zoom ?? Math.max(1.2, Math.min(3.2, auto));
+  // A wide screen sits small in a tall frame, so making its region fill the frame would blow the
+  // screen up to ~3 frame widths: the shot becomes a few inches of one screen (on footage that keeps
+  // moving, often a dark, empty patch of a game or a loading screen). Its automatic close-up stays a
+  // big slice of the screen instead. Phones and tablets keep the stronger push-in.
+  const cap = wide ? Math.max(1.2, (WIDE_ZOOM_MAX_FRAME_WIDTHS * W) / Math.max(1, g.screen.width)) : 3.2;
+  const S = f.zoom ?? Math.max(1.2, Math.min(3.2, cap, auto));
   const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
   const tx = clamp(left + w / 2, W * 0.3, W * 0.7);
   const ty = clamp(top + h / 2, H * 0.35, H * 0.65);
   // A gentle push-in (≈1.3×) only drifts toward the centre; a real close-up brings the region to it.
   const k = clamp((S - 1) / 0.8, 0.3, 1);
-  return { S, ox, oy, dx: (tx - (left + ox)) * k, dy: (ty - (top + oy)) * k };
+  let dx = (tx - (left + ox)) * k;
+  const dy = (ty - (top + oy)) * k;
+  if (wide && g.screen.width * S >= W) {
+    // A wide screen pushed in past the frame's width keeps covering it: no empty strip beside it.
+    const edge = (sx: number) => left + ox + S * (sx - ox);
+    dx = clamp(dx, W - edge(g.screen.left + g.screen.width), -edge(g.screen.left));
+  }
+  return { S, ox, oy, dx, dy };
 }
 
 /** Blur regions, focus ring and tap marks drawn inside the device screen (fractions of the screen). */
@@ -917,14 +944,20 @@ function blockHtml(ctx: Ctx, layer: Extract<Layer, { type: "block" }>, w: number
 
 // --- animation ----------------------------------------------------------------------------------
 
-function animateLayer(ctx: Ctx, layer: Layer, id: string, win: Window, sceneStart: number) {
+function animateLayer(ctx: Ctx, layer: Layer, id: string, win: Window, sceneStart: number, opening = false) {
   const { H, W } = ctx;
   const a = layer.animation;
   const D = H * 0.035;
   const life = win.end - win.start;
   const tl = ctx.tl;
   const sel = `q("${id}-e")`;
-  if (a.enter && a.enter.preset !== "none") {
+  if (opening && a.enter && a.enter.preset !== "none") {
+    // Opening frame: on screen at frame 0 (never from opacity 0, a mask or a blur); the entrance
+    // becomes a short settle into place. Text drifts a touch more than media.
+    const s = settleTiming(a.enter);
+    const text = layer.type === "text";
+    tl.push(`tl.fromTo(${sel}, {scale:${text ? 1.045 : 1.03}, y:${n(D * (text ? 0.3 : 0.2), 1)}}, {scale:1, y:0, duration:${n(Math.min(s.durationSec, life))}, ease:"power3.out"}, ${n(win.start + s.delaySec)});`);
+  } else if (a.enter && a.enter.preset !== "none") {
     const t = n(win.start + a.enter.delaySec);
     const dur = n(Math.max(0.05, Math.min(a.enter.durationSec, life)));
     const ease = J(EASE_IN[a.enter.easing] ?? "power3.out");

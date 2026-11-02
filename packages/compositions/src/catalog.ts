@@ -72,7 +72,7 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
   },
   "cta-endcard": {
     label: "CTA end card",
-    description: "App icon/logo, app name, call to action and text store pills on a clean brand background.",
+    description: "Older end card: app icon/logo, app name, call to action and small text store pills. Prefer store-cta.",
     purposes: ["cta"],
     needs: ["logo"],
   },
@@ -126,13 +126,13 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
   },
   "icon-reveal": {
     label: "Icon reveal",
-    description: "The real app icon scales in with a soft glow and the app name. A brand beat (introduce the app after the problem, or before the CTA).",
-    purposes: ["transition", "cta", "other"],
+    description: "The real app icon scales in with a soft glow and the app name. A brand beat that introduces the app after the problem; never right before the end card (the end card already shows the icon and name).",
+    purposes: ["transition", "other"],
     needs: ["logo"],
   },
   "store-cta": {
     label: "Store CTA",
-    description: "End card: app icon, name, the call to action and plain-text pills \"Download on the App Store\" / \"Get it on Google Play\" (no store logos).",
+    description: "The one end card (last scene): app icon, name, the call to action and plain-text pills \"Download on the App Store\" / \"Get it on Google Play\" (no store logos).",
     purposes: ["cta"],
     needs: ["logo"],
   },
@@ -141,6 +141,12 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
     description: "A designed marketing screenshot (it already has its own frame and headline) shown full screen with a slow push. The ONLY template for marketing screenshots; never inside a device.",
     purposes: ["demo", "feature", "proof", "other"],
     needs: ["screenshot"],
+  },
+  "fullscreen-recording": {
+    label: "Full-screen recording",
+    description: "The real app recording itself fills the whole frame (no device), cover-cropped around the action (centred on `focus` {x,y,w,h} of the attached image when given) and never stretched, with the headline on a dark scrim. ONLY for landscape footage (TV, desktop and web apps and games), where a device in a tall frame would be small; mix it with device scenes. Phone apps use device templates.",
+    purposes: ["demo", "feature", "hook", "proof", "other"],
+    needs: ["app_recording", "screenshot"],
   },
 };
 
@@ -169,13 +175,14 @@ export const TEMPLATE_SHOT: Record<TemplateId, ShotSize> = {
   "icon-reveal": "text",
   "store-cta": "text",
   "fullscreen-showcase": "full",
+  "fullscreen-recording": "full",
 };
 
 /** Templates that put product media inside a device frame (raw screenshots, SAM cut-outs, recordings only). */
 export const DEVICE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "split-screen", "carousel-slide", "focus-zoom", "tap-demo", "phone-tilt", "founder-cutout", "presenter-depth"]);
 
 /** Templates that show the real app (need a screenshot, cut-out, recording segment or marketing screenshot). */
-export const PRODUCT_SCENE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-showcase"]);
+export const PRODUCT_SCENE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-showcase", "fullscreen-recording"]);
 
 /** End cards. */
 export const CTA_TEMPLATES = new Set<TemplateId>(["cta-endcard", "store-cta"]);

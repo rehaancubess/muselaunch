@@ -40,6 +40,7 @@ export const TEMPLATE_IDS = [
   "icon-reveal", // app icon scale-in with glow and the app name
   "store-cta", // end card with plain-text store pills ("Download on the App Store"; no third-party logos)
   "fullscreen-showcase", // a designed marketing screenshot full-bleed with a slow push (never inside a device frame)
+  "fullscreen-recording", // real LANDSCAPE footage (TV, desktop, web apps/games) filling the frame, cover-cropped around the action (never stretched)
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -177,6 +178,12 @@ export const TextLayer = LayerBase.extend({
 
 export const MediaFit = z.enum(["cover", "contain"]);
 
+/**
+ * Which point of the media stays in view when `fit: "cover"` crops it (CSS object-position, as
+ * fractions: 0 = left/top edge, 0.5 = centre, 1 = right/bottom edge). Omitted = centred.
+ */
+export const ObjectPosition = z.object({ x: Percent01, y: Percent01 });
+
 export const ImageLayer = LayerBase.extend({
   type: z.literal("image"),
   assetId: Id,
@@ -185,6 +192,7 @@ export const ImageLayer = LayerBase.extend({
   shadow: z.boolean().default(false),
   /** Crop in source pixels fractions. */
   crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
+  objectPosition: ObjectPosition.optional(),
 });
 
 /** Use of a SAM segmentation on a video/image layer. */
@@ -216,6 +224,8 @@ export const VideoLayer = LayerBase.extend({
   mask: MaskUse.optional(),
   /** Regions of the frame (fractions of the layer box) blurred for privacy, e.g. personal info in a recording. */
   blurRegions: z.array(Region01).max(8).optional(),
+  /** With fit "cover": the part of the footage kept in view (e.g. the action in a full-bleed recording). */
+  objectPosition: ObjectPosition.optional(),
 });
 
 /**

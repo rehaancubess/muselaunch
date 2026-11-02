@@ -193,7 +193,7 @@ Rubric (give each a verdict: ok, issue, or unclear when the frames can't show it
 - legibility: text has strong contrast with what is behind it, is large enough on a phone, and nothing is cut off, overflowing or outside the frame.
 - safe_zone: important text and UI stay clear of the platform UI zones given below.
 - device_frame: never a device frame inside another device frame (e.g. a store screenshot that already shows a phone, placed inside our phone mockup); no stretched or distorted screens.
-- broken_frame: no blank, black or flat frames, missing media, empty placeholder boxes or rendering glitches (a fade-in on the very first frame is acceptable only if the hook appears quickly).
+- broken_frame: no blank, black or flat frames, missing media, empty placeholder boxes or rendering glitches. The very first frame is also the thumbnail in the feed: it must already show the hook text and a visual (no fade-in from an empty frame).
 - repetition: the same visual (same screenshot or same-looking scene) shown 3 or more times.
 - pacing: variety between scenes; nothing on screen too briefly to take in or so long it drags.
 - cta: a clear, readable call to action near the end.

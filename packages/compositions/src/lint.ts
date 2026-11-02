@@ -20,7 +20,7 @@ export interface LintContext {
 }
 
 const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
-const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt"]);
+const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-recording"]);
 /** Comfortable on-screen reading pace (words per second) before we warn. */
 const MAX_WORDS_PER_SEC = 3.5;
 const READY = new Set(["ready", "uploaded"]);
@@ -122,6 +122,8 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
         }
         case "video": {
           const a = checkAsset(layer.assetId, ["video"], where, "Video layer");
+          if (a && scene.template === "fullscreen-recording" && (!a.isProductTruth || a.origin === "generated"))
+            out.push({ level: "error", ...where, message: "A full-screen recording may only show real footage of the product" });
           if (a?.durationSec !== undefined) {
             const avail = ((layer.trimOutSec ?? a.durationSec) - layer.trimInSec) / layer.playbackRate;
             const need = (layer.timing.end ?? scene.durationSec) - layer.timing.start;
