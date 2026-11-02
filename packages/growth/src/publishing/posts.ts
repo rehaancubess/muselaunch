@@ -280,6 +280,55 @@ export async function updatePost(p: Platform, wid: string, id: string, input: z.
   return { post: next, approvalReset, preflight: await preflight(ws, next) };
 }
 
+/**
+ * The post now uses another final render of its own video (e.g. after "Tell Muse what to change"
+ * edited the video). Same rule as any content change: an approval pending or granted for the old
+ * video expires and the post goes back to draft, so the new version needs its own approval.
+ */
+export async function usePostRender(p: Platform, wid: string, id: string, input: { assetId: string; compositionVersion: number }, actor: string): Promise<{ post: ScheduledPost; approvalReset: boolean }> {
+  const ws = p.db.ws(wid);
+  const post = await loadPost(ws, id);
+  if (TERMINAL.includes(post.status) || post.status === "publishing") throw new AppError("CONFLICT", `Post is ${post.status}`, { userMessage: "This post is already out, so its video can’t change." });
+  const asset = await ws.collection("mediaAssets").getOrThrow(input.assetId);
+  const ok = asset.appId === post.appId && asset.status === "ready" && asset.render?.quality === "final" && asset.render.compositionId === post.compositionId && asset.render.version === input.compositionVersion;
+  if (!post.compositionId || !ok) throw new AppError("BAD_REQUEST", "Not a final render of this post's video", { userMessage: "That isn’t a finished version of this post’s video." });
+  // Drop the earlier render(s) of the same video; keep anything else attached (e.g. extra images).
+  const current = await ws.collection("mediaAssets").getMany(post.assetIds);
+  const oldRenders = new Set(current.filter((a) => a.render?.compositionId === post.compositionId).map((a) => a.id));
+  const assetIds = [asset.id, ...post.assetIds.filter((x) => x !== asset.id && !oldRenders.has(x))];
+  const before = (await postSnapshot(ws, post)).hash;
+  let next = await ws.collection("scheduledPosts").update(id, { assetIds, compositionVersion: input.compositionVersion }, { actor });
+  const changed = before !== (await postSnapshot(ws, next)).hash;
+  let approvalReset = false;
+  if (changed && post.approvalId) {
+    approvalReset = (await expireApprovals(ws, { entity: "scheduledPosts", id }, post.appId, actor, "The post's video changed")) > 0;
+    next = await ws.collection("scheduledPosts").update(id, { status: "draft", approvalId: undefined, publishState: undefined, lastError: undefined }, { actor });
+  }
+  return { post: next, approvalReset };
+}
+
+/**
+ * The post now shows a rewritten copy pack (e.g. "Tell Muse what to change" on its caption). Like
+ * any content change, an approval pending or granted for the old words expires (back to draft).
+ */
+export async function usePostCopyPack(p: Platform, wid: string, id: string, packId: string, actor: string): Promise<{ post: ScheduledPost; approvalReset: boolean }> {
+  const ws = p.db.ws(wid);
+  const post = await loadPost(ws, id);
+  if (TERMINAL.includes(post.status) || post.status === "publishing") throw new AppError("CONFLICT", `Post is ${post.status}`, { userMessage: "This post is already out, so its caption can’t change." });
+  const pack = await ws.collection("copyPacks").getOrThrow(packId);
+  if (pack.appId !== post.appId || pack.channel !== post.channel) throw new AppError("BAD_REQUEST", "Copy pack doesn't belong to this post");
+  const derived = captionFromCopyPack(pack, post.channel);
+  const before = (await postSnapshot(ws, post)).hash;
+  let next = await ws.collection("scheduledPosts").update(id, { copyPackId: pack.id, caption: derived.caption ?? post.caption, title: derived.title ?? post.title, tags: derived.tags.length ? derived.tags : post.tags }, { actor });
+  const changed = before !== (await postSnapshot(ws, next)).hash;
+  let approvalReset = false;
+  if (changed && post.approvalId) {
+    approvalReset = (await expireApprovals(ws, { entity: "scheduledPosts", id }, post.appId, actor, "The post's caption changed")) > 0;
+    next = await ws.collection("scheduledPosts").update(id, { status: "draft", approvalId: undefined, publishState: undefined, lastError: undefined }, { actor });
+  }
+  return { post: next, approvalReset };
+}
+
 export async function requestPostApproval(p: Platform, wid: string, id: string, actor: string): Promise<{ post: ScheduledPost; approval: Approval; preflight: Preflight }> {
   const ws = p.db.ws(wid);
   const post = await loadPost(ws, id);

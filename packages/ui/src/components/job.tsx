@@ -19,6 +19,7 @@ const JOB_LABELS: Record<string, string> = {
   "composition.variants": "Making versions",
   "copy.generate": "Writing copy",
   "post.fix_facts": "Fixing a fact in a post",
+  "post.revise_copy": "Rewriting a caption",
   "render.preview": "Rendering preview",
   "render.final": "Rendering final video",
   "package.export": "Packaging export",

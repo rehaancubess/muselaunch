@@ -1,6 +1,6 @@
 "use client";
 import { SegmentedControl, cn } from "@muselaunch/ui";
-import { ChevronRight, Rocket } from "lucide-react";
+import { ChevronLeft, ChevronRight, Rocket } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PageContainer } from "@/components/page-container";
@@ -25,7 +25,7 @@ function AutopilotLink() {
     <Link
       href={active ? `${r.autopilot}?loop=${encodeURIComponent(active.id)}` : r.autopilot}
       prefetch={false}
-      className="group inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full pl-2.5 pr-1.5 text-footnote font-medium text-ink-2 transition-colors hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:shadow-focus"
+      className="group hidden h-8 shrink-0 items-center gap-1.5 rounded-full pl-2.5 pr-1.5 text-footnote font-medium text-ink-2 transition-colors hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:shadow-focus md:inline-flex"
     >
       <Rocket className="size-3.5 text-accent" aria-hidden />
       Autopilot
@@ -41,17 +41,20 @@ function AutopilotLink() {
 }
 
 /**
- * Creator's sub-tabs: Make (ideas and campaigns, or Autopilot's work), Videos (the app's files) and
- * Scheduled (posts and publishing), plus the way into Autopilot. The control sits centred on
- * tablets and up so it doesn't move between sub-tabs.
+ * The pages behind Creator → Today (Make, Videos, Scheduled): a way back to Today, the three as one
+ * control, and the way into Autopilot. The control sits centred on tablets and up so it doesn't
+ * move between them.
  */
 export function CreatorTabs({ current, className }: { current: CreatorView; className?: string }) {
   const { workspaceId, appId } = useCurrentApp();
   const r = routes.app(workspaceId, appId);
-  const href: Record<CreatorView, string> = { make: r.creator, videos: r.videos, scheduled: r.scheduled };
+  const href: Record<CreatorView, string> = { make: r.make, videos: r.videos, scheduled: r.scheduled };
   return (
-    <div className={cn("mb-8 flex items-center justify-between gap-3 md:mb-10 md:grid md:grid-cols-[1fr_auto_1fr]", className)}>
-      <span aria-hidden className="hidden md:block" />
+    <div className={cn("mb-8 flex flex-wrap items-center justify-between gap-3 md:mb-10 md:grid md:grid-cols-[1fr_auto_1fr]", className)}>
+      <Link href={r.creator} prefetch={false} className="inline-flex min-h-11 items-center gap-1 rounded-full pr-2 text-body-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:shadow-focus md:min-h-8">
+        <ChevronLeft className="size-4" aria-hidden />
+        Today
+      </Link>
       <nav aria-label="Creator">
         <SegmentedControl
           label="Creator"
@@ -65,14 +68,14 @@ export function CreatorTabs({ current, className }: { current: CreatorView; clas
           )}
         />
       </nav>
-      <div className="flex justify-end">
+      <div className="hidden justify-end md:flex">
         <AutopilotLink />
       </div>
     </div>
   );
 }
 
-/** A Creator sub-tab page: the shared frame (same width on every sub-tab) with the sub-tabs on top. */
+/** A page behind Today: the shared frame (same width on every one) with the controls on top. */
 export function CreatorFrame({ current, children }: { current: CreatorView; children: ReactNode }) {
   return (
     <PageContainer width="wide" className="pt-5 md:pt-6">

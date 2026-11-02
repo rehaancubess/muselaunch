@@ -98,6 +98,18 @@ test("phase-2 demo: paste → Autopilot → Needs you, object-aware Studio, hook
     await shot(page, "autopilot-loop", true);
   });
 
+  await test.step("Creator → Today: the post still waiting is the next post, one tap from Looks good", async () => {
+    await page.goto(homeUrl);
+    await expect(page.getByRole("heading", { name: "Today", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Next post" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Looks good" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Skip" })).toBeVisible();
+    await page.getByRole("button", { name: "Change", exact: true }).first().click();
+    await expect(page.getByLabel("Tell Muse what to change")).toBeVisible();
+    await expect(page.getByText(/Uses about \d+ credits/)).toBeVisible();
+    await shot(page, "today", true);
+  });
+
   await test.step("Discover: the loop's research, every finding sourced", async () => {
     await nav(page, "Discover");
     await page.waitForURL(/\/discover$/);
@@ -118,7 +130,7 @@ test("phase-2 demo: paste → Autopilot → Needs you, object-aware Studio, hook
   await test.step("Studio: analyse the clip with SAM, app behind me, spotlight my phone", async () => {
     await page.goto(studioUrl);
     // The Studio opens simple; the clip tools are in the full editor (remembered for this browser).
-    await expect(page.getByLabel("Tell me what to change")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByLabel("Tell Muse what to change")).toBeVisible({ timeout: 60_000 });
     await shot(page, "studio");
     await page.getByRole("button", { name: "Edit in detail" }).click();
     await expect(page.getByRole("tab", { name: "Clip" })).toBeVisible();

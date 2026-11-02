@@ -1,8 +1,10 @@
 "use client";
+import { isPostChangeRunning } from "@muselaunch/contracts";
 import { Badge, Button, Checkbox, Field, Input, JobProgress, Notice, ProvenanceBadge, Sheet, Skeleton, StatusPill, statusKindOf, useToast } from "@muselaunch/ui";
 import { CheckCircle2, Copy, Download, ExternalLink, Package, Send, Undo2, X } from "lucide-react";
 import { useState } from "react";
 import { QueryState } from "@/components/states";
+import { PostTellMuse } from "@/features/change/post-change";
 import { BrandGuardianBadge, GuardedApprovalButton } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useJob } from "@/lib/jobs";
@@ -27,7 +29,8 @@ function copyText(text: string, toast: ReturnType<typeof useToast>) {
 export function PostSheet({ postId, onOpenChange }: { postId: string | null; onOpenChange: (open: boolean) => void }) {
   const { workspaceId } = useWorkspace();
   const path = postId ? wsPath(workspaceId, `/posts/${postId}`) : null;
-  const q = useApiQuery<PostView>(path, { refetchInterval: (query) => (query.state.data?.post.status === "publishing" ? 4000 : false) });
+  // Polls while it's going out, or while Muse is changing it ("Tell Muse what to change").
+  const q = useApiQuery<PostView>(path, { refetchInterval: (query) => (query.state.data?.post.status === "publishing" ? 4000 : isPostChangeRunning(query.state.data?.post.change) ? 3000 : false) });
   return (
     <Sheet open={Boolean(postId)} onOpenChange={onOpenChange} title={q.data ? `${CHANNEL_LABEL[q.data.post.channel]} post` : "Post"} description={q.data?.statusLabel} width="max-w-xl">
       <div className="p-5">
@@ -49,7 +52,7 @@ function PostBody({ view }: { view: PostView }) {
   const { post, approval, publication, account, preflight } = view;
   const [busy, setBusy] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const refresh = () => invalidate(wsPath(workspaceId, `/posts/${post.id}`), wsPath(workspaceId, `/apps/${post.appId}/calendar`), wsPath(workspaceId, "/approvals"));
+  const refresh = () => invalidate(wsPath(workspaceId, `/posts/${post.id}`), wsPath(workspaceId, `/apps/${post.appId}/calendar`), wsPath(workspaceId, `/apps/${post.appId}/today`), wsPath(workspaceId, "/approvals"));
   const job = useJob(workspaceId, jobId, { onSettled: () => void refresh() });
 
   const act = async (name: string, fn: () => Promise<unknown>, done?: string) => {
@@ -129,6 +132,11 @@ function PostBody({ view }: { view: PostView }) {
             ))}
           </ul>
         </Notice>
+      ) : null}
+
+      {/* Say what to change (typed or spoken): Muse changes the video or the caption, then it needs approval again. */}
+      {!terminal && post.status !== "publishing" && can("content.write") ? (
+        <PostTellMuse post={{ id: post.id, appId: post.appId, status: post.status, compositionId: post.compositionId, change: post.change }} className="rounded-xl border border-line p-4" />
       ) : null}
 
       {!terminal && ["draft", "failed", "awaiting_approval"].includes(post.status) ? <BrandGuardianBadge subject={{ entity: "scheduledPosts", id: post.id }} /> : null}

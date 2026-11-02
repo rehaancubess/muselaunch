@@ -131,6 +131,8 @@ export const DEFAULT_CREDIT_PRICES = {
   "post.fix_facts_rewrite": 2,
   /** "It's true, add it": the copy is checked again against the newly confirmed fact. */
   "post.fix_facts_recheck": 0,
+  /** "Tell Muse what to change" on a caption: Muse Spark rewrites one post's copy as asked, then it is checked again. */
+  "post.revise_copy": 2,
   "render.preview": 3,
   /** Per started 15 seconds of final video. */
   "render.final_per_15s": 8,

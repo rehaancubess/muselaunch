@@ -74,6 +74,50 @@ export const PostStatus = z.enum([
 ]);
 export type PostStatus = z.infer<typeof PostStatus>;
 
+/**
+ * "Tell Muse what to change" on a post (POST /posts/:id/change): the newest change asked for, as
+ * the post remembers it. A video change runs the Studio's AI edit (Muse Spark, scene-scoped, on the
+ * editable composition) and then a final render; the post then uses the new render, so its approval
+ * starts over. A caption change rewrites the post's copy (Muse Spark) and checks it against the
+ * app's facts again. Never part of the approval snapshot (the content it changes is).
+ */
+export const PostChangePart = z.enum(["video", "caption"]);
+export type PostChangePart = z.infer<typeof PostChangePart>;
+export const PostChangeStatus = z.enum(["editing", "rendering", "rewriting", "done", "failed"]);
+export type PostChangeStatus = z.infer<typeof PostChangeStatus>;
+export const PostChange = z.object({
+  id: Id,
+  part: PostChangePart,
+  instruction: z.string().max(2000),
+  /** Said out loud (transcribed by Muse Voice Transcribe) rather than typed. */
+  spoken: z.boolean().default(false),
+  status: PostChangeStatus,
+  /** The job running now (the edit, then the render; or the rewrite). */
+  jobId: Id,
+  editJobId: Id.optional(),
+  renderJobId: Id.optional(),
+  patchId: Id.optional(),
+  fromVersion: z.number().int().optional(),
+  toVersion: z.number().int().optional(),
+  /** The post was waiting for approval (or approved) when the change was asked: it asks again afterwards. */
+  hadApproval: z.boolean().default(false),
+  /** One plain line on what changed, e.g. "Muse made the opening shorter (scene 1)". */
+  summary: z.string().max(500).optional(),
+  /** Why it stopped, in plain words (failed), or what still needs the person (done, approval not requested). */
+  note: z.string().max(500).optional(),
+  by: Actor,
+  startedAt: IsoDateTime,
+  finishedAt: IsoDateTime.optional(),
+});
+export type PostChange = z.infer<typeof PostChange>;
+
+/** POST /posts/:id/change */
+export const ChangePostRequest = z.object({ part: PostChangePart, instruction: z.string().trim().min(2).max(2000), spoken: z.boolean().optional() });
+export type ChangePostRequest = z.infer<typeof ChangePostRequest>;
+
+/** A change is still running (a new one is refused until it ends). */
+export const isPostChangeRunning = (c: Pick<PostChange, "status"> | null | undefined) => Boolean(c && (c.status === "editing" || c.status === "rendering" || c.status === "rewriting"));
+
 export const ScheduledPost = BaseEntity.extend({
   appId: Id,
   campaignId: Id,
@@ -113,6 +157,8 @@ export const ScheduledPost = BaseEntity.extend({
   lastError: z.string().max(2000).optional(),
   /** The newest fact-check fix for this post (`post.fix_facts` job: "Remove it" / "It's true, add it"). */
   factFixJobId: Id.optional(),
+  /** The newest "Tell Muse what to change" request on this post (POST /posts/:id/change). */
+  change: PostChange.optional(),
 });
 export type ScheduledPost = z.infer<typeof ScheduledPost>;
 

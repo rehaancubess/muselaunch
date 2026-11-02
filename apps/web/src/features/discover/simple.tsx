@@ -176,7 +176,8 @@ function LookAgainBar({ research }: { research: ReturnType<typeof useLookAgain> 
 // One idea: title, why it fits, where it was found, two actions
 // ---------------------------------------------------------------------------
 
-function IdeaCard({ item, appId }: { item: FeedItem; appId: string }) {
+/** One idea card (also on Creator → Today, `compact`: smaller heading and padding). */
+export function IdeaCard({ item, appId, compact }: { item: FeedItem; appId: string; compact?: boolean }) {
   const { workspaceId, can } = useWorkspace();
   const toast = useToast();
   const router = useRouter();
@@ -224,10 +225,10 @@ function IdeaCard({ item, appId }: { item: FeedItem; appId: string }) {
   };
 
   return (
-    <article aria-label={item.title} className="space-y-4 rounded-2xl bg-surface p-5 shadow-raised sm:p-6">
+    <article aria-label={item.title} className={cn("space-y-4 rounded-2xl bg-surface shadow-raised", compact ? "p-4 sm:p-5" : "p-5 sm:p-6")}>
       <div className="space-y-2">
         {channels.length ? <p className="text-footnote font-medium text-ink-2">For {channels.join(" and ")}</p> : null}
-        <h2 className="text-title-3 font-semibold text-ink text-balance">{item.title}</h2>
+        {compact ? <h3 className="text-headline font-semibold text-ink text-balance">{item.title}</h3> : <h2 className="text-title-3 font-semibold text-ink text-balance">{item.title}</h2>}
         {why ? (
           <p className="text-body text-ink-2 text-pretty">
             <span className="font-medium text-ink">Why it fits your app: </span>

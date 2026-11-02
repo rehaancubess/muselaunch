@@ -23,8 +23,10 @@ export const routes = {
       discover: `${base}/discover`,
       /** Discover → See everything: every finding, filters, saved ideas, creators. */
       discoverAll: `${base}/discover/all`,
-      /** Creator → Make (the default sub-tab). */
+      /** Creator → Today (the Creator tab opens here): the next post, what needs you, how it's going. */
       creator: `${base}/creator`,
+      /** Creator → Make: plan a campaign yourself, Autopilot runs, campaigns (power users). */
+      make: `${base}/creator/make`,
       /** Creator → Videos (the app's files: renders, recordings, screenshots, clips). */
       videos: `${base}/creator/videos`,
       /** Creator → Scheduled (posts, approvals and publishing). */
@@ -71,5 +73,5 @@ export function withQuery(path: string, searchParams: Record<string, string | st
 
 export type PrimaryTab = "discover" | "creator" | "insights";
 
-/** Creator's sub-tabs. */
+/** Creator's pages behind Today (power users). */
 export type CreatorView = "make" | "videos" | "scheduled";

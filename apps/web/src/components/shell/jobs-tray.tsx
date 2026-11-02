@@ -1,6 +1,6 @@
 "use client";
 import type { Job } from "@muselaunch/contracts";
-import { EmptyState, ErrorState, IconButton, JobProgress, Popover, Skeleton, cn, useToast } from "@muselaunch/ui";
+import { EmptyState, ErrorState, IconButton, JobProgress, Popover, Sheet, Skeleton, cn, useToast } from "@muselaunch/ui";
 import { Activity } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -57,15 +57,59 @@ function TrayRow({ workspaceId, initial }: { workspaceId: string; initial: Job }
   );
 }
 
-/** Top-bar tray: recent jobs with live progress, cancel and retry. */
-export function JobsTray({ workspaceId, appId }: { workspaceId: string; appId?: string }) {
-  const [open, setOpen] = useState(false);
-  const jobs = useApiQuery<Page<Job>>(wsPath(workspaceId, "/jobs"), {
+/** Recent background work for the workspace (polls faster while something runs). */
+function useJobs(workspaceId: string, appId: string | undefined, open: boolean) {
+  return useApiQuery<Page<Job>>(wsPath(workspaceId, "/jobs"), {
     query: { limit: 20, appId },
     refetchInterval: (q) => (q.state.data?.items.some(isActive) ? 4000 : open ? 15_000 : 30_000),
   });
+}
+
+/** The list itself: live progress, cancel and retry (the top-bar tray and Account → Activity). */
+export function JobsList({ workspaceId, appId }: { workspaceId: string; appId?: string }) {
+  const jobs = useJobs(workspaceId, appId, true);
+  if (jobs.isLoading) {
+    return (
+      <div className="space-y-4 p-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-1.5 w-full" rounded="full" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (jobs.error) return <ErrorState compact className="m-3" message={errorMessage(jobs.error)} onRetry={() => jobs.refetch()} retrying={jobs.isFetching} />;
+  if (!jobs.data?.items.length) return <EmptyState size="sm" icon={<Activity aria-hidden />} title="No activity yet" description="Imports, research, renders and other background work show up here with live progress." />;
+  return (
+    <ul className="divide-y divide-line">
+      {jobs.data.items.map((j) => (
+        <TrayRow key={j.id} workspaceId={workspaceId} initial={j} />
+      ))}
+    </ul>
+  );
+}
+
+/** Account → Activity: every recent job, any time (the top-bar icon only shows while work runs). */
+export function ActivitySheet({ workspaceId, open, onOpenChange }: { workspaceId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title="Activity" description="Background work in this workspace, with live progress.">
+      {open ? <JobsList workspaceId={workspaceId} /> : null}
+    </Sheet>
+  );
+}
+
+/**
+ * Top-bar tray: a small icon that only shows while something is running (or just failed), with the
+ * recent jobs, live progress, cancel and retry. The rest of the time it's in Account → Activity.
+ */
+export function JobsTray({ workspaceId, appId }: { workspaceId: string; appId?: string }) {
+  const [open, setOpen] = useState(false);
+  const jobs = useJobs(workspaceId, appId, open);
   const active = jobs.data?.items.filter(isActive).length ?? 0;
-  const failed = jobs.data?.items.filter((j) => j.status === "failed" && Date.now() - Date.parse(j.updatedAt) < 3600_000).length ?? 0;
+  const failed = jobs.data?.items.filter((j) => j.status === "failed" && Date.now() - Date.parse(j.updatedAt) < 10 * 60_000).length ?? 0;
+  if (!active && !failed && !open) return null;
 
   return (
     <Popover
@@ -75,7 +119,7 @@ export function JobsTray({ workspaceId, appId }: { workspaceId: string; appId?: 
       label="Background jobs"
       className="w-[min(380px,calc(100vw-24px))] p-0"
       trigger={
-        <IconButton label={active ? `${active} job${active === 1 ? "" : "s"} running` : "Jobs"} className="relative">
+        <IconButton label={active ? `${active} job${active === 1 ? "" : "s"} running` : "A job didn’t finish"} className="relative">
           <Activity className={cn("size-[18px]", active && "text-accent")} aria-hidden />
           {active ? (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold tabular text-white">{active}</span>
@@ -90,26 +134,7 @@ export function JobsTray({ workspaceId, appId }: { workspaceId: string; appId?: 
         <p className="text-footnote text-ink-2">{active ? `${active} running` : "Nothing running"}</p>
       </div>
       <div className="max-h-[min(480px,70dvh)] overflow-y-auto">
-        {jobs.isLoading ? (
-          <div className="space-y-4 p-4">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-1.5 w-full" rounded="full" />
-              </div>
-            ))}
-          </div>
-        ) : jobs.error ? (
-          <ErrorState compact className="m-3" message={errorMessage(jobs.error)} onRetry={() => jobs.refetch()} retrying={jobs.isFetching} />
-        ) : !jobs.data?.items.length ? (
-          <EmptyState size="sm" icon={<Activity aria-hidden />} title="No activity yet" description="Imports, research, renders and other background work show up here with live progress." />
-        ) : (
-          <ul className="divide-y divide-line">
-            {jobs.data.items.map((j) => (
-              <TrayRow key={j.id} workspaceId={workspaceId} initial={j} />
-            ))}
-          </ul>
-        )}
+        <JobsList workspaceId={workspaceId} appId={appId} />
       </div>
     </Popover>
   );

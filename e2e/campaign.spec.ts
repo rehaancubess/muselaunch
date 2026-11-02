@@ -60,7 +60,7 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
   await test.step("Studio (simple view): tell it what to change, apply, undo", async () => {
     await page.getByRole("link", { name: "Open in Studio" }).click();
     await page.waitForURL(/\/studio\//);
-    const change = page.getByLabel("Tell me what to change");
+    const change = page.getByLabel("Tell Muse what to change");
     await expect(change).toBeVisible();
     await shot(page, "studio");
     await change.fill("Make the opening more engaging");

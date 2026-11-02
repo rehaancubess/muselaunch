@@ -39,6 +39,11 @@ export const JobPayloads = {
    * person confirmed a fact. Either way the post's approval is requested when it was Autopilot's draft.
    */
   "post.fix_facts": z.object({ appId: Id, postId: Id, copyPackId: Id, action: z.enum(["remove", "recheck"]), claimId: Id.optional() }),
+  /**
+   * "Tell Muse what to change" on a post's caption: Muse Spark rewrites the post's copy as asked, the
+   * copy is checked against the app's facts again, and the post shows it (its approval starts over).
+   */
+  "post.revise_copy": z.object({ appId: Id, postId: Id, changeId: Id, instruction: z.string().min(1).max(2000) }),
   "render.preview": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1) }),
   "render.final": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), format: z.enum(["mp4", "png", "jpeg"]).default("mp4") }),
   "package.export": z.object({ appId: Id, campaignId: Id, compositionIds: z.array(Id).default([]), includeCopy: z.boolean().default(true) }),
@@ -117,6 +122,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "composition.variants": "agents",
   "copy.generate": "agents",
   "post.fix_facts": "agents",
+  "post.revise_copy": "agents",
   "render.preview": "render",
   "render.final": "render",
   "package.export": "render",
