@@ -19,7 +19,10 @@ export const routes = {
     const base = `/w/${wid}/a/${appId}`;
     return {
       root: base,
+      /** Discover: "What Muse found", the few best ideas for this app. */
       discover: `${base}/discover`,
+      /** Discover → See everything: every finding, filters, saved ideas, creators. */
+      discoverAll: `${base}/discover/all`,
       /** Creator → Make (the default sub-tab). */
       creator: `${base}/creator`,
       /** Creator → Videos (the app's files: renders, recordings, screenshots, clips). */
@@ -29,7 +32,17 @@ export const routes = {
       newCampaign: `${base}/creator/new`,
       campaign: (campaignId: string) => `${base}/creator/campaigns/${campaignId}`,
       studio: (compositionId: string) => `${base}/creator/studio/${compositionId}`,
+      /** Insights: "How it's going", up to three measured numbers and the next step. */
       insights: `${base}/insights`,
+      /** Insights → Details: filters, tests, what to try next, YouTube, data sources. `tab` / `focus` open one. */
+      insightsDetails: (tab?: "overview" | "experiments" | "next" | "youtube" | "sources", opts: { focus?: "revenuecat" | "csv" | "manual" | "links"; open?: string } = {}) => {
+        const q = new URLSearchParams();
+        if (tab) q.set("tab", tab);
+        if (opts.focus) q.set("focus", opts.focus);
+        if (opts.open) q.set("open", opts.open);
+        const s = q.toString();
+        return s ? `${base}/insights/details?${s}` : `${base}/insights/details`;
+      },
       /** Autopilot (module B owns the page body: features/autopilot). Reached from Creator. */
       autopilot: `${base}/autopilot`,
       /** About your app (App DNA, facts, brand kit). */

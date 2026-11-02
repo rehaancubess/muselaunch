@@ -55,14 +55,14 @@ export function AddTrackerDialog({ appId, open, onOpenChange }: { appId: string;
     setSaving(true);
     try {
       await api.post(wsPath(workspaceId, `/apps/${appId}/trackers`), { channel, kind, handle, url: url || undefined, notes });
-      toast.success("Now tracking", `${handle} on ${CHANNEL_LABEL[channel]}. Use “Check tracked accounts” to gather sourced observations.`);
+      toast.success("Now following", `${handle} on ${CHANNEL_LABEL[channel]}. Tap them any time and choose “Check again” to see what they’ve posted, each with its source.`);
       await invalidate(wsPath(workspaceId, `/apps/${appId}/trackers`));
       setHandle("");
       setUrl("");
       setNotes("");
       onOpenChange(false);
     } catch (e) {
-      toast.error("Couldn’t add the account", errorMessage(e));
+      toast.error("Couldn’t follow that account", errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -71,22 +71,22 @@ export function AddTrackerDialog({ appId, open, onOpenChange }: { appId: string;
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Track an account"
-      description="MuseLaunch observes public pages only (no logins, no copying creators’ videos). Every observation links to its source."
+      title="Follow an account"
+      description="Muse looks at public pages only (no logins, and it never copies anyone’s videos). Everything it notes links to where it saw it."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={save} loading={saving} disabled={!handle.trim()}>
-            Track
+            Follow
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Type">
+          <Field label="Who they are">
             {({ id }) => <Select id={id} value={kind} onChange={(e) => setKind(e.target.value as TrackedCreator["kind"])} options={Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label }))} />}
           </Field>
           <Field label="Channel">
@@ -140,7 +140,7 @@ export function TrackerSheet({ trackerId, onOpenChange, onRefresh }: { trackerId
     if (!trackerId) return;
     try {
       await api.del(wsPath(workspaceId, `/trackers/${trackerId}`));
-      toast.success("Stopped tracking");
+      toast.success("Unfollowed");
       onOpenChange(false);
       await invalidate(wsPath(workspaceId, "/apps"));
     } catch (e) {
@@ -148,7 +148,7 @@ export function TrackerSheet({ trackerId, onOpenChange, onRefresh }: { trackerId
     }
   };
   return (
-    <Sheet open={Boolean(trackerId)} onOpenChange={onOpenChange} title={q.data?.profile.name ?? "Tracked account"} description={q.data?.profile.lastObservedAt ? `Last observed ${new Date(q.data.profile.lastObservedAt).toLocaleString()}` : "Not observed yet"} width="max-w-xl">
+    <Sheet open={Boolean(trackerId)} onOpenChange={onOpenChange} title={q.data?.profile.name ?? "Account you follow"} description={q.data?.profile.lastObservedAt ? `Last checked ${new Date(q.data.profile.lastObservedAt).toLocaleString()}` : "Not checked yet. Choose “Check again” below."} width="max-w-xl">
       <div className="space-y-7 p-5">
         {trackerId ? (
           <QueryState query={q} feature="Profile" skeleton={<Skeleton className="h-64 w-full" rounded="xl" />}>
@@ -222,7 +222,7 @@ export function TrackerSheet({ trackerId, onOpenChange, onRefresh }: { trackerId
                     Check again
                   </Button>
                   <Button variant="ghost" icon={<Trash2 aria-hidden />} onClick={remove}>
-                    Stop tracking
+                    Unfollow
                   </Button>
                 </div>
               </>
