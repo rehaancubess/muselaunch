@@ -28,6 +28,7 @@ export {
 } from "./always-on-loop";
 export { startAutopilot, pauseAutopilot, resumeAutopilot, cancelAutopilot, decideCheckpoint, autopilotDetail, estimateAutopilot, type AutopilotDetail } from "./service";
 export { autopilotProgress, mediaAsk } from "./progress";
+export { postingTarget, publishingAccountFor, type PostingTarget } from "./posting";
 export { runCost, summarizeCost } from "./cost";
 export { setAutopilotClock, reasonText, tagOf, STAGE_ORDER } from "./state";
 export { MAX_FIX_ROUNDS, MEASURE_DAYS } from "./stages";

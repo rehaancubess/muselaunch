@@ -4,6 +4,7 @@ import {
   calendar,
   CalendarQuery,
   cancelPost,
+  ConnectionReturn,
   confirmPostFacts,
   copyForManual,
   createPost,
@@ -77,9 +78,10 @@ publishingRoutes.get("/connections", async (c) => {
 });
 
 publishingRoutes.post("/connections/:provider/start", requireCap("accounts.manage"), async (c) => {
-  const input = await body(c, z.object({ appId: Id.optional() }).default({}));
+  // `back`: which fixed page the browser returns to after consent (quick setup / Settings), never a URL.
+  const input = await body(c, z.object({ appId: Id.optional(), back: ConnectionReturn.optional() }).default({}));
   if (input.appId) await wsOf(c).collection("apps").getOrThrow(input.appId);
-  const out = await startConnection(p(c), wid(c), actorOf(c), c.req.param("provider"), { appId: input.appId });
+  const out = await startConnection(p(c), wid(c), actorOf(c), c.req.param("provider"), { appId: input.appId, back: input.back });
   await audit(p(c), wid(c), actorOf(c), "connection.started", { provider: out.provider });
   return c.json(out);
 });
