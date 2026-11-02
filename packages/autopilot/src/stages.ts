@@ -10,6 +10,7 @@ import { z } from "zod";
 import { ALWAYS_ON_NEXT_INSTRUCTIONS, alwaysOnFocusLine, alwaysOnMeasure, alwaysOnNextRound, alwaysOnResearch, alwaysOnTimes, NEXT_ROUND_TAG } from "./always-on-loop";
 import { decide } from "./decide";
 import { defaultGoal, dnaJobsInFlight, hasRealAppMedia, screenJobsInFlight } from "./defaults";
+import { postingTarget } from "./posting";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 import { isWatchTag, watchRenders, watchStep } from "./watch";
 
@@ -303,7 +304,10 @@ const planCreative: StageFn = async (env, step) => {
     const gate = await env.budgetGate(env.estimate("campaign.generate_concepts"), "video ideas", step.approved);
     if (gate) return gate;
     const seg = env.ap.audience?.segmentId ? await env.ws.collection("audienceSegments").get(env.ap.audience.segmentId) : null;
-    const channels: Channel[] = seg?.channels.filter((c) => ["instagram", "tiktok", "youtube", "x", "linkedin", "threads", "facebook"].includes(c)).slice(0, 2) ?? [];
+    // Where the person said they post (quick setup / Settings) comes first; else the audience's channels.
+    const chosen = (await env.ws.collection("apps").get(env.appId))?.postTo;
+    const segChannels: Channel[] = seg?.channels.filter((c) => ["instagram", "tiktok", "youtube", "x", "linkedin", "threads", "facebook"].includes(c)).slice(0, 2) ?? [];
+    const channels: Channel[] = chosen && !chosen.manual && chosen.channels.length ? chosen.channels.slice(0, 2) : segChannels;
     const campaignId = hashId("cpg", env.ap.id, env.iteration);
     const h = env.ap.hypothesis;
     await env.ws.collection("campaigns").createIfAbsent(
@@ -731,7 +735,10 @@ const render: StageFn = async (env, step) => {
 const schedule: StageFn = async (env, step) => {
   const campaignId = env.ap.campaignId!;
   const campaign = await env.ws.collection("campaigns").getOrThrow(campaignId);
-  const channel = campaign.channels[0] ?? "instagram";
+  // Read fresh: "Where do you post?" is often answered while the run is already going.
+  const accounts = (await env.ws.collection("connectedAccounts").list({ limit: 200 })).items;
+  const target = postingTarget(await env.ws.collection("apps").get(env.appId), campaign.channels, accounts);
+  let channel = target.channel;
   if (step.phase !== "resume") {
     const gate = await env.budgetGate(env.estimate("copy.generate") * env.ap.variantIds.length, "post copy", step.approved);
     if (gate) return gate;
@@ -750,6 +757,10 @@ const schedule: StageFn = async (env, step) => {
   }
   const comps = (await env.ws.collection("compositions").getMany([...rendered.keys()])).filter((c) => c.campaignId === campaignId);
   const packs = (await env.ws.collection("copyPacks").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
+  // The copy was written for the channel picked before it; if "Where do you post?" changed since, stay with that one.
+  const written = packs.filter((x) => x.variantId && env.ap.variantIds.includes(x.variantId));
+  if (written.length && !written.some((x) => x.channel === channel)) channel = written[0]!.channel;
+  const accountId = channel === target.channel ? target.accountId : undefined;
   const existing = (await env.ws.collection("scheduledPosts").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
   const tz = (await env.p.db.top("workspaces").get(env.ctx.workspaceId))?.settings.defaultTimezone ?? "UTC";
   // Always on: spread over the next free posting days at the app's pace (labelled by where the time comes from).
@@ -786,7 +797,22 @@ const schedule: StageFn = async (env, step) => {
         env.p,
         env.ctx.workspaceId,
         env.appId,
-        { campaignId, variantId: c.variantId, compositionId: c.id, compositionVersion: rendered.get(c.id), copyPackId: pack?.id, caption: pack ? undefined : c.title, channel, scheduledAt: slot?.at, suggestedTimeReason: slot?.reason, visibility: "public", trackingLinkId },
+        {
+          campaignId,
+          variantId: c.variantId,
+          compositionId: c.id,
+          compositionVersion: rendered.get(c.id),
+          copyPackId: pack?.id,
+          caption: pack ? undefined : c.title,
+          // YouTube needs a title: the video's own when the copy has none.
+          title: channel === "youtube" && !pack?.items.some((i) => i.kind === "title") ? clip(c.title, 100) : undefined,
+          channel,
+          accountId,
+          scheduledAt: slot?.at,
+          suggestedTimeReason: slot?.reason,
+          visibility: "public",
+          trackingLinkId,
+        },
         env.ctx.actor,
       );
       postIds.push(post.id);
@@ -810,7 +836,7 @@ const schedule: StageFn = async (env, step) => {
   if (exp) await env.ws.collection("experiments").update(exp.id, { launchWindow: { start: new Date(start).toISOString(), end: new Date(start + MEASURE_DAYS * DAY_MS).toISOString() } }, { actor: env.ctx.actor });
   env.note(
     "action",
-    `Drafted ${postIds.length} ${channel} post(s) with suggested times (${"spreadLabel" in times ? times.spreadLabel : times.basis === "your_results" ? "from your own results" : "general heuristic"}). Each post is awaiting your approval — nothing is published without you.`,
+    `Drafted ${postIds.length} ${channel} post(s) with suggested times (${"spreadLabel" in times ? times.spreadLabel : times.basis === "your_results" ? "from your own results" : "general heuristic"}). Each post is awaiting your approval — nothing is published without you.${channel === target.channel && target.note ? ` ${target.note}` : ""}`,
     [...refs, ...(exp ? [ref("experiments", exp.id)] : [])],
   );
   return { kind: "advance", to: "measure" };

@@ -21,6 +21,45 @@ import { AppAlwaysOn } from "./always-on";
 export const AppStatus = z.enum(["importing", "draft", "ready", "archived"]);
 export const DnaStatus = z.enum(["none", "drafting", "needs_review", "confirmed", "failed"]);
 
+/** The platforms "Where do you post?" offers (quick setup, Settings › The basics). */
+export const POST_TO_CHANNELS = ["instagram", "youtube", "tiktok", "linkedin", "x"] as const;
+export const PostToChannel = z.enum(POST_TO_CHANNELS);
+export type PostToChannel = z.infer<typeof PostToChannel>;
+
+/**
+ * "Where do you post?" for one app (`apps.postTo`; absent = not asked yet). Autopilot drafts each
+ * post for one of these channels (a connected one first, else the first), with the connected account
+ * attached when there is one. `manual` ("I'll post myself"): posts come as the video + caption to post
+ * by hand, never with an account attached. Either way every post still needs its publish approval.
+ * Changed only via `PUT /apps/:appId/post-to` (content.write).
+ */
+export const AppPostTo = z.object({
+  channels: z.array(PostToChannel).max(POST_TO_CHANNELS.length).default([]),
+  manual: z.boolean().default(false),
+  updatedBy: Actor.optional(),
+  updatedAt: IsoDateTime.optional(),
+});
+export type AppPostTo = z.infer<typeof AppPostTo>;
+
+/** `PUT /apps/:appId/post-to`. Channels are de-duplicated, in the order given; `manual` clears them. */
+export const UpdatePostToRequest = z.object({
+  channels: z.array(PostToChannel).max(POST_TO_CHANNELS.length).default([]),
+  manual: z.boolean().default(false),
+});
+export type UpdatePostToRequest = z.infer<typeof UpdatePostToRequest>;
+
+/** The first-run quick setup for one app (`apps.quickSetup`; absent = not finished): never asked again once set. */
+export const AppQuickSetup = z.object({
+  status: z.enum(["done", "dismissed"]),
+  at: IsoDateTime,
+  by: Actor.optional(),
+});
+export type AppQuickSetup = z.infer<typeof AppQuickSetup>;
+
+/** `PUT /apps/:appId/quick-setup`. */
+export const UpdateQuickSetupRequest = z.object({ status: z.enum(["done", "dismissed"]) });
+export type UpdateQuickSetupRequest = z.infer<typeof UpdateQuickSetupRequest>;
+
 export const App = BaseEntity.extend({
   name: z.string().min(1).max(120),
   tagline: z.string().max(240).optional(),
@@ -42,6 +81,10 @@ export const App = BaseEntity.extend({
   lastImportId: Id.optional(),
   /** "Always on" Growth Autopilot for this app (absent = off). Changed only via /apps/:appId/always-on. */
   alwaysOn: AppAlwaysOn.optional(),
+  /** "Where do you post?" (absent = not asked yet). Changed only via /apps/:appId/post-to. */
+  postTo: AppPostTo.optional(),
+  /** The first-run quick setup was finished or dismissed (absent = it may still be offered). */
+  quickSetup: AppQuickSetup.optional(),
 });
 export type App = z.infer<typeof App>;
 

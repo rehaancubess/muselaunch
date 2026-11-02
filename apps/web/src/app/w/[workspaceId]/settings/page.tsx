@@ -1,10 +1,11 @@
 "use client";
-import { Badge, Button, Field, Input, List, ListRow, PageHeader, Section, Select, Switch, useToast } from "@muselaunch/ui";
+import { Badge, Button, Field, Input, List, ListRow, PageHeader, Select, Switch, useToast } from "@muselaunch/ui";
 import { DEFAULT_SOUND_SETTINGS } from "@muselaunch/contracts";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppIcon } from "@/components/app-icon";
+import { MoreLink, MoreSection, TheBasics, TTS_VOICES } from "@/components/settings/basics";
 import { AlwaysOnSettings } from "@/features/autopilot/always-on";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { countryOptions } from "@/lib/countries";
@@ -115,19 +116,15 @@ function AutopilotSettings() {
 }
 
 /** Always on, per app: keep researching and keep a week of posts ready at a pace the plan allows. */
-function AlwaysOnSection() {
+function AlwaysOnList() {
   const { apps } = useWorkspace();
   const live = apps.filter((a) => a.status !== "archived");
-  if (!live.length) return null;
+  if (!live.length) return <p className="px-1 text-body-sm text-ink-2">Add an app first.</p>;
   return (
-    <div id="always-on" className="scroll-mt-24">
-      <Section title="Always on" description="Autopilot keeps going for an app: weekly research, a week of posts ready, and you approve each one.">
-        <div className="space-y-4">
-          {live.map((a) => (
-            <AlwaysOnSettings key={a.id} appId={a.id} showApp={live.length > 1} />
-          ))}
-        </div>
-      </Section>
+    <div className="space-y-4">
+      {live.map((a) => (
+        <AlwaysOnSettings key={a.id} appId={a.id} showApp={live.length > 1} />
+      ))}
     </div>
   );
 }
@@ -138,20 +135,7 @@ const DNA_STATE: Record<string, string> = { none: "Not set up yet", drafting: "L
 function YourApps() {
   const { apps, workspaceId, can } = useWorkspace();
   return (
-    <Section
-      title="Your apps"
-      description="What MuseLaunch knows about each app, the facts it may use, and its brand kit."
-      actions={
-        can("apps.write") ? (
-          <Button variant="secondary" size="sm" asChild>
-            <Link href={routes.newApp(workspaceId)}>
-              <Plus className="size-3.5" aria-hidden />
-              Add an app
-            </Link>
-          </Button>
-        ) : null
-      }
-    >
+    <div className="space-y-3">
       {apps.length ? (
         <List label="Your apps">
           {apps.map((a) => (
@@ -168,11 +152,17 @@ function YourApps() {
       ) : (
         <p className="text-body-sm text-ink-2">No apps yet.</p>
       )}
-    </Section>
+      {can("apps.write") ? (
+        <Button variant="secondary" size="lg" asChild>
+          <Link href={routes.newApp(workspaceId)}>
+            <Plus className="size-4" aria-hidden />
+            Add an app
+          </Link>
+        </Button>
+      ) : null}
+    </div>
   );
 }
-
-const TTS_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"];
 
 /**
  * Video sound defaults (Track 3): original music and effects on by default; AI voiceover (external
@@ -252,79 +242,97 @@ export default function WorkspaceSettingsPage() {
 
   return (
     <div className="space-y-12">
-      <PageHeader title="Settings" description="Your workspace, how Autopilot works, and your apps. Integrations, Team and Credits & billing have their own sections." className="pb-0" />
-      <Section title="Autopilot" description="AI does the work by default. You approve what goes out.">
-        <AutopilotSettings />
-      </Section>
-      <AlwaysOnSection />
-      <YourApps />
-      <Section title="Sound" description="Music, effects and voice for new videos. Change any of it per video in Studio → Sound.">
-        <SoundSettings />
-      </Section>
-      <Section title="Workspace">
-        <form
-          className="space-y-5 rounded-xl bg-surface p-5 shadow-raised sm:p-6"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy("ws");
-            try {
-              await api.patch(wsPath(workspaceId), { name: name.trim(), settings: { defaultTimezone: tz } });
-              refetch();
-              await invalidate("/v1/me");
-              toast.success("Workspace saved");
-            } catch (err) {
-              toast.error("Couldn’t save", errorMessage(err));
-            } finally {
-              setBusy(null);
-            }
-          }}
-        >
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Name">{(f) => <Input id={f.id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} disabled={!can("workspace.manage")} />}</Field>
-            <Field label="Time zone" hint="Used for scheduled posts.">
-              {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={tz} onChange={(e) => setTz(e.target.value)} options={TIMEZONES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))} disabled={!can("workspace.manage")} />}
-            </Field>
-          </div>
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
-            <p className="text-footnote text-ink-3">Customer material is processed in Meta’s Standard data mode, never contributed for training.</p>
-            {can("workspace.manage") ? (
-              <Button type="submit" loading={busy === "ws"} disabled={!name.trim()}>
-                Save
-              </Button>
-            ) : null}
-          </div>
-        </form>
-      </Section>
-      <Section title="Your profile">
-        <form
-          className="space-y-5 rounded-xl bg-surface p-5 shadow-raised sm:p-6"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy("me");
-            try {
-              await api.patch("/v1/me", { displayName: displayName.trim() || undefined, country: country || undefined });
-              await invalidate("/v1/me", "/v1/status/providers");
-              toast.success("Profile saved");
-            } catch (err) {
-              toast.error("Couldn’t save", errorMessage(err));
-            } finally {
-              setBusy(null);
-            }
-          }}
-        >
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Display name">{(f) => <Input id={f.id} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={120} />}</Field>
-            <Field label="Country" hint="Decides which AI providers you’re eligible for.">
-              {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={country} onChange={(e) => setCountry(e.target.value)} options={countries} placeholder="Choose a country" />}
-            </Field>
-          </div>
-          <div className="flex justify-end border-t border-line pt-4">
-            <Button type="submit" loading={busy === "me"}>
-              Save profile
-            </Button>
-          </div>
-        </form>
-      </Section>
+      <PageHeader title="Settings" description="The basics first. Everything else is under More settings." className="pb-0" />
+      <TheBasics />
+      <section aria-labelledby="more-settings" className="space-y-4">
+        <div className="space-y-0.5">
+          <h2 id="more-settings" className="text-headline font-semibold">
+            More settings
+          </h2>
+          <p className="text-body-sm text-ink-2 text-pretty">Everything else. Tap a section to open it.</p>
+        </div>
+        <div className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-raised">
+          <MoreSection id="autopilot" title="Autopilot" summary="Starting on new apps, rendering without asking, credit limit per run">
+            <AutopilotSettings />
+          </MoreSection>
+          <MoreSection id="always-on" title="Always on" summary="Pace and the weekly email, for each app">
+            <AlwaysOnList />
+          </MoreSection>
+          <MoreSection id="sound" title="Sound" summary="Music, sound effects, AI voiceover and voice for new videos">
+            <SoundSettings />
+          </MoreSection>
+          <MoreSection id="apps" title="Your apps" summary="What MuseLaunch knows about each app, its facts and brand kit">
+            <YourApps />
+          </MoreSection>
+          <MoreSection id="workspace" title="Workspace" summary="Name and time zone">
+            <form
+              className="space-y-5 rounded-xl bg-surface p-5 shadow-raised sm:p-6"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy("ws");
+                try {
+                  await api.patch(wsPath(workspaceId), { name: name.trim(), settings: { defaultTimezone: tz } });
+                  refetch();
+                  await invalidate("/v1/me");
+                  toast.success("Workspace saved");
+                } catch (err) {
+                  toast.error("Couldn’t save", errorMessage(err));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Name">{(f) => <Input id={f.id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} disabled={!can("workspace.manage")} />}</Field>
+                <Field label="Time zone" hint="Used for scheduled posts.">
+                  {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={tz} onChange={(e) => setTz(e.target.value)} options={TIMEZONES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))} disabled={!can("workspace.manage")} />}
+                </Field>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
+                <p className="text-footnote text-ink-3">Customer material is processed in Meta’s Standard data mode, never contributed for training.</p>
+                {can("workspace.manage") ? (
+                  <Button type="submit" loading={busy === "ws"} disabled={!name.trim()}>
+                    Save
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+          </MoreSection>
+          <MoreSection id="profile" title="Your profile" summary="Display name and country">
+            <form
+              className="space-y-5 rounded-xl bg-surface p-5 shadow-raised sm:p-6"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy("me");
+                try {
+                  await api.patch("/v1/me", { displayName: displayName.trim() || undefined, country: country || undefined });
+                  await invalidate("/v1/me", "/v1/status/providers");
+                  toast.success("Profile saved");
+                } catch (err) {
+                  toast.error("Couldn’t save", errorMessage(err));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+            >
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Display name">{(f) => <Input id={f.id} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={120} />}</Field>
+                <Field label="Country" hint="Decides which AI providers you’re eligible for.">
+                  {(f) => <Select id={f.id} aria-describedby={f.describedBy} value={country} onChange={(e) => setCountry(e.target.value)} options={countries} placeholder="Choose a country" />}
+                </Field>
+              </div>
+              <div className="flex justify-end border-t border-line pt-4">
+                <Button type="submit" loading={busy === "me"}>
+                  Save profile
+                </Button>
+              </div>
+            </form>
+          </MoreSection>
+          <MoreLink href={routes.settings.integrations(workspaceId)} title="Integrations" summary="Connected accounts for posting and analytics, AI services, analytics sources" />
+          <MoreLink href={routes.settings.team(workspaceId)} title="Team" summary="Members, roles and invites" />
+          <MoreLink href={routes.settings.credits(workspaceId)} title="Credits & billing" summary="Plan, usage and history" />
+        </div>
+      </section>
     </div>
   );
 }
