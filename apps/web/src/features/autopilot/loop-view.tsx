@@ -8,6 +8,7 @@ import { Button, Card, Notice, ProgressBar, SegmentedControl, Spinner, StatusPil
 import { ArrowUpRight, Pause, Play, Square } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatUsd } from "@/features/agents/types";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { CHANNEL_LABEL, relativeTime } from "@/lib/labels";
 import { useInvalidate, useMutation } from "@/lib/query";
@@ -67,15 +68,54 @@ function BudgetCard({ detail }: { detail: AutopilotDetail }) {
           </div>
         ) : null}
         <div className="flex justify-between gap-2">
-          <dt className="text-ink-2">Model calls (metered)</dt>
-          <dd className="tabular text-ink">${ap.spent.usd.toFixed(ap.spent.usd < 1 ? 3 : 2)}</dd>
-        </div>
-        <div className="flex justify-between gap-2">
           <dt className="text-ink-2">Renders run without asking</dt>
           <dd className="tabular text-ink">{ap.budget.autoApproveCredits ? `≤ ${ap.budget.autoApproveCredits} cr` : "Never"}</dd>
         </div>
       </dl>
+      <RunCost cost={detail.cost} />
     </Card>
+  );
+}
+
+/**
+ * What the run's AI calls cost, from usage records of everything it did (its Muse Wonder decisions
+ * and every job it started). It's MuseLaunch's provider cost, not what you pay (credits, above).
+ * When the records couldn't be read, it says so instead of showing a number.
+ */
+function RunCost({ cost }: { cost: AutopilotDetail["cost"] }) {
+  const calls = (n: number) => `${n} AI call${n === 1 ? "" : "s"}`;
+  let value: string;
+  let note: string;
+  if (!cost) {
+    value = "Not measured";
+    note = "The usage records couldn’t be read right now.";
+  } else if (!cost.calls) {
+    value = "$0";
+    note = "No AI calls recorded for this run yet.";
+  } else {
+    value = `${cost.complete ? "" : "At least "}${formatUsd(cost.usd)}`;
+    note = `Estimated provider cost of ${calls(cost.calls)} this run made${cost.failed ? ` (${cost.failed} failed)` : ""}, from usage records. You pay in credits, not this.${cost.complete ? "" : " Some calls weren’t counted."}`;
+  }
+  return (
+    <div className="space-y-1 border-t border-line pt-3 text-footnote">
+      <div className="flex justify-between gap-2">
+        <p className="text-ink-2">AI model cost</p>
+        <p className="tabular text-ink">{value}</p>
+      </div>
+      <p className="text-caption text-ink-3 text-pretty">{note}</p>
+      {cost?.byModel.length ? (
+        <ul className="space-y-0.5 pt-1 text-caption text-ink-2" aria-label="AI model cost by model">
+          {cost.byModel.slice(0, 6).map((m) => (
+            <li key={m.name} className="flex justify-between gap-2">
+              <span className="min-w-0 truncate">
+                {m.name} <span className="text-ink-3">· {m.calls}</span>
+              </span>
+              <span className="tabular">{formatUsd(m.usd)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

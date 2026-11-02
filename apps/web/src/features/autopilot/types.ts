@@ -1,4 +1,4 @@
-import type { AgentRun, Approval, Autopilot, AutopilotProgress, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
+import type { AgentRun, Approval, Autopilot, AutopilotProgress, AutopilotRunCost, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
 import { routes } from "@/lib/routes";
 
 /** GET /autopilots/:id (module B, routes/autopilot.ts). */
@@ -15,6 +15,8 @@ export interface AutopilotDetail {
   compositions: Pick<Composition, "id" | "title" | "currentVersion" | "variantId">[];
   posts: Pick<ScheduledPost, "id" | "status" | "channel" | "scheduledAt" | "compositionId">[];
   experiment: Pick<Experiment, "id" | "title" | "status" | "launchWindow" | "variants" | "primaryMetric"> | null;
+  /** Model cost of everything the run did, from usage records; null = it couldn't be read. Absent on older APIs. */
+  cost?: AutopilotRunCost | null;
 }
 
 export type LogEntry = Autopilot["log"][number];

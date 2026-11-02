@@ -1,7 +1,8 @@
-import { AUTO_VIDEO_DURATION, type AgentRun, type Approval, type Autopilot, type AutopilotProgress, type BrandReview, type Composition, type Experiment, type Job, type ResearchFinding, type ScheduledPost, type StartAutopilotRequest } from "@muselaunch/contracts";
+import { AUTO_VIDEO_DURATION, type AgentRun, type Approval, type Autopilot, type AutopilotProgress, type AutopilotRunCost, type BrandReview, type Composition, type Experiment, type Job, type ResearchFinding, type ScheduledPost, type StartAutopilotRequest } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import { chooseTextModel } from "@muselaunch/providers";
 import type { z } from "zod";
+import { runCostCached } from "./cost";
 import { autopilotProgress } from "./progress";
 import { enqueueStep } from "./step";
 import { delegatedJobIds, nowMs, reasonText, RETRY_PREFIX, type LogEntry } from "./state";
@@ -146,6 +147,8 @@ export interface AutopilotDetail {
   experiment: Pick<Experiment, "id" | "title" | "status" | "launchWindow" | "variants" | "primaryMetric"> | null;
   /** The run in plain steps with real results, its finished videos and the models that ran (progress.ts). */
   progress: AutopilotProgress;
+  /** Model cost of everything the run did, from usage records (cost.ts); null when it couldn't be read. */
+  cost: AutopilotRunCost | null;
 }
 
 export async function autopilotDetail(p: Platform, workspaceId: string, id: string): Promise<AutopilotDetail> {
@@ -163,9 +166,16 @@ export async function autopilotDetail(p: Platform, workspaceId: string, id: stri
     ws.collection("scheduledPosts").getMany(autopilot.scheduledPostIds.slice(-12)),
     autopilot.hypothesis?.experimentId ? ws.collection("experiments").get(autopilot.hypothesis.experimentId) : Promise.resolve(null),
   ]);
-  const progress = await autopilotProgress(p, workspaceId, { autopilot, jobs, reviews, compositions });
+  const [progress, cost] = await Promise.all([
+    autopilotProgress(p, workspaceId, { autopilot, jobs, reviews, compositions }),
+    runCostCached(ws, autopilot).catch((err: unknown) => {
+      p.log.warn({ err: (err as Error)?.message, autopilotId: autopilot.id }, "autopilot run cost could not be read");
+      return null;
+    }),
+  ]);
   return {
     progress,
+    cost,
     autopilot,
     waitingFor: reasonText(autopilot.waitingOn.reason),
     runs: runs.map((r) => ({ id: r.id, kind: r.kind, status: r.status, goal: r.goal, model: r.model, usage: r.usage, createdAt: r.createdAt })),

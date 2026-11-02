@@ -116,6 +116,22 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(detail.runs).toHaveLength(3);
     expect(detail.jobs.map((j) => j.type)).toEqual(expect.arrayContaining(["research.run", "campaign.generate_concepts", "storyboard.generate", "brand.review", "render.final", "video.review", "copy.generate", "experiment.analyze", "recommendations.generate"]));
     expect(detail.checkpoint).toBeNull();
+    // The run's model cost covers every job it started (research, plans, checks…), not only its own
+    // Wonder decisions (Autopilot.spent.usd), and matches the usage records of those calls.
+    expect(detail.cost).not.toBeNull();
+    const cost = detail.cost!;
+    expect(cost.complete).toBe(true);
+    expect(cost.usd).toBeGreaterThan(ap.spent.usd);
+    const usage = (await h.p.db.ws(h.wid).collection("modelUsage").list({ limit: 2000 })).items;
+    const jobIds = new Set(detail.jobs.map((j) => j.id));
+    const runIds = new Set(ap.agentRunIds);
+    const delegated = usage.filter((u) => (u.jobId && jobIds.has(u.jobId)) || (u.agentRunId && runIds.has(u.agentRunId)));
+    expect(cost.calls).toBeGreaterThanOrEqual(delegated.length);
+    expect(cost.usd).toBeGreaterThanOrEqual(Math.round(delegated.reduce((n, u) => n + u.costUsdEstimate, 0) * 10_000) / 10_000 - 0.0001);
+    expect(cost.byModel.map((m) => m.name)).toEqual(expect.arrayContaining(["Muse Wonder", "Muse Spark"]));
+    // Nothing to ask for: the app has real screenshots.
+    expect(detail.progress.media).toMatchObject({ ask: null });
+    expect(detail.progress.media.screenshots).toBeGreaterThan(0);
 
     // Tenancy: invisible from another workspace
     await expect(h.p.db.ws("ws_other").collection("autopilots").getOrThrow(id)).rejects.toMatchObject({ code: "NOT_FOUND" });

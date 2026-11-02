@@ -62,7 +62,7 @@ function currentState(status: Autopilot["status"]): State {
 /** Models and labelled external services, as people know them (order: the Meta models first). */
 const MODEL_ORDER = ["Muse Wonder", "Muse Spark", "Muse Spark Open", "SAM 3.1", "Muse Voice Transcribe", "Muse Image", "Muse Glimmer"];
 
-function usageName(u: Pick<ModelUsageEvent, "provider" | "model" | "operation">): string | null {
+export function usageName(u: Pick<ModelUsageEvent, "provider" | "model" | "operation">): string | null {
   if (u.provider === "baseten") return "Muse Spark Open";
   if (u.provider === "glimmer") return "Muse Glimmer";
   if (u.provider === "meta") {

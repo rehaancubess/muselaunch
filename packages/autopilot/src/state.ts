@@ -60,20 +60,28 @@ export function delegatedJobIds(log: LogEntry[]): string[] {
  * was charged; open ones count their reservation.
  */
 export async function spentCredits(ws: WorkspaceDb, appId: string, log: LogEntry[]): Promise<number> {
+  let total = 0;
+  for (const j of await runJobs(ws, appId, log)) total += isTerminalJob(j) ? (j.creditsCharged ?? 0) : (j.reservation?.credits ?? 0);
+  return total;
+}
+
+/**
+ * Everything this loop started: the jobs it delegated (logged) plus the follow-ups they chained,
+ * three levels deep (storyboard → b-roll → build → preview). The same set backs the credits a run
+ * used and its model cost (cost.ts).
+ */
+export async function runJobs(ws: WorkspaceDb, appId: string, log: LogEntry[]): Promise<Job[]> {
   const ids = delegatedJobIds(log);
-  if (!ids.length) return 0;
+  if (!ids.length) return [];
   const direct = await ws.collection("jobs").getMany(ids);
   const set = new Set(ids);
   const recent = (await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 300 })).items;
   const all = new Map(direct.map((j) => [j.id, j]));
-  // three levels of chaining (storyboard → b-roll → build → preview)
   for (let level = 0; level < 3; level++) {
     for (const j of recent) if (j.parentJobId && set.has(j.parentJobId) && !all.has(j.id) && j.type !== "autopilot.step") all.set(j.id, j);
     for (const id of all.keys()) set.add(id);
   }
-  let total = 0;
-  for (const j of all.values()) total += isTerminalJob(j) ? (j.creditsCharged ?? 0) : (j.reservation?.credits ?? 0);
-  return total;
+  return [...all.values()];
 }
 
 /**
