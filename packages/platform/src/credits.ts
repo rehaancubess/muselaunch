@@ -18,7 +18,15 @@ export function loadPrices(cfg: Pick<Config, "CREDIT_PRICES_JSON">): CreditPrice
 
 export function loadPlans(cfg: Pick<Config, "PLANS_JSON">): Record<PlanId, Plan> {
   if (!cfg.PLANS_JSON) return DEFAULT_PLANS;
-  return { ...DEFAULT_PLANS, ...(JSON.parse(cfg.PLANS_JSON) as Partial<Record<PlanId, Plan>>) };
+  const over = JSON.parse(cfg.PLANS_JSON) as Partial<Record<PlanId, Partial<Plan> & { limits?: Partial<Plan["limits"]> }>>;
+  const out = { ...DEFAULT_PLANS } as Record<PlanId, Plan>;
+  // A plan in PLANS_JSON replaces the default, but limits it leaves out (e.g. postsPerWeek, added
+  // later) keep the default plan's value instead of becoming undefined.
+  for (const [id, plan] of Object.entries(over) as [PlanId, Partial<Plan> & { limits?: Partial<Plan["limits"]> }][]) {
+    const base = DEFAULT_PLANS[id];
+    out[id] = (base ? { ...base, ...plan, limits: { ...base.limits, ...plan.limits } } : plan) as Plan;
+  }
+  return out;
 }
 
 /** SAM focus lookups a storyboard may make (reserved up front, charged per use). */

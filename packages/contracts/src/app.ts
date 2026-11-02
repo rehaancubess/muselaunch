@@ -12,6 +12,7 @@ import {
   ReviewState,
   SourceRef,
 } from "./common";
+import { AppAlwaysOn } from "./always-on";
 
 // ---------------------------------------------------------------------------
 // App
@@ -39,6 +40,8 @@ export const App = BaseEntity.extend({
   targetLanguages: z.array(z.string().min(2).max(16)).default(["en"]),
   stage: z.enum(["pre_launch", "launched", "growing", "mature"]).optional(),
   lastImportId: Id.optional(),
+  /** "Always on" Growth Autopilot for this app (absent = off). Changed only via /apps/:appId/always-on. */
+  alwaysOn: AppAlwaysOn.optional(),
 });
 export type App = z.infer<typeof App>;
 

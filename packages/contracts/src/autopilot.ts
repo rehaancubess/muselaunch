@@ -81,6 +81,21 @@ export const Autopilot = BaseEntity.extend({
    * automatically when it's ready (the founder can review it any time).
    */
   auto: z.object({ goal: z.boolean().default(false), acceptDna: z.boolean().default(false) }).optional(),
+  /**
+   * Set while this loop is the app's "Always on" loop (apps.alwaysOn): rounds continue without the
+   * `maxIterations` cap, each new round only within the weekly credit allowance of the app's pace,
+   * posts are spread across the week, and the measure stage waits only until the queue of ready posts
+   * runs low. Cleared when Always on is turned off (the loop then finishes like a one-off run).
+   */
+  alwaysOn: z
+    .object({
+      since: IsoDateTime,
+      /** Next round's focus, from an approved research suggestion (Needs you). */
+      focus: z.object({ approvalId: Id, subject: EntityRef, text: z.string().max(1000) }).optional(),
+      /** The focus of the round in progress (shown in its decisions). */
+      roundFocus: z.string().max(1000).optional(),
+    })
+    .optional(),
 });
 export type Autopilot = z.infer<typeof Autopilot>;
 
@@ -216,11 +231,13 @@ export type AutopilotProgress = z.infer<typeof AutopilotProgress>;
  *    their own permission and snapshot checks;
  *  - `app_dna`: App DNA ("About your app") is waiting for review (apps.dnaStatus = needs_review);
  *  - `brand_check`: a video's current version is blocked by the Brand Guardian (latest review of
- *    that version is `blocked`, not overridden).
+ *    that version is `blocked`, not overridden);
+ *  - `suggestion`: Always on's weekly research found something timely ("People are talking about X
+ *    this week: make a video about it?"); approve starts a round focused on it, reject notes it.
  * The last two have no one-tap route (`approve`/`reject` are null): the decision is made where
  * `reviewPath` points (About your app, or the video in the Studio), with that page's own checks.
  */
-export const NeedsYouKind = z.enum(["post", "outreach", "spend", "decision", "app_dna", "brand_check"]);
+export const NeedsYouKind = z.enum(["post", "outreach", "spend", "decision", "app_dna", "brand_check", "suggestion"]);
 export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
 
 export const NeedsYouItem = z.object({
@@ -244,6 +261,8 @@ export const NeedsYouItem = z.object({
   reject: z.object({ path: z.string().max(300), body: z.record(z.string(), z.unknown()).default({}) }).nullable(),
   /** Where to review it in full (path under the web app's /w/:workspaceId). */
   reviewPath: z.string().max(300).optional(),
+  /** Button words when the kind's defaults don't fit (e.g. "Make a video" / "Not now"). */
+  labels: z.object({ approve: z.string().max(40), reject: z.string().max(40), approved: z.string().max(200).optional(), rejected: z.string().max(200).optional() }).optional(),
   preview: z
     .object({
       channel: z.string().max(40).optional(),

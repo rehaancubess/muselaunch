@@ -13,7 +13,7 @@ const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
 const { installCampaignHooks } = await import("@muselaunch/agents");
-const { installAutopilotHooks, wakeDueAutopilots } = await import("@muselaunch/autopilot");
+const { installAutopilotHooks, runAlwaysOn, wakeDueAutopilots } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
 installAnalyticsHooks(platform);
@@ -63,6 +63,9 @@ app.post("/tasks/execute", async (c) => {
 const CRONS: Record<string, () => Promise<unknown>> = {
   "publish-due": () => runDueScheduledPosts(platform),
   "autopilot-wake": () => wakeDueAutopilots(platform),
+  // Always on (hourly): weekly research sweep + Needs-you suggestions, pace clamp after a downgrade,
+  // waking loops whose week of posts ran low, and the opt-in weekly email.
+  "always-on": () => runAlwaysOn(platform),
 };
 
 app.post("/tasks/cron/:name", async (c) => {
