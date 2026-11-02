@@ -32,6 +32,7 @@ const KIND_ICON: Record<NeedsYouItem["kind"], ReactNode> = {
   decision: <Hand aria-hidden />,
   app_dna: <Info aria-hidden />,
   brand_check: <ShieldAlert aria-hidden />,
+  suggestion: <Sparkles aria-hidden />,
 };
 
 /** The one primary action per kind. Approvals call their route; the others open a page. */
@@ -42,8 +43,9 @@ const PRIMARY_LABEL: Record<NeedsYouItem["kind"], string> = {
   decision: "Continue",
   app_dna: "Check it",
   brand_check: "Fix the video",
+  suggestion: "Make a video",
 };
-const SECONDARY_LABEL: Record<NeedsYouItem["kind"], string> = { post: "Not this one", outreach: "Don’t send", spend: "Not now", decision: "Pause", app_dna: "", brand_check: "" };
+const SECONDARY_LABEL: Record<NeedsYouItem["kind"], string> = { post: "Not this one", outreach: "Don’t send", spend: "Not now", decision: "Pause", app_dna: "", brand_check: "", suggestion: "Not now" };
 
 const WHO: Record<string, string> = {
   publish: "someone who can publish",
@@ -90,13 +92,15 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
       await api.post(wsPath(workspaceId, route.path), route.body ?? {});
       toast.success(
         which === "approve" ? (item.kind === "post" ? "Post approved" : item.kind === "spend" ? "Spend approved" : "Approved") : "Got it",
-        which === "approve"
+        // Items can bring their own words (Always on's suggestions and pace decision).
+        (which === "approve" ? item.labels?.approved : item.labels?.rejected) ??
+        (which === "approve"
           ? item.kind === "post"
             ? "It goes out at its scheduled time, or you post it yourself where the channel needs that."
             : "Autopilot carries on."
           : item.kind === "spend" || item.kind === "decision"
             ? "Autopilot is paused. Resume it whenever you like."
-            : "Nothing was sent.",
+            : "Nothing was sent."),
       );
       await invalidate(wsPath(workspaceId, "/needs-you"), wsPath(workspaceId, "/autopilots"), wsPath(workspaceId, "/apps"), wsPath(workspaceId, "/approvals"));
     } catch (e) {
@@ -176,12 +180,12 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
         ) : null}
         {!opensPage && item.canDecide && item.approve && !item.stale ? (
           <Button size="sm" icon={<Check className="size-3.5" aria-hidden />} loading={busy === "approve"} disabled={Boolean(busy)} onClick={() => void decide("approve")}>
-            {PRIMARY_LABEL[item.kind]}
+            {item.labels?.approve ?? PRIMARY_LABEL[item.kind]}
           </Button>
         ) : null}
         {!opensPage && item.canDecide && item.reject ? (
           <Button size="sm" variant="ghost" loading={busy === "reject"} disabled={Boolean(busy)} onClick={() => void decide("reject")}>
-            {SECONDARY_LABEL[item.kind]}
+            {item.labels?.reject ?? SECONDARY_LABEL[item.kind]}
           </Button>
         ) : null}
         {review && !(opensPage && item.canDecide) ? (

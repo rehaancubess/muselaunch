@@ -338,6 +338,9 @@ export function timeBasisOf(reason: string | undefined): PostTimeBasis | undefin
   if (reason.startsWith("Based on your YouTube views")) return "your_youtube";
   if (reason.startsWith("Based on your ")) return "your_results";
   if (reason.startsWith("Suggested time")) return "suggested";
+  // The one-off run's times (growth suggestTimes): "Your instagram posts published on …" / "… General starting point …".
+  if (/^Your \w+ posts published on /.test(reason)) return "your_results";
+  if (reason.includes("General starting point")) return "suggested";
   return undefined;
 }
 

@@ -9,6 +9,7 @@ import { QueryState } from "@/components/states";
 import { AppIcon } from "@/components/app-icon";
 import { CreatorFrame } from "@/components/creator/creator-tabs";
 import { AgentRunsList } from "@/features/agents";
+import { AlwaysOnStatusLine, AlwaysOnWeek, useAlwaysOn } from "@/features/autopilot/always-on";
 import { AutopilotHome } from "@/features/autopilot/home";
 import { STATUS_COPY, statusKind } from "@/features/autopilot/types";
 import { WalkthroughPrompt } from "@/features/media/walkthrough";
@@ -108,6 +109,7 @@ function CampaignRows({ items, wid, appId }: { items: Campaign[]; wid: string; a
 function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: string }) {
   const r = routes.app(workspaceId, appId);
   const active = useActiveAutopilot(workspaceId, appId);
+  const always = useAlwaysOn(workspaceId, appId).data;
   const needsYou = active?.status === "awaiting_user";
   return (
     <Link
@@ -125,6 +127,7 @@ function AutopilotCard({ workspaceId, appId }: { workspaceId: string; appId: str
           </span>
           <span className="block truncate text-body-sm text-ink-2">{active.goal}</span>
           <span className="block text-footnote text-ink-3 text-pretty">{needsYou ? "It’s waiting for a decision from you." : (active.lastLog?.summary ?? "Working within your budget.")}</span>
+          {always?.settings.enabled ? <AlwaysOnStatusLine status={always} /> : null}
         </span>
       ) : (
         <span className="min-w-0 flex-1 space-y-1">
@@ -170,7 +173,10 @@ function HomePage() {
           </p>
         </div>
       </header>
+      {/* Always on: this week first while it's on; the "Keep it going" switch below the run while it's off. */}
+      <AlwaysOnWeek appId={appId} show="on" />
       <AutopilotHome appId={appId} />
+      <AlwaysOnWeek appId={appId} show="off" />
       <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} />
     </div>
   );
@@ -224,6 +230,8 @@ function ManualCreator() {
       ) : null}
 
       <WalkthroughPrompt workspaceId={workspaceId} appId={appId} variant="card" canWrite={can("content.write")} className="mb-10" />
+
+      <AlwaysOnWeek appId={appId} show="on" className="mb-10" />
 
       <Section
         title="Campaigns"

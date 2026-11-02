@@ -106,6 +106,7 @@ function PlanSection({ workspaceId }: { workspaceId: string }) {
                       <li>{plan.limits.concurrentJobs} tasks at once</li>
                       <li>{plan.limits.finalRendersPerDay} final renders / day</li>
                       <li>{plan.limits.researchRunsPerDay} research runs / day</li>
+                      {plan.limits.postsPerWeek ? <li>Always on: {plan.limits.postsPerWeek >= 7 ? "a post every day" : `up to ${plan.limits.postsPerWeek} post${plan.limits.postsPerWeek === 1 ? "" : "s"} a week`}</li> : null}
                       <li>Videos up to {plan.limits.maxVideoSec}s</li>
                     </ul>
                     {!current && can("billing.manage") ? (

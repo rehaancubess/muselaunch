@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppIcon } from "@/components/app-icon";
+import { AlwaysOnSettings } from "@/features/autopilot/always-on";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { countryOptions } from "@/lib/countries";
 import { useInvalidate } from "@/lib/query";
@@ -109,6 +110,24 @@ function AutopilotSettings() {
         ) : null}
       </form>
       <p className="px-5 py-4 text-footnote text-ink-3 sm:px-6">Posting, creator outreach and spending past a run’s budget always wait for a person’s approval, whatever these settings say.</p>
+    </div>
+  );
+}
+
+/** Always on, per app: keep researching and keep a week of posts ready at a pace the plan allows. */
+function AlwaysOnSection() {
+  const { apps } = useWorkspace();
+  const live = apps.filter((a) => a.status !== "archived");
+  if (!live.length) return null;
+  return (
+    <div id="always-on" className="scroll-mt-24">
+      <Section title="Always on" description="Autopilot keeps going for an app: weekly research, a week of posts ready, and you approve each one.">
+        <div className="space-y-4">
+          {live.map((a) => (
+            <AlwaysOnSettings key={a.id} appId={a.id} showApp={live.length > 1} />
+          ))}
+        </div>
+      </Section>
     </div>
   );
 }
@@ -237,6 +256,7 @@ export default function WorkspaceSettingsPage() {
       <Section title="Autopilot" description="AI does the work by default. You approve what goes out.">
         <AutopilotSettings />
       </Section>
+      <AlwaysOnSection />
       <YourApps />
       <Section title="Sound" description="Music, effects and voice for new videos. Change any of it per video in Studio → Sound.">
         <SoundSettings />

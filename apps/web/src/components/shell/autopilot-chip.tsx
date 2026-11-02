@@ -32,13 +32,14 @@ export function AutopilotChip({ workspaceId, appId }: { workspaceId: string; app
   if (!appId || !active || (needs.data?.count ?? 0) > 0) return null;
   const home = workspace?.settings.autopilot?.enabled ?? true;
   const needsYou = active.status === "awaiting_user";
-  const label = STATUS_COPY[active.status];
+  // Always on waits between rounds for the next post to go out: say that rather than "Measuring".
+  const label = active.alwaysOn && active.status === "sleeping" ? "Always on" : STATUS_COPY[active.status];
   return (
     <Link
       href={home ? routes.app(workspaceId, appId).creator : `${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(active.id)}`}
       prefetch={false}
       aria-label={`Autopilot: ${label}`}
-      title={active.goal}
+      title={active.alwaysOn ? `Always on · ${active.goal}` : active.goal}
       className={cn(
         "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-footnote transition-colors focus-visible:outline-none focus-visible:shadow-focus",
         needsYou ? "border-warning/40 bg-warning-soft text-ink hover:border-warning/70" : "border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink",

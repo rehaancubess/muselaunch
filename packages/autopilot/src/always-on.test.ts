@@ -6,7 +6,7 @@ import { GMAIL_SEND_URL } from "@muselaunch/providers";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { alwaysOnState, alwaysOnStatus, decidePace, decideSuggestion, runAlwaysOn, updateAlwaysOn, weeklySummary } from "./always-on";
-import { ALWAYS_ON_ACTOR, alwaysOnSpent, clampPace, FIX_ROOM_ROUNDS, postQueue, runFindings, SUGGESTIONS_PER_WEEK, sweepKeyPrefix, weekSlots, weeklyAllowance } from "./always-on-loop";
+import { ALWAYS_ON_ACTOR, alwaysOnSpent, clampPace, FIX_ROOM_ROUNDS, postQueue, runFindings, SUGGESTIONS_PER_WEEK, sweepKeyPrefix, timeBasisOf, weekSlots, weeklyAllowance } from "./always-on-loop";
 import { MAX_FIX_ROUNDS, needsYou, wakeDueAutopilots } from "./index";
 import { hashId, tagOf } from "./state";
 import { autopilotHarness, type AutopilotHarness } from "./testing";
@@ -154,6 +154,12 @@ describe("Always on: when to post", () => {
     expect(slots.map((s) => s.at)).toEqual(["2026-11-05T17:00:00.000Z", "2026-11-12T17:00:00.000Z"]); // Thursdays, 17:00 UTC (middle of the best block)
     expect(slots[0]!.reason).toMatch(/^Based on your YouTube views: uploads posted 16:00–19:59 UTC had the most views per day \(median 90, 5 videos/);
     expect(slots[0]!.reason).toMatch(/That’s your YouTube audience; Instagram may differ\. A pattern, not proof\.$/);
+    // Every stored reason maps to its label, including the one-off run's (growth suggestTimes) wording.
+    expect(timeBasisOf(slots[0]!.reason)).toBe("your_youtube");
+    expect(timeBasisOf("Suggested time: early evening …")).toBe("suggested");
+    expect(timeBasisOf("Midweek late-morning and evening slots are common starting points for Reels. General starting point — not based on research or your data yet.")).toBe("suggested");
+    expect(timeBasisOf("Your instagram posts published on Wednesdays averaged 812 platform-reported views (3 of 7 posts).")).toBe("your_results");
+    expect(timeBasisOf("Picked by hand")).toBeUndefined();
   });
 });
 
