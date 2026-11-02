@@ -1,7 +1,7 @@
 import { commitVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform } from "@muselaunch/platform";
 import { beforeAll, describe, expect, it } from "vitest";
-import { installFakeMeta, jsonRoute, requestText, seedApp, seedRenderedVideo, type MetaRequest, type SeededApp } from "../testing";
+import { installFakeMeta, jsonRoute, requestText, responsesBody, schemaName, seedApp, seedRenderedVideo, type MetaRequest, type SeededApp } from "../testing";
 import { mergeVideoFindings, requestVideoFix, requestVideoReview, videoFixPlan, videoReviewHandler } from "./index";
 import { readingFindings, repetitionFindings, sceneFacts } from "./measure";
 import { reviewTestDoc } from "./testing";
@@ -140,6 +140,28 @@ describe("Spark video review (video.review)", () => {
     expect(failed.verdict).toBeUndefined();
     expect(failed.error).toMatch(/Muse Spark isn't connected/);
     expect((await off.credits.balance(w)).available).toBe(100);
+  });
+
+  it("asks once more with lighter reasoning when Spark's answer runs out of room (max_output_tokens)", async () => {
+    const q = createTestPlatform({ META_API_KEY: "test-key" }, { "video.review": videoReviewHandler });
+    const w = "ws_vreview_long";
+    await q.credits.ensureAccount(w, { grant: 100, reason: "test" });
+    const s = await seedApp(q, w);
+    const efforts: unknown[] = [];
+    installFakeMeta(q, [
+      (req) => {
+        if (schemaName(req) !== "VideoReview") return undefined;
+        efforts.push(req.reasoning?.effort);
+        if (efforts.length === 1) return { ...responsesBody({ text: "" }), status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
+        return responsesBody({ text: JSON.stringify({ score: 8, summary: "Clear and readable. (fixture)", rubric: [{ check: "honesty", verdict: "ok" }], findings: [] }) });
+      },
+    ]);
+    const v = await seedRenderedVideo(q, w, { appId: s.appId, screenshotId: s.screenshotIds[0]! });
+    const { review, job } = await requestVideoReview(q, w, { compositionId: v.compositionId, actor: "u1", requestedFrom: "studio" });
+    await q.inline!.drain();
+    expect((await q.jobs.get(w, job!.id))?.status).toBe("succeeded");
+    expect(efforts).toEqual(["medium", "low"]);
+    expect(await q.db.ws(w).collection("videoReviews").getOrThrow(review.id)).toMatchObject({ status: "succeeded", score: 8 });
   });
 
   it("refuses a version with no render, other compositions' renders, and other workspaces", async () => {

@@ -491,21 +491,29 @@ export async function videoReviewHandler(ctx: JobContext<"video.review">): Promi
     const text = reviewPromptText({ title: comp.title, version, doc, quality, facts, frames: loaded.frames, measured, verifiedClaims: app.verifiedClaims.map((c) => c.text), brand: brandNotes(app) });
     const images = await imageInputs(p, ws, ctx.workspaceId, loaded.frames, loaded.buffers);
     await ctx.progress(35, `${planned.name} is watching the video`);
-    const out = await routedJson(
-      p,
-      {
-        ctx: rec.callCtx("video.review"),
-        model: "spark",
-        instructions: VIDEO_REVIEW_INSTRUCTIONS,
-        input: [{ type: "input_text", text }, ...images],
-        schema: VideoReviewDraft,
-        schemaName: "VideoReview",
-        maxOutputTokens: 12_000, // 16 frames + medium reasoning ran out at 6000 (live run 6, 1 Nov)
-        reasoningEffort: "medium",
-        cacheKey: "agents.video_review",
-      },
-      { route: "video.review", onFallback: loaded.frames.length <= SPARK_OPEN_MAX_IMAGES ? fallbackTo(rec) : undefined },
-    );
+    // 16 frames + medium reasoning ran out at 6000 and once more at 12000 (live runs, 1-2 Nov): give it
+    // more room, and if the answer still doesn't fit, ask once more with light reasoning.
+    const watch = (reasoningEffort: "medium" | "low") =>
+      routedJson(
+        p,
+        {
+          ctx: rec.callCtx("video.review"),
+          model: "spark",
+          instructions: VIDEO_REVIEW_INSTRUCTIONS,
+          input: [{ type: "input_text", text }, ...images],
+          schema: VideoReviewDraft,
+          schemaName: "VideoReview",
+          maxOutputTokens: 24_000,
+          reasoningEffort,
+          cacheKey: "agents.video_review",
+        },
+        { route: "video.review", onFallback: loaded.frames.length <= SPARK_OPEN_MAX_IMAGES ? fallbackTo(rec) : undefined },
+      );
+    const out = await watch("medium").catch(async (err: unknown) => {
+      if (!/max_output_tokens/.test(err instanceof Error ? err.message : String(err))) throw err;
+      await rec.step({ kind: "decision", title: "The review didn't fit in Muse Spark's answer; asking again with lighter reasoning", output: {} });
+      return watch("low");
+    });
     await rec.modelStep(`Watch ${loaded.frames.length} frames and review them (${engineName(out.model)}, multimodal)`, out, { frames: loaded.frames.length, scenes: facts.length, measured: measured.length }, { score: out.data.score, findings: out.data.findings.length });
     ctx.throwIfCancelled();
 
