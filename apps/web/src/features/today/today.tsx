@@ -77,8 +77,10 @@ export function TodayPage() {
   if (list.isLoading || (shown && detail.isLoading) || today.isLoading) return <TodaySkeleton />;
 
   const d = detail.data;
-  // The first run is still making the first videos: its own calm progress screen, as before.
-  const firstRun = Boolean(d && (list.data?.items.length ?? 0) <= 1 && d.progress.videos.length === 0 && (isActive(d.autopilot.status) || d.autopilot.status === "failed"));
+  // The first run is still making the first videos (no posts drafted yet): its own calm progress
+  // screen, as before. Once it waits for results, or has posts, it's Today.
+  const s = d?.autopilot.status;
+  const firstRun = Boolean(d && s && (list.data?.items.length ?? 0) <= 1 && d.posts.length === 0 && (isWorking(s) || s === "awaiting_user" || s === "paused" || s === "failed"));
   if (d && firstRun) {
     return (
       <div className="pb-6">

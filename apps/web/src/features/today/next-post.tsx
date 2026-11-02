@@ -98,7 +98,7 @@ function CopyCaption({ post, size = "md" }: { post: TodayPost; size?: "md" | "lg
   return (
     <Button
       size={size}
-      variant="secondary"
+      variant="outline"
       icon={<Copy className="size-4" aria-hidden />}
       onClick={() =>
         void navigator.clipboard?.writeText(post.copyText).then(
@@ -117,7 +117,7 @@ function DownloadVideo({ post, size = "md", primary }: { post: TodayPost; size?:
   const dl = useAssetUrl(workspaceId, post.video?.assetId, { download: true });
   if (!dl.data?.url) return null;
   return (
-    <Button size={size} variant={primary ? "primary" : "secondary"} asChild>
+    <Button size={size} variant={primary ? "primary" : "outline"} asChild>
       <a href={dl.data.url} download>
         <Download className="size-4" aria-hidden />
         Download {post.video?.kind === "image" ? "image" : "video"}

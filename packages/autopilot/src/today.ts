@@ -39,8 +39,11 @@ export async function today(p: Platform, wid: string, member: Member, appId: str
   const now = Date.now();
   const waiting = [...decisions.keys()].map((id) => byId.get(id)).filter((x): x is ScheduledPost => Boolean(x));
   const yours = posts.filter((x) => x.status === "manual_post_needed").sort(byTime);
+  // Being changed, or changed in the last day and still not waiting (e.g. approval couldn't be asked
+  // for yet). A post the person skipped ("Not this one") stays off Today.
+  const skipped = (x: ScheduledPost) => /^(Approval rejected|Rejected:)/.test(x.lastError ?? "");
   const changing = posts
-    .filter((x) => x.change && CHANGEABLE_POST.includes(x.status) && x.status !== "manual_post_needed" && !decisions.has(x.id) && (isPostChangeRunning(x.change) || now - Date.parse(x.change.finishedAt ?? x.change.startedAt) < DAY_MS))
+    .filter((x) => x.change && CHANGEABLE_POST.includes(x.status) && x.status !== "manual_post_needed" && !decisions.has(x.id) && (isPostChangeRunning(x.change) || (!skipped(x) && now - Date.parse(x.change.finishedAt ?? x.change.startedAt) < DAY_MS)))
     .sort(byTime);
   // In the order they'd go out (a post Muse is changing keeps its place, so the next post stays the next post).
   const shown = [...new Map([...waiting, ...yours, ...changing].map((x) => [x.id, x])).values()].sort(byTime).slice(0, MAX_POSTS);

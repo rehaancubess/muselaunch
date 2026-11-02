@@ -213,6 +213,20 @@ describe("Today and “Tell Muse what to change”", () => {
     expect((await ws().collection("scheduledPosts").getOrThrow(id)).change).toMatchObject({ status: "done", summary: "Fixture: made the caption more upbeat" });
   });
 
+  it("a post the person skips leaves Today, even right after a change; asking for another change brings it back", async () => {
+    const id = posts[0].id;
+    const post = await ws().collection("scheduledPosts").getOrThrow(id);
+    expect(post.change?.status).toBe("done");
+    expect((await alice.post(`${W()}/approvals/${post.approvalId}/reject`, {})).status).toBe(200);
+    expect((await getToday()).posts.map((x) => x.id)).not.toContain(id);
+    expect((await alice.post(`${W()}/posts/${id}/change`, { part: "caption", instruction: "Make it friendlier" })).status).toBe(202);
+    expect((await getToday()).posts.find((x) => x.id === id)?.change?.status).toBe("rewriting");
+    await p.inline!.drain();
+    // It was a draft (skipped), so nothing is requested on the person's behalf; Today still shows the result.
+    const card = (await getToday()).posts.find((x) => x.id === id);
+    expect(card).toMatchObject({ status: "draft", decision: null, change: { status: "done" } });
+  });
+
   it("a post that is out (or cancelled) can't change", async () => {
     await alice.post(`${W()}/posts/${posts[1].id}/cancel`);
     const r = await alice.post(`${W()}/posts/${posts[1].id}/change`, { part: "video", instruction: "Make it shorter" });

@@ -109,7 +109,7 @@ export async function requestPostChange(p: Platform, wid: string, postId: string
   // Asking for a change means "not this version": the approval waiting (or given) for it ends now,
   // so the old version can't go out while Muse works. It's asked for again when the change is done.
   if (base.hadApproval) await expireApprovals(ws, { entity: "scheduledPosts", id: post.id }, post.appId, actor, "Asked Muse for a change");
-  const updated = await ws.collection("scheduledPosts").update(post.id, { change, ...(base.hadApproval ? { status: "draft" as const, approvalId: undefined, publishState: undefined } : {}) }, { actor });
+  const updated = await ws.collection("scheduledPosts").update(post.id, { change, lastError: undefined, ...(base.hadApproval ? { status: "draft" as const, approvalId: undefined, publishState: undefined } : {}) }, { actor });
   await p.jobs.dispatch(job);
   return { post: updated, change, job };
 }

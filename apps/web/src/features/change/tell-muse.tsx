@@ -5,7 +5,8 @@
  * words: the caller decides what they change (a post's video or caption via POST /posts/:id/change,
  * or the Studio's own AI edit). Speaking records a short clip and transcribes it with Muse Voice
  * Transcribe (the Studio's spoken-edit path); the words land in the box so the person sees them, and
- * nothing is spent until they press the button. Quick chips fill the box (or, in the Studio, act).
+ * nothing is spent until they press the button. The cost line sits right under the box; quick chips
+ * fill the box (or, in the Studio, act).
  */
 import { Button, Spinner, cn } from "@muselaunch/ui";
 import { ArrowUpRight, Mic, ScanEye, Sparkles, Square, X } from "lucide-react";
@@ -311,6 +312,22 @@ export function TellMuse({
         </p>
       ) : null}
 
+      {footnote || detailHref || onDetail ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          {footnote ? <p className="min-w-0 text-caption text-ink-3 text-pretty">{footnote}</p> : <span />}
+          {detailHref ? (
+            <Link href={detailHref} className="inline-flex min-h-11 items-center gap-0.5 text-footnote font-medium text-accent hover:underline sm:min-h-0">
+              Edit in detail
+              <ArrowUpRight className="size-3.5" aria-hidden />
+            </Link>
+          ) : onDetail ? (
+            <button type="button" onClick={onDetail} className="inline-flex min-h-11 items-center gap-0.5 text-footnote font-medium text-accent hover:underline sm:min-h-0">
+              Edit in detail
+              <ArrowUpRight className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {chips.length ? (
         <ul className="flex flex-wrap gap-2" aria-label="Quick changes">
           {chips.map((chip) => (
@@ -346,22 +363,6 @@ export function TellMuse({
         </ul>
       ) : null}
 
-      {footnote || detailHref || onDetail ? (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          {footnote ? <p className="min-w-0 text-caption text-ink-3 text-pretty">{footnote}</p> : <span />}
-          {detailHref ? (
-            <Link href={detailHref} className="inline-flex min-h-11 items-center gap-0.5 text-footnote font-medium text-accent hover:underline sm:min-h-0">
-              Edit in detail
-              <ArrowUpRight className="size-3.5" aria-hidden />
-            </Link>
-          ) : onDetail ? (
-            <button type="button" onClick={onDetail} className="inline-flex min-h-11 items-center gap-0.5 text-footnote font-medium text-accent hover:underline sm:min-h-0">
-              Edit in detail
-              <ArrowUpRight className="size-3.5" aria-hidden />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
       {children}
     </section>
   );
