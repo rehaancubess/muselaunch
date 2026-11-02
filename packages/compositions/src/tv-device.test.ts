@@ -20,6 +20,17 @@ const storyboard = (scenes: StoryboardScene[], aspectRatio = "9:16"): Storyboard
   ({ ...base, id: "sbd_tv", appId: "app_tv", campaignId: "cpg_1", variantId: "var_1", title: "PocketPlay", aspectRatio, targetDurationSec: scenes.length * 4, scenes, voiceover: { source: "none" }, music: {} }) as Storyboard;
 const devices = (l: Layer[]) => l.filter((x): x is Extract<Layer, { type: "device" }> => x.type === "device");
 
+describe("TV apps' end card", () => {
+  it("shows no Web pill for a TV app (the call to action says where to get it); web apps keep theirs", () => {
+    const cta = (a: App) => {
+      const doc = buildFromStoryboard({ storyboard: storyboard([scene("store-cta", "ast_tv", { purpose: "cta", onScreenText: "Get it on Fire TV", assets: [] })]), app: { ...a, websiteUrl: "https://pocketplay.club" } as App, brand: null, assets: [tvShot], recordingSegments: [] });
+      return doc.scenes.flatMap((sc) => sc.layers).find((l) => l.type === "block" && l.blockId === "store-badges");
+    };
+    expect(cta(tvApp)).toBeUndefined();
+    expect(cta(appWith(["web"]))).toMatchObject({ params: { web: true } });
+  });
+});
+
 describe("TV device: which frame", () => {
   it("puts a TV app's landscape footage on a TV and keeps its portrait (phone-controller) screenshots on a phone", () => {
     expect(_test.deviceFor(tvApp, tvShot).device).toBe("tv");

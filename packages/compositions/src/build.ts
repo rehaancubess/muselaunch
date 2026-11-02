@@ -1018,7 +1018,9 @@ function ctaEndcard(ctx: SceneCtx, textValue: string, store = false): Built {
   y += ctaFit.h + (pad * 2) / f.H + (60 * f.u) / f.H;
   const ios = app.platforms.includes("ios") || !!app.storeUrls.ios;
   const android = app.platforms.includes("android") || !!app.storeUrls.android;
-  const web = !ios && !android && (app.platforms.includes("web") || !!app.websiteUrl);
+  // A TV app's website is where people learn about it, not where they play it: the call to action
+  // ("Get it on Fire TV") says where to get it, so no "Web" pill next to it.
+  const web = !ios && !android && !app.platforms.includes("tv") && (app.platforms.includes("web") || !!app.websiteUrl);
   if (ios || android || web) {
     const stack = store && f.portrait && [ios, android, web].filter(Boolean).length > 1;
     const pillsH = store ? (stack ? 230 : 120) * f.u : 96 * f.u;
