@@ -101,6 +101,7 @@ test("phase-2 demo: paste → Autopilot → Needs you, object-aware Studio, hook
   await test.step("Discover: the loop's research, every finding sourced", async () => {
     await nav(page, "Discover");
     await page.waitForURL(/\/discover$/);
+    await expect(page.getByRole("heading", { name: "What Muse found" })).toBeVisible();
     await expect(page.getByText(/example\.com/).first()).toBeVisible();
     await shot(page, "discover");
   });
@@ -202,6 +203,8 @@ test("phase-2 demo: paste → Autopilot → Needs you, object-aware Studio, hook
   await test.step("Insights: CSV import, the run's test, what to try next", async () => {
     await nav(page, "Insights");
     await page.waitForURL(/\/insights$/);
+    await page.getByRole("link", { name: "Details", exact: true }).click();
+    await page.waitForURL(/\/insights\/details/);
     await page.getByRole("tab", { name: "Data sources" }).click();
     await page.getByLabel("Choose a CSV file").setInputFiles(CSV);
     await page.getByRole("button", { name: /^Import \d+ rows/ }).click();

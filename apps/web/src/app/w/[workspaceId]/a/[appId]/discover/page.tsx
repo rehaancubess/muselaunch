@@ -1,37 +1,19 @@
 "use client";
-import { Notice, PageHeader, Spinner } from "@muselaunch/ui";
-import Link from "next/link";
+import { PageHeader } from "@muselaunch/ui";
 import { PageContainer } from "@/components/page-container";
-import { ResearchLauncher } from "@/components/research-launcher";
-import { useActiveAutopilot } from "@/components/shell/autopilot-chip";
-import DiscoverRoot from "@/features/discover";
-import { routes } from "@/lib/routes";
+import { AutopilotResearchNotice } from "@/features/discover/autopilot-notice";
+import SimpleDiscover from "@/features/discover/simple";
 import { useCurrentApp } from "@/lib/workspace";
 
-/**
- * Autopilot on: research for a new app runs as the first part of its Growth Autopilot run (the same
- * cited Muse Wonder research), so Discover says so instead of waiting for someone to press a button.
- */
-function AutopilotResearchNotice({ workspaceId, appId }: { workspaceId: string; appId: string }) {
-  const active = useActiveAutopilot(workspaceId, appId);
-  if (!active || !["understand", "research"].includes(active.stage) || !["running", "waiting_on_jobs"].includes(active.status)) return null;
-  return (
-    <Notice tone="info" icon={<Spinner className="size-4" />} className="mb-8" title={active.stage === "understand" ? "Autopilot is learning about your app" : "Autopilot is researching your market"}>
-      New findings appear here as they’re found, each linked to its sources.{" "}
-      <Link href={routes.app(workspaceId, appId).creator} className="font-medium underline underline-offset-2">
-        See the run
-      </Link>
-    </Notice>
-  );
-}
-
+/** Discover: "What Muse found", the few best ideas for this app right now. Everything else is behind See everything (./all). */
 export default function DiscoverPage() {
   const { appId, app, workspaceId } = useCurrentApp();
   return (
-    <PageContainer width="wide">
-      <PageHeader title="Discover" description={`Competitors, creators and trends, connected to ${app?.name ?? "your app"}. Every finding links to its source.`} actions={<ResearchLauncher appId={appId} />} />
-      <AutopilotResearchNotice workspaceId={workspaceId} appId={appId} />
-      <DiscoverRoot appId={appId} />
+    <PageContainer width="narrow">
+      <PageHeader title="What Muse found" description={`The best ideas for ${app?.name ?? "your app"} right now. Each one shows where Muse found it.`} />
+      {/* Research progress shows on the page itself; this only covers Autopilot's first step. */}
+      <AutopilotResearchNotice workspaceId={workspaceId} appId={appId} stages={["understand"]} />
+      <SimpleDiscover appId={appId} />
     </PageContainer>
   );
 }
