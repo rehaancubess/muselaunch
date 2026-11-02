@@ -45,8 +45,12 @@ export async function today(p: Platform, wid: string, member: Member, appId: str
   const changing = posts
     .filter((x) => x.change && CHANGEABLE_POST.includes(x.status) && x.status !== "manual_post_needed" && !decisions.has(x.id) && (isPostChangeRunning(x.change) || (!skipped(x) && now - Date.parse(x.change.finishedAt ?? x.change.startedAt) < DAY_MS)))
     .sort(byTime);
-  // In the order they'd go out (a post Muse is changing keeps its place, so the next post stays the next post).
-  const shown = [...new Map([...waiting, ...yours, ...changing].map((x) => [x.id, x])).values()].sort(byTime).slice(0, MAX_POSTS);
+  // What needs the person first: posts waiting for their OK (and ones Muse is changing, which go back
+  // to waiting), plus a post they OK'd and must post themselves once its time is near (within 2 h) or
+  // past. Then the rest, each group in the order they'd go out.
+  const dueSoon = (x: ScheduledPost) => x.status === "manual_post_needed" && (!x.scheduledAt || Date.parse(x.scheduledAt) - now < 2 * 3_600_000);
+  const first = (x: ScheduledPost) => (x.status !== "manual_post_needed" || dueSoon(x) ? 0 : 1);
+  const shown = [...new Map([...waiting, ...yours, ...changing].map((x) => [x.id, x])).values()].sort((a, b) => first(a) - first(b) || byTime(a, b)).slice(0, MAX_POSTS);
 
   const assetIds = [...new Set(shown.flatMap((x) => x.assetIds))];
   const [assets, comps, accounts, links] = await Promise.all([

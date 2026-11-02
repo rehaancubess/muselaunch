@@ -171,6 +171,8 @@ describe("Today and “Tell Muse what to change”", () => {
     const mine = t.posts.find((x) => x.id === posts[0].id)!;
     expect(mine).toMatchObject({ status: "manual_post_needed", decision: null, canChange: true });
     expect(t.posts.find((x) => x.id === posts[1].id)?.decision?.kind).toBe("post");
+    // The post still waiting for an OK comes first (the one you post yourself isn't due yet).
+    if (!mine.scheduledAt || Date.parse(mine.scheduledAt) - Date.now() > 2 * 3_600_000) expect(t.posts[0]!.decision?.kind).toBe("post");
   });
 
   it("a caption change: Muse Spark rewrites the copy as asked, the fact check runs again, the post shows it and asks for approval again", async () => {
