@@ -58,7 +58,11 @@ export async function signUp(page: Page, shot: (page: Page, name: string, fullPa
   });
 }
 
-/** One-step onboarding: paste → Go (no other choice) → the run's progress screen, Autopilot working. */
+/**
+ * One-step onboarding: paste → Go (no other choice) → the run's progress screen, Autopilot working.
+ * The progress screen also offers the quick setup ("Where do you post?", "How often…?"); it never
+ * blocks the run, so the journey leaves it unanswered.
+ */
 export async function onboardWithAutopilot(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { shots?: boolean } = {}) {
   await test.step("onboarding: paste → Go → the run's progress screen", async () => {
     if (opts.shots !== false) await shot(page, "onboarding");

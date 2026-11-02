@@ -19,7 +19,8 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { useInvalidate, useMutation } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { RecordingFirst, useRecordingState } from "./media-ask";
+import { QuickSetup } from "@/components/onboarding/quick-setup";
+import { useRecordingState } from "./media-ask";
 import { NeedsYouCard, NeedsYouList } from "./needs-you";
 import { doingLine, showRecordingFirst } from "./progress-lines";
 import { isActive, isWorking, type AutopilotDetail } from "./types";
@@ -437,7 +438,7 @@ export function RunProgress({
         </aside>
 
         <div className="min-w-0 space-y-8 lg:col-start-1 lg:row-start-2">
-          {recordingFirst ? <RecordingFirst appId={ap.appId} source={detail.progress.source} /> : null}
+          <QuickSetup appId={ap.appId} source={detail.progress.source} footage={recordingFirst} first={first} />
 
           {mine.length ? (
             <section className="space-y-3" aria-labelledby={`needs-${ap.id}`}>
