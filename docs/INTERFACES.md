@@ -40,15 +40,17 @@ export async function redo(ws: WorkspaceDb, compositionId: string, actor: string
 export async function retrieveMemory(p: Platform, input: { workspaceId: string; appId?: string; task: string; query: string; limit?: number; jobId?: string }): Promise<{ items: BrandPreference[]; summary: string; usedGlimmer: boolean }>;
 /** Record a preference/lesson (writes BrandPreference; Glimmer may normalise wording). */
 export async function rememberPreference(p: Platform, input: { workspaceId: string; appId?: string; kind: PreferenceKind; text: string; source: BrandPreference["source"]; actor: string }): Promise<BrandPreference>;
-/** Spark claim validator for any copy (outreach, captions, scene text). */
-export async function validateClaims(p: Platform, input: { workspaceId: string; appId: string; texts: { id: string; text: string }[]; jobId?: string }): Promise<{ ok: boolean; issues: { id: string; issue: string }[] }>;
+/** Spark claim validator for any copy (outreach, captions, scene text). Support = confirmed facts + verified listing/website/founder evidence. */
+export async function validateClaims(p: Platform, input: { workspaceId: string; appId: string; texts: { id: string; text: string }[]; jobId?: string }): Promise<{ ok: boolean; issues: { id: string; issue: string; kind: "unsupported" | "figure" | "prohibited"; quote?: string; terms?: string[]; statement?: string }[] }>;
 ```
+
+Fact check one-tap fixes (E routes, B helpers): `POST /posts/:id/facts/remove` (content.write) and `POST /posts/:id/facts/confirm` (content.write + apps.write; confirmed only with content.approve) start job `post.fix_facts` (E's handler, using B's `reviseCopyPack` / `recheckCopyPack`). `GET /posts/:id` returns `factCheck` (`PostFactCheck`). Autopilot's drafts then request publish approval as Autopilot would.
 
 Job handlers (module → job types):
 - B / agents: app.import, app.analyze, research.run, strategy.run, campaign.generate_concepts, storyboard.generate, composition.edit, copy.generate, memory.ingest
 - C / render: composition.build, composition.variants, render.preview, render.final, package.export
 - D / media: media.probe, media.segment, media.transcribe, media.image_generate, media.tts
-- E / growth: discover.refresh, outreach.draft, outreach.send, publish.post
+- E / growth: discover.refresh, outreach.draft, outreach.send, publish.post, post.fix_facts
 - F / analytics: analytics.sync (RevenueCat; YouTube per-post stats via the registered `SocialInsightsAdapter`), analytics.import_csv, analytics.youtube_channel (public channel analysis → `youtubeAnalyses` + sourced `researchFindings`), experiment.analyze, recommendations.generate
 
 Pipelines: `campaign.generate_concepts` (B) → user selects → `storyboard.generate` (B) → enqueues `composition.build` (C) → enqueues `render.preview` (C).
