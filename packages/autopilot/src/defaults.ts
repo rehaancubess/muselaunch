@@ -42,3 +42,12 @@ export async function dnaJobsInFlight(ws: WorkspaceDb, appId: string): Promise<J
   return page.items.filter((j) => (j.type === "app.import" || j.type === "app.analyze") && (j.status === "queued" || j.status === "running"));
 }
 
+
+/**
+ * Whether the app has real product media a video plan can show: a screenshot or a screen recording
+ * marked as product truth. A website-only app (a TV game, say) can have none until the founder adds some.
+ */
+export async function hasRealAppMedia(ws: WorkspaceDb, appId: string): Promise<boolean> {
+  const page = await ws.collection("mediaAssets").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
+  return page.items.some((a) => (a.role === "screenshot" || a.role === "app_recording") && a.isProductTruth && (a.status === "ready" || a.status === "uploaded" || a.status === "processing"));
+}

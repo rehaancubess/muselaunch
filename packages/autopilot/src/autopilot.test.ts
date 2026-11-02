@@ -134,6 +134,38 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(ap.audience).toBeUndefined();
   });
 
+  it("asks for a recording or screenshots when the app has no real media yet, then makes the videos once some is added", async () => {
+    const h = await autopilotHarness();
+    const ws = h.p.db.ws(h.wid);
+    // A website-only app (a TV game, say): nothing that shows the real product.
+    for (const sid of h.screenshotIds) await ws.collection("mediaAssets").update(sid, { isProductTruth: false }, { actor: "test" });
+    const id = await start(h);
+    let ap = await get(h, id);
+    expect(ap).toMatchObject({ status: "awaiting_user", stage: "produce" });
+    expect(tagOf(ap.waitingOn.reason)).toBe("produce:media");
+    expect(ap.waitingOn.reason).toMatch(/Add a screen recording or screenshots of your app/);
+    const detail = await autopilotDetail(h.p, h.wid, id);
+    expect(detail.checkpoint).toMatchObject({ action: "agent_continue", status: "pending" });
+    expect(detail.checkpoint?.summary).toMatch(/no screenshots or screen recordings of it yet/);
+    const jobs = (await ws.collection("jobs").list({ where: [["appId", "==", h.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
+    expect(jobs.some((j) => j.type === "storyboard.generate")).toBe(false);
+    const budgetBefore = ap.budget.maxCredits;
+
+    // Continue without adding anything: it asks again rather than failing.
+    await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(tagOf(ap.waitingOn.reason)).toBe("produce:media");
+
+    // The founder adds footage; Continue makes the videos, and the decision never raises the credit limit.
+    await ws.collection("mediaAssets").update(h.screenshotIds[0]!, { isProductTruth: true }, { actor: "test" });
+    await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(ap.compositionIds.length).toBeGreaterThan(0);
+    expect(ap.budget.maxCredits).toBe(budgetBefore);
+  });
+
   it("pauses at the budget checkpoint, continues after approval, asks before rendering, and a rejection pauses the loop", async () => {
     const h = await autopilotHarness();
     const id = await start(h, { maxCredits: 50, autoApproveCredits: 0 });

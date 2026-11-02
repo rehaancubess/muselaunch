@@ -8,7 +8,7 @@ import { AppError, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
-import { defaultGoal, dnaJobsInFlight, screenJobsInFlight } from "./defaults";
+import { defaultGoal, dnaJobsInFlight, hasRealAppMedia, screenJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 import { isWatchTag, watchRenders, watchStep } from "./watch";
 
@@ -392,8 +392,20 @@ const produce: StageFn = async (env, step) => {
       const cutting = screens.some((j) => j.type === "media.analyze_recording");
       return { kind: "wait", jobIds: screens.map((j) => j.id), tag: "produce:screens", reason: cutting ? "Cutting your walkthrough recording into clips (Muse Spark)" : "Finding the real app screens in your screenshots (SAM 3.1)" };
     }
+    // Videos only show the real app. With no screenshots or recordings yet (a website-only app, a TV
+    // game), planning would fail: ask for footage instead and pick up from here once it's added.
+    if (!(await hasRealAppMedia(env.ws, env.appId))) {
+      return env.checkpoint(
+        "agent_continue",
+        "Your videos show your real app, but MuseLaunch has no screenshots or screen recordings of it yet. Add a screen recording (or a few screenshots) on the Videos page, then press Continue to make the videos with them. Pause stops here.",
+        undefined,
+        "produce:media",
+        "Add a screen recording or screenshots of your app",
+      );
+    }
     const per =env.estimate("storyboard.generate") + env.estimate("composition.build") + env.estimate("render.preview");
-    const gate = await env.budgetGate(per * env.ap.variantIds.length, `planning and making ${env.ap.variantIds.length} video${env.ap.variantIds.length === 1 ? "" : "s"}`, step.approved);
+    // Budget approvals come back as enter/resume; another decision (e.g. "produce:media") isn't one.
+    const gate = await env.budgetGate(per * env.ap.variantIds.length, `planning and making ${env.ap.variantIds.length} video${env.ap.variantIds.length === 1 ? "" : "s"}`, step.approved && step.phase !== "approved");
     if (gate) return gate;
     const jobs: Job[] = [];
     for (const variantId of env.ap.variantIds) {
