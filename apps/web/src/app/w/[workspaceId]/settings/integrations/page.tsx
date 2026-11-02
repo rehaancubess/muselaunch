@@ -123,11 +123,11 @@ export default function IntegrationsPage() {
         <Notice icon={<BarChart3 aria-hidden />}>
           Connect RevenueCat or import App Store, Play Console and social CSVs from each app’s{" "}
           {appId ? (
-            <Link href={routes.app(workspaceId, appId).insights} className="font-medium text-accent hover:underline">
-              Insights › Data sources
+            <Link href={routes.app(workspaceId, appId).insightsDetails("sources")} className="font-medium text-accent hover:underline">
+              Insights › Details › Data sources
             </Link>
           ) : (
-            "Insights › Data sources"
+            "Insights › Details › Data sources"
           )}
           . Imported numbers stay labelled as imported.
         </Notice>
