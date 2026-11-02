@@ -357,6 +357,33 @@ export function copyRevisionRoute(opts: { keep?: () => boolean } = {}): MetaRout
   });
 }
 
+/**
+ * "Tell Muse what to change" stand-in (FIXTURE ONLY) for the CopyRewrite schema: a deterministic edit
+ * of the post's own words (never new claims). "shorter" keeps the first sentence of each long item,
+ * "friendlier"/"energetic"/"excited" ends the caption with "!", anything else moves the caption's
+ * first sentence to the end. Summaries say "Fixture:".
+ */
+export function copyRewriteRoute(): MetaRoute {
+  return jsonRoute("CopyRewrite", (req) => {
+    const text = requestText(req);
+    const ask = (text.match(/<untrusted_content source="founder_request">\n([\s\S]*?)\n<\/untrusted_content>/)?.[1] ?? "").toLowerCase();
+    const items = (text.split("The post's copy now (JSON lines):")[1] ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; kind: string; text: string });
+    const sentences = (s: string) => s.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g)?.map((x) => x.trim()).filter(Boolean) ?? [s];
+    const edit = (it: { kind: string; text: string }) => {
+      if (it.kind === "hashtags" || it.kind === "title") return it.text;
+      const ss = sentences(it.text);
+      if (/short|brief|tight|concise/.test(ask)) return ss.length > 1 ? `${ss[0]}${it.text.includes("[APP_LINK]") && !ss[0]!.includes("[APP_LINK]") ? " [APP_LINK]" : ""}` : it.text;
+      if (/friend|energ|excit|fun|upbeat/.test(ask)) return it.text.replace(/[.!?]*\s*$/, "!");
+      return ss.length > 1 ? [...ss.slice(1), ss[0]].join(" ") : `${it.text} ✨`;
+    };
+    const how = /short|brief|tight|concise/.test(ask) ? "made the caption shorter" : /friend|energ|excit|fun|upbeat/.test(ask) ? "made the caption more upbeat" : "reordered the caption";
+    return { items: items.map((it) => ({ id: it.id, text: edit(it) })), summary: `Fixture: ${how}` };
+  });
+}
+
 export interface SeededApp {
   appId: string;
   screenshotIds: string[];

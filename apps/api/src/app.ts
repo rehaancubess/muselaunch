@@ -26,6 +26,7 @@ import { publicLinkRoutes } from "./routes/public-links";
 import { publishingRoutes } from "./routes/publishing";
 import { soundRoutes } from "./routes/sound";
 import { statusRoutes } from "./routes/status";
+import { todayRoutes } from "./routes/today";
 import { localStorageRoutes } from "./routes/storage-local";
 import { videoReviewRoutes } from "./routes/video-reviews";
 import { workspaceRoutes } from "./routes/workspace";
@@ -95,6 +96,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", guardianRoutes);
   ws.route("/", videoReviewRoutes);
   ws.route("/", needsYouRoutes);
+  ws.route("/", todayRoutes);
   v1.route("/workspaces/:workspaceId", ws);
 
   app.route("/v1", v1);

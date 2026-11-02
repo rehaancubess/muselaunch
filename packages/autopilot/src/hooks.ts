@@ -1,6 +1,7 @@
 import { can, type Autopilot, type Job } from "@muselaunch/contracts";
 import { toAppError, type Platform } from "@muselaunch/platform";
 import { autopilotSettings } from "./defaults";
+import { advancePostChangesForJob, POST_CHANGE_JOBS } from "./post-change";
 import { enqueueStep } from "./step";
 import { isTerminalJob, nowMs, resumeKey } from "./state";
 
@@ -59,7 +60,8 @@ export async function autoRecommendOnNewData(p: Platform, workspaceId: string, j
 
 /**
  * Job lifecycle hook: when a job a Growth Autopilot is waiting on reaches a terminal state (or
- * pauses for approval), enqueue the loop's next `autopilot.step`. The idempotency key is derived
+ * pauses for approval), enqueue the loop's next `autopilot.step`; when a job a post change waits on
+ * finishes, take that change's next step (post-change.ts). The idempotency key is derived
  * from the awaited job set, so concurrent completions enqueue exactly one resume step. With
  * Autopilot on, new measured data also triggers recommendations (autoRecommendOnNewData).
  * Install once per process (API and worker).
@@ -72,6 +74,8 @@ export function installAutopilotHooks(p: Platform): () => void {
       if (job.type === "autopilot.step" || !job.appId) return;
       if (!isTerminalJob({ status: to })) return;
       await resumeWaiting(p, workspaceId, job.appId, job.id);
+      // "Tell Muse what to change" on a post: its next step (render, then the post uses it).
+      if (POST_CHANGE_JOBS.has(job.type) && to !== "needs_approval") await advancePostChangesForJob(p, workspaceId, job).catch((err) => p.log.warn({ err, jobId: job.id }, "post change step failed"));
       if (to === "succeeded" && MEASURED_DATA_JOBS.has(job.type)) await autoRecommendOnNewData(p, workspaceId, job);
     },
   });
