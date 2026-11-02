@@ -206,6 +206,18 @@ export const AutopilotProgress = z.object({
   videos: z.array(AutopilotFinishedVideo),
   /** Models and labelled external services that actually ran for this app during this run (metered calls). */
   madeWith: z.array(z.string().max(80)),
+  /**
+   * Real footage of the app that videos can use: screenshots and screen recordings saved as the real
+   * product (ready, or still being processed). `ask`: "early" = there is none yet and the videos
+   * aren't made yet (e.g. an app added from its website), so the screen asks for a recording up
+   * front; "waiting" = the run stopped before making videos until some is added (the
+   * `produce:media` decision); null = nothing to ask.
+   */
+  media: z.object({
+    screenshots: z.number().int().nonnegative(),
+    recordings: z.number().int().nonnegative(),
+    ask: z.enum(["early", "waiting"]).nullable(),
+  }),
 });
 export type AutopilotProgress = z.infer<typeof AutopilotProgress>;
 
@@ -257,6 +269,8 @@ export const NeedsYouItem = z.object({
       factsToCheck: z.number().int().nonnegative().optional(),
       /** `brand_check`: open blocking findings on the reviewed version. */
       blockingIssues: z.number().int().nonnegative().optional(),
+      /** `decision`: the run needs real footage of the app (a screen recording or screenshots) before it makes videos. */
+      needsMedia: z.boolean().optional(),
     })
     .optional(),
 });

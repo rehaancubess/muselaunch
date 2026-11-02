@@ -13,7 +13,7 @@ import { can, type App, type Approval, type Autopilot, type BrandReview, type Ca
 import type { WorkspaceDb } from "@muselaunch/db";
 import { APPROVER_CAP, currentSubjectHash } from "@muselaunch/growth";
 import type { Platform } from "@muselaunch/platform";
-import { reasonText } from "./state";
+import { reasonText, tagOf } from "./state";
 
 type Member = Pick<WorkspaceMember, "role" | "canPublish" | "canManageAccounts" | "status">;
 
@@ -79,6 +79,8 @@ export async function needsYou(p: Platform, workspaceId: string, member: Member,
           approve: { path: `/autopilots/${ap.id}/checkpoint/approve`, body: {} },
           reject: { path: `/autopilots/${ap.id}/checkpoint/reject`, body: {} },
           reviewPath: `${appPath}/autopilot?loop=${encodeURIComponent(ap.id)}`,
+          // The run waits for real footage of the app: the card offers the recording upload right there.
+          ...(tagOf(ap.waitingOn.reason) === "produce:media" ? { preview: { needsMedia: true } } : {}),
         };
       }
       case "scheduledPosts": {

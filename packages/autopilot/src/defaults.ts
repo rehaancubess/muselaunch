@@ -48,6 +48,13 @@ export async function dnaJobsInFlight(ws: WorkspaceDb, appId: string): Promise<J
  * marked as product truth. A website-only app (a TV game, say) can have none until the founder adds some.
  */
 export async function hasRealAppMedia(ws: WorkspaceDb, appId: string): Promise<boolean> {
+  const m = await realAppMedia(ws, appId);
+  return m.screenshots + m.recordings > 0;
+}
+
+/** Counts of that real product media: screenshots (incl. SAM cut-outs) and screen recordings. */
+export async function realAppMedia(ws: WorkspaceDb, appId: string): Promise<{ screenshots: number; recordings: number }> {
   const page = await ws.collection("mediaAssets").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
-  return page.items.some((a) => (a.role === "screenshot" || a.role === "app_recording") && a.isProductTruth && (a.status === "ready" || a.status === "uploaded" || a.status === "processing"));
+  const real = page.items.filter((a) => a.isProductTruth && (a.status === "ready" || a.status === "uploaded" || a.status === "processing"));
+  return { screenshots: real.filter((a) => a.role === "screenshot").length, recordings: real.filter((a) => a.role === "app_recording").length };
 }

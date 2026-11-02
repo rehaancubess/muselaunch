@@ -1,7 +1,7 @@
 import type { Autopilot } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
 import { brandGate } from "@muselaunch/agents";
-import { autopilotDetail, cancelAutopilot, decideCheckpoint, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
+import { autopilotDetail, cancelAutopilot, decideCheckpoint, needsYou, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
 import { tagOf } from "./state";
 import { type MetaRoute, responsesBody, toolNames } from "@muselaunch/agents/testing";
 import { autopilotDecisionRoute, autopilotHarness, type AutopilotHarness } from "./testing";
@@ -147,6 +147,11 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const detail = await autopilotDetail(h.p, h.wid, id);
     expect(detail.checkpoint).toMatchObject({ action: "agent_continue", status: "pending" });
     expect(detail.checkpoint?.summary).toMatch(/no screenshots or screen recordings of it yet/);
+    // The progress screen and the Needs-you card offer the recording upload right there.
+    expect(detail.progress.media).toEqual({ screenshots: 0, recordings: 0, ask: "waiting" });
+    expect(detail.progress.steps.find((s) => s.key === "make")?.state).toBe("needs_you");
+    const owner = await needsYou(h.p, h.wid, { role: "owner", canPublish: true, canManageAccounts: true, status: "active" }, { appId: h.appId });
+    expect(owner.items.find((i) => i.autopilotId === id)).toMatchObject({ kind: "decision", title: "Add a screen recording or screenshots of your app", preview: { needsMedia: true }, canDecide: true });
     const jobs = (await ws.collection("jobs").list({ where: [["appId", "==", h.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
     expect(jobs.some((j) => j.type === "storyboard.generate")).toBe(false);
     const budgetBefore = ap.budget.maxCredits;

@@ -23,6 +23,7 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { keyFor, useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
+import { MediaDecisionFootage, useRecordingState } from "./media-ask";
 import { isActive, isWorking, STATUS_COPY, type AutopilotListItem } from "./types";
 
 const KIND_ICON: Record<NeedsYouItem["kind"], ReactNode> = {
@@ -106,6 +107,10 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
     }
   };
   const pv = item.preview;
+  // The run waits for real footage of the app: the upload is right in the card, then Continue.
+  const media = item.kind === "decision" && Boolean(pv?.needsMedia) && Boolean(item.appId);
+  const rec = useRecordingState(workspaceId, media ? item.appId : null);
+  const footageIn = rec.state === "processing" || rec.state === "ready";
   const meta = [
     pv?.channel ? (CHANNEL_LABEL[pv.channel as Channel] ?? pv.channel) : null,
     pv?.scheduledAt ? when(pv.scheduledAt) : null,
@@ -114,8 +119,9 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
     item.kind === "brand_check" && pv?.blockingIssues ? plural(pv.blockingIssues, "issue") + " to fix" : null,
   ].filter(Boolean);
   const showCaption = Boolean(pv?.caption) && (item.kind === "post" || item.kind === "outreach");
+  const summary = media ? (footageIn ? "Your videos show your real app." : "Your videos show your real app, and there’s no footage of it yet. Add a screen recording, then press Continue.") : item.summary;
   // Long explanations (e.g. a loop's checkpoint) stay three lines until asked for.
-  const long = !showCaption && item.summary.length > 240;
+  const long = !showCaption && summary.length > 240;
   const [expanded, setExpanded] = useState(false);
   return (
     <article className={cn("space-y-3 rounded-xl bg-surface shadow-raised", compact ? "p-4" : "p-5")} aria-label={item.title}>
@@ -142,7 +148,7 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
           ) : (
             <div>
               <p id={`ny-summary-${item.id}`} className={cn("break-words text-footnote text-ink-2 text-pretty", long && !expanded && "line-clamp-3")}>
-                {item.summary}
+                {summary}
               </p>
               {long ? (
                 <button
@@ -158,6 +164,11 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
             </div>
           )}
           {meta.length ? <p className="text-caption text-ink-3">{meta.join(" · ")}</p> : null}
+          {media && item.appId ? (
+            <div className="pt-2">
+              <MediaDecisionFootage appId={item.appId} rec={rec} compact={compact} />
+            </div>
+          ) : null}
         </div>
       </div>
       {item.stale ? (
@@ -175,7 +186,8 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
           </Button>
         ) : null}
         {!opensPage && item.canDecide && item.approve && !item.stale ? (
-          <Button size="sm" icon={<Check className="size-3.5" aria-hidden />} loading={busy === "approve"} disabled={Boolean(busy)} onClick={() => void decide("approve")}>
+          // Waiting for footage: Continue is the obvious next step once a recording is in (before that, the upload is).
+          <Button size="sm" variant={media && !footageIn ? "secondary" : "primary"} icon={<Check className="size-3.5" aria-hidden />} loading={busy === "approve"} disabled={Boolean(busy)} onClick={() => void decide("approve")}>
             {PRIMARY_LABEL[item.kind]}
           </Button>
         ) : null}

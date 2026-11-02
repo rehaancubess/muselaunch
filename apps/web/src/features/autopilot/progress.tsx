@@ -18,7 +18,9 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { useInvalidate, useMutation } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
+import { RecordingFirst, useRecordingState } from "./media-ask";
 import { NeedsYouCard, NeedsYouList } from "./needs-you";
+import { doingLine, showRecordingFirst } from "./progress-lines";
 import { isActive, isWorking, type AutopilotDetail } from "./types";
 
 type Step = AutopilotProgressStep;
@@ -87,22 +89,10 @@ export function stepResult(step: Step, source: Source): string | null {
   }
 }
 
-/** What the current step is doing, in plain words (the jobs' own wording stays in Show details). */
-const DOING: Record<Step["key"], string> = {
-  read: "Saving the listing and its screenshots",
-  learn: "Working out features, audiences and facts from the listing",
-  research: "Searching the web; every finding keeps its source",
-  ideas: "Writing different ideas, then picking the ones to compare",
-  make: "Writing a plan for each video and building it from your screenshots",
-  check: "Checking every fact and the brand, fixing what it can",
-  finish: "Rendering the final videos and watching each one",
-  ready: "Writing the post captions",
-};
-
-/** The current step's line: what it's doing plus the real progress of the jobs behind it (done count, %). */
-function liveLine(step: Step, stage: string, waitingFor?: string): string {
+/** The current step's line: what it's doing (doingLine) plus the real progress of the jobs behind it (done count, %). */
+function liveLine(step: Step, stage: string, waitingFor: string | undefined, source: Source, media: AutopilotProgress["media"] | undefined): string {
   const l = step.live;
-  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : waitingFor?.startsWith("[produce:screens]") ? (waitingFor.includes("walkthrough") ? "Cutting your walkthrough recording into clips first" : "Finding the real app screens in your screenshots first") : DOING[step.key];
+  const what = stage === "select_audience" ? "Choosing who to reach" : stage === "hypothesis" ? "Deciding what to test" : waitingFor?.startsWith("[produce:screens]") ? (waitingFor.includes("walkthrough") ? "Cutting your screen recording into clips first" : "Finding the real app screens in your screenshots first") : doingLine(step.key, source, media);
   if (!l) return what;
   const parts = [what, l.total > 1 ? `${l.done} of ${l.total} done` : null, typeof l.pct === "number" && l.pct > 0 && l.pct < 100 ? `${l.pct}%` : null].filter(Boolean);
   return parts.join(" · ");
@@ -134,7 +124,7 @@ function StepDot({ state }: { state: Step["state"] }) {
 export function RunSteps({ detail, className }: { detail: AutopilotDetail; className?: string }) {
   const { workspaceId } = useWorkspace();
   const ap = detail.autopilot;
-  const { steps, source } = detail.progress;
+  const { steps, source, media } = detail.progress;
   const videos = ap.compositionIds.length || ap.budget.variants;
   // New wording first; older runs logged "Accepted your App DNA automatically".
   const dnaAuto = ap.log.some((e) => e.summary.startsWith("Accepted what we learned about your app automatically") || e.summary.startsWith("Accepted your App DNA automatically"));
@@ -145,7 +135,7 @@ export function RunSteps({ detail, className }: { detail: AutopilotDetail; class
         .map((s, i, all) => {
           const current = s.state !== "done" && s.state !== "pending";
           const result = s.state === "done" ? stepResult(s, source) : null;
-          const live = s.state === "active" ? liveLine(s, ap.stage, ap.waitingOn.reason) : null;
+          const live = s.state === "active" ? liveLine(s, ap.stage, ap.waitingOn.reason, source, media) : null;
           return (
             <li key={s.key} className="relative flex gap-3 pb-5 last:pb-0" aria-current={current ? "step" : undefined}>
               {i < all.length - 1 ? <span aria-hidden className={cn("absolute bottom-0 left-3 top-7 w-px", s.state === "done" ? "bg-ink/70" : "bg-line-strong")} /> : null}
@@ -174,7 +164,7 @@ export function RunSteps({ detail, className }: { detail: AutopilotDetail; class
                     <span className="min-w-0 text-pretty">{live}</span>
                   </p>
                 ) : null}
-                {s.state === "needs_you" ? <p className="text-footnote text-warning">Waiting for your decision below.</p> : null}
+                {s.state === "needs_you" ? <p className="text-footnote text-warning">{media?.ask === "waiting" && s.key === "make" ? "Waiting for you: a screen recording of your app, then Continue." : "Waiting for your decision below."}</p> : null}
                 {s.state === "paused" ? <p className="text-footnote text-ink-2">Paused. Nothing new starts until you resume.</p> : null}
                 {s.state === "stopped" ? <p className="text-footnote text-ink-2">Stopped before this step.</p> : null}
                 {s.state === "failed" ? <p className="text-footnote text-danger text-pretty">{ap.error?.userMessage ?? ap.error?.message ?? "This step didn’t finish."}</p> : null}
@@ -353,6 +343,7 @@ function headline(detail: AutopilotDetail, needs: number, first: boolean): { tit
         sub: `Step ${at} of ${shown.length}. You can leave this page: Autopilot keeps working, and nothing is posted without you.`,
       };
     case "awaiting_user":
+      if (detail.progress.media?.ask === "waiting") return { title: "Add a screen recording to make your videos", sub: "Your videos show your real app. Add a screen recording below, then press Continue." };
       return { title: "Autopilot needs a decision", sub: "One decision below, then it carries on." };
     case "sleeping":
       return {
@@ -402,13 +393,23 @@ export function RunProgress({
   const ap = detail.autopilot;
   const r = routes.app(workspaceId, ap.appId);
   const mine = runNeeds(detail, needs);
-  const { title, sub } = headline(detail, mine.length, first);
+  // Waiting for footage and a recording is now in: Continue is the next step.
+  const rec = useRecordingState(workspaceId, detail.progress.media?.ask === "waiting" ? ap.appId : null);
+  const footageIn = rec.state === "processing" || rec.state === "ready";
+  const { title, sub } = footageIn
+    ? { title: "Your recording is in", sub: can("content.approve") ? "Press Continue below to make your videos with it." : "An owner or admin presses Continue to make the videos with it." }
+    : headline(detail, mine.length, first);
   const act = useRunAction(detail);
   const [open, setOpen] = useState(detailsOpen);
   const allDone = detail.progress.steps.every((s) => s.state === "done" || s.state === "skipped");
   const [stepsOpen, setStepsOpen] = useState(!allDone);
   const H = headingLevel === 1 ? "h1" : "h2";
   const hasVideo = detail.progress.videos.length > 0;
+  // No screenshots or recordings yet (e.g. added from a website): ask for a recording up front, not after a failure.
+  const [askedEarly, setAskedEarly] = useState(false);
+  const ask = detail.progress.media?.ask;
+  if (ask === "early" && !askedEarly) setAskedEarly(true);
+  const recordingFirst = showRecordingFirst({ ask, shownBefore: askedEarly, status: ap.status, videosBuilt: ap.compositionIds.length });
   return (
     <div className="space-y-10">
       {/* Phones: headline → video → the rest. Desktop: headline and the rest on the left, the video beside them. */}
@@ -433,6 +434,7 @@ export function RunProgress({
         </aside>
 
         <div className="min-w-0 space-y-8 lg:col-start-1 lg:row-start-2">
+          {recordingFirst ? <RecordingFirst appId={ap.appId} source={detail.progress.source} /> : null}
 
           {mine.length ? (
             <section className="space-y-3" aria-labelledby={`needs-${ap.id}`}>
@@ -442,7 +444,7 @@ export function RunProgress({
               </h3>
               <NeedsYouList items={mine} />
             </section>
-          ) : isWorking(ap.status) ? (
+          ) : isWorking(ap.status) && !recordingFirst ? (
             <p className="flex items-start gap-2 text-footnote text-ink-2 text-pretty">
               <Check className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden />
               Nothing needs you right now. You’ll be asked before anything is posted or extra credits are spent.
