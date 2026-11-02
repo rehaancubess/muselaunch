@@ -55,6 +55,11 @@ export const Autopilot = BaseEntity.extend({
     autoApproveCredits: z.number().int().nonnegative().default(0),
     variants: z.number().int().min(1).max(3).default(2),
   }),
+  /**
+   * `credits`: everything the run started (delegated jobs and their follow-ups). `usd`: only the
+   * loop's OWN Muse Wonder decision calls, not the jobs it started; the run's full model cost is
+   * read from usage records (`GET /autopilots/:id` → `cost`, AutopilotRunCost).
+   */
   spent: z.object({ credits: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0) }).default({ credits: 0, usd: 0 }),
   audience: z
     .object({ segmentId: Id.optional(), description: z.string().max(1000), rationale: z.string().max(2000), findingIds: z.array(Id).default([]) })
@@ -206,8 +211,40 @@ export const AutopilotProgress = z.object({
   videos: z.array(AutopilotFinishedVideo),
   /** Models and labelled external services that actually ran for this app during this run (metered calls). */
   madeWith: z.array(z.string().max(80)),
+  /**
+   * Real footage of the app that videos can use: screenshots and screen recordings saved as the real
+   * product (ready, or still being processed). `ask`: "early" = there is none yet and the videos
+   * aren't made yet (e.g. an app added from its website), so the screen asks for a recording up
+   * front; "waiting" = the run stopped before making videos until some is added (the
+   * `produce:media` decision); null = nothing to ask.
+   */
+  media: z.object({
+    screenshots: z.number().int().nonnegative(),
+    recordings: z.number().int().nonnegative(),
+    ask: z.enum(["early", "waiting"]).nullable(),
+  }),
 });
 export type AutopilotProgress = z.infer<typeof AutopilotProgress>;
+
+/**
+ * What a run's AI calls cost (`GET /autopilots/:id` → `cost`), read from usage records: every metered
+ * call made by the run's own Muse Wonder decisions and by every job it started, including the
+ * follow-ups those chained (storyboard → b-roll → build → preview). Estimated provider cost in USD,
+ * not the credit price people pay. Nothing is estimated beyond what each call recorded.
+ */
+export const AutopilotRunCost = z.object({
+  usd: z.number().nonnegative(),
+  /** Metered calls counted (including ones that ended in an error, which can still be billed). */
+  calls: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  /** Jobs the run started (with their follow-ups) whose calls were looked up. */
+  jobs: z.number().int().nonnegative(),
+  /** false: not every record could be read (a very large run), so `usd` is a lower bound. */
+  complete: z.boolean(),
+  /** Per model or service, most expensive first. */
+  byModel: z.array(z.object({ name: z.string().max(80), usd: z.number().nonnegative(), calls: z.number().int().nonnegative() })).max(12),
+});
+export type AutopilotRunCost = z.infer<typeof AutopilotRunCost>;
 
 /**
  * "Needs you": everything that is waiting on a person, ready for one-tap decisions:
@@ -257,6 +294,8 @@ export const NeedsYouItem = z.object({
       factsToCheck: z.number().int().nonnegative().optional(),
       /** `brand_check`: open blocking findings on the reviewed version. */
       blockingIssues: z.number().int().nonnegative().optional(),
+      /** `decision`: the run needs real footage of the app (a screen recording or screenshots) before it makes videos. */
+      needsMedia: z.boolean().optional(),
     })
     .optional(),
 });

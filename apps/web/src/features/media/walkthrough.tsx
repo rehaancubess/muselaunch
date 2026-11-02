@@ -12,7 +12,7 @@
 import type { AppDnaResponse, CompleteUploadResponse, Page, UploadResponse } from "@/lib/api-types";
 import type { Job, MediaAsset, RecordingSegment } from "@muselaunch/contracts";
 import { Badge, Button, Checkbox, ErrorState, IconButton, JobProgress, ProgressBar, Skeleton, cn } from "@muselaunch/ui";
-import { CheckCircle2, EyeOff, Film, ListVideo, Play, RotateCcw, ShieldAlert, Smartphone, Sparkles, X } from "lucide-react";
+import { CheckCircle2, EyeOff, Film, ListVideo, MonitorSmartphone, Play, RotateCcw, ShieldAlert, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
@@ -44,15 +44,15 @@ function qualityBadge(q: number): { tone: "success" | "warning" | "neutral"; lab
   return { tone: "warning", label: `Not used in videos · ${Math.round(q * 100)}%` };
 }
 
-/** What a walkthrough is and why (no upload: also shown before the app exists). */
+/** What a walkthrough is and why (no upload: also shown before the app exists). Any device works. */
 export function WalkthroughExplainer({ className, compact }: { className?: string; compact?: boolean }) {
   return (
     <div className={cn("space-y-3", className)}>
       <ul className="space-y-2.5 text-body-sm text-ink-2">
         <li className="flex gap-2.5">
-          <Smartphone className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
+          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
           <span className="text-pretty">
-            <span className="font-medium text-ink">One iPhone screen recording, 1–5 minutes.</span> Tap through every main feature at a calm pace. Talk while you record if you like.
+            <span className="font-medium text-ink">One screen recording of your app, 1–5 minutes.</span> From a phone, tablet, computer or TV. Go through every main feature at a calm pace. Talk while you record if you like.
           </span>
         </li>
         <li className="flex gap-2.5">
@@ -68,8 +68,23 @@ export function WalkthroughExplainer({ className, compact }: { className?: strin
           </span>
         </li>
       </ul>
-      {compact ? null : <p className="text-footnote text-ink-3 text-pretty">On iPhone: turn on Do Not Disturb, then Control Center → Screen Recording. Recordings up to 10 minutes are cut into clips.</p>}
+      {compact ? null : <RecordingTips />}
     </div>
+  );
+}
+
+/** How to record on each kind of device, and the length limit (short; any device works). */
+export function RecordingTips({ className }: { className?: string }) {
+  return (
+    <ul className={cn("space-y-1 text-footnote text-ink-3 text-pretty", className)} aria-label="How to record">
+      <li>
+        <span className="font-medium text-ink-2">Phone or tablet:</span> its built-in screen recording (iPhone and iPad: Control Center; Android: Quick Settings), with Do Not Disturb on.
+      </li>
+      <li>
+        <span className="font-medium text-ink-2">TV or computer:</span> a screen capture app, or a capture card for a TV.
+      </li>
+      <li>Recordings up to 10 minutes are cut into clips.</li>
+    </ul>
   );
 }
 
@@ -90,8 +105,11 @@ function readDuration(file: File): Promise<number | null> {
   });
 }
 
-/** Pick → (consent for the voice) → direct upload as an App recording. Processing then cuts it into clips. */
-export function WalkthroughUpload({ workspaceId, appId, onUploaded }: { workspaceId: string; appId: string; onUploaded?: (asset: MediaAsset) => void }) {
+/**
+ * Pick → (consent for the voice) → direct upload as an App recording. Processing then cuts it into
+ * clips. `primary`: the choose button is the screen's main action (e.g. Autopilot is waiting for it).
+ */
+export function WalkthroughUpload({ workspaceId, appId, onUploaded, primary = false }: { workspaceId: string; appId: string; onUploaded?: (asset: MediaAsset) => void; primary?: boolean }) {
   const invalidate = useInvalidate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -105,7 +123,7 @@ export function WalkthroughUpload({ workspaceId, appId, onUploaded }: { workspac
   const pick = async (f: File | undefined) => {
     setError(null);
     if (!f) return;
-    if (!f.type.startsWith("video/")) return setError("Choose a video file (MP4 or MOV from your iPhone).");
+    if (!f.type.startsWith("video/")) return setError("Choose a video file (MP4, MOV or WebM).");
     if (f.size > MAX_UPLOAD_BYTES) return setError("Recordings can be up to 1 GB.");
     setFile(f);
     const d = await readDuration(f);
@@ -160,8 +178,8 @@ export function WalkthroughUpload({ workspaceId, appId, onUploaded }: { workspac
         }}
       />
       {!file ? (
-        <Button variant="secondary" icon={<Film className="size-4" aria-hidden />} onClick={() => inputRef.current?.click()}>
-          Choose your walkthrough
+        <Button variant={primary ? "primary" : "secondary"} icon={<Film className="size-4" aria-hidden />} onClick={() => inputRef.current?.click()}>
+          Choose a screen recording
         </Button>
       ) : (
         <div className="space-y-3 rounded-xl bg-surface p-3 shadow-raised">
@@ -187,13 +205,13 @@ export function WalkthroughUpload({ workspaceId, appId, onUploaded }: { workspac
               </IconButton>
             ) : null}
           </div>
-          {tooLong ? <p className="text-footnote text-warning">This recording is longer than 10 minutes. It uploads, but only walkthroughs up to 10 minutes are cut into clips: trim it first for the best result.</p> : null}
+          {tooLong ? <p className="text-footnote text-warning">This recording is longer than 10 minutes. It uploads, but only recordings up to 10 minutes are cut into clips: trim it first for the best result.</p> : null}
           {state === "idle" ? (
             <>
               <Checkbox checked={voice} onCheckedChange={setVoice} label="I talk in this recording" description="It's my voice, or I have permission. Muse Voice Transcribe adds what you say to each clip. Leave off for a silent recording." />
               <div className="flex justify-end">
                 <Button size="sm" onClick={() => void upload()}>
-                  Upload walkthrough
+                  Upload recording
                 </Button>
               </div>
             </>
@@ -222,7 +240,7 @@ export function useWalkthroughs(workspaceId: string, appId: string) {
 }
 
 /**
- * The optional "Record one walkthrough of your app" step. `card` (App Home: dismissible, hidden once a
+ * The optional "Add a screen recording of your app" step. `card` (App Home: dismissible, hidden once a
  * walkthrough exists unless it's still being cut), `inline` (Library, onboarding).
  */
 export function WalkthroughPrompt({
@@ -261,12 +279,12 @@ export function WalkthroughPrompt({
         <p className="min-w-0 flex-1 text-body-sm text-ink-2">
           {clips.length ? (
             <>
-              <span className="font-medium text-ink">Walkthrough ready:</span> {clips.length} clip{clips.length === 1 ? "" : "s"} labelled for your videos.
+              <span className="font-medium text-ink">Screen recording ready:</span> {clips.length} clip{clips.length === 1 ? "" : "s"} labelled for your videos.
             </>
           ) : latest.status === "failed" ? (
-            "Your walkthrough couldn't be processed. Open it in the Library to see why."
+            "Your screen recording couldn't be processed. Open it to see why."
           ) : (
-            "Your walkthrough is uploaded and is being cut into clips. Open it to follow along."
+            "Your screen recording is uploaded and is being cut into clips. Open it to follow along."
           )}
         </p>
         <Button size="sm" variant="ghost" asChild>
@@ -280,12 +298,12 @@ export function WalkthroughPrompt({
     <section aria-labelledby={`walkthrough-${appId}`} className={cn(variant === "card" ? "rounded-2xl bg-surface p-5 shadow-raised sm:p-6" : "rounded-2xl bg-mist/60 p-5", className)}>
       <div className="mb-4 flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
-          <Smartphone className="size-5" aria-hidden />
+          <MonitorSmartphone className="size-5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 id={`walkthrough-${appId}`} className="text-headline font-semibold text-ink">
-              Record one walkthrough of your app
+              Add a screen recording of your app
             </h2>
             <Badge tone="outline">Optional</Badge>
           </div>

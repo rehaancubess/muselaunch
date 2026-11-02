@@ -20,7 +20,8 @@ import {
 } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import type { Platform } from "@muselaunch/platform";
-import { isTerminalJob, reasonText } from "./state";
+import { realAppMedia } from "./defaults";
+import { isTerminalJob, reasonText, STAGE_ORDER, tagOf } from "./state";
 
 type Step = AutopilotProgressStep;
 type State = Step["state"];
@@ -61,7 +62,7 @@ function currentState(status: Autopilot["status"]): State {
 /** Models and labelled external services, as people know them (order: the Meta models first). */
 const MODEL_ORDER = ["Muse Wonder", "Muse Spark", "Muse Spark Open", "SAM 3.1", "Muse Voice Transcribe", "Muse Image", "Muse Glimmer"];
 
-function usageName(u: Pick<ModelUsageEvent, "provider" | "model" | "operation">): string | null {
+export function usageName(u: Pick<ModelUsageEvent, "provider" | "model" | "operation">): string | null {
   if (u.provider === "baseten") return "Muse Spark Open";
   if (u.provider === "glimmer") return "Muse Glimmer";
   if (u.provider === "meta") {
@@ -118,12 +119,34 @@ export interface ProgressInput {
   compositions: Composition[];
 }
 
-/** Facts that change slowly (where the app came from, screenshots saved, App DNA counts, models used). */
+type Media = Omit<AutopilotProgress["media"], "ask">;
+
+/** Run states in which asking for footage still helps (the run hasn't ended). */
+const ASKING: readonly Autopilot["status"][] = ["running", "waiting_on_jobs", "awaiting_user", "paused"];
+
+/**
+ * Whether the screen should ask for a screen recording: "waiting" while the run is stopped at the
+ * `produce:media` decision; "early" when the app has no real footage at all once its link has been
+ * read (a website gives no screenshots) and the videos aren't made yet; otherwise null.
+ */
+export function mediaAsk(ap: Pick<Autopilot, "status" | "stage" | "waitingOn" | "compositionIds">, media: Media, opts: { importDone: boolean }): AutopilotProgress["media"]["ask"] {
+  if (ap.status === "awaiting_user" && tagOf(ap.waitingOn.reason) === "produce:media") return "waiting";
+  if (media.screenshots + media.recordings > 0) return null;
+  // A store listing's screenshots are still being saved: don't ask before they had a chance.
+  if (!opts.importDone) return null;
+  if (!ASKING.includes(ap.status) || ap.compositionIds.length) return null;
+  return STAGE_ORDER.indexOf(ap.stage) <= STAGE_ORDER.indexOf("produce") ? "early" : null;
+}
+
+/** Facts that change slowly (where the app came from, screenshots saved, App DNA counts, models used, real footage). */
 interface Settled {
   source: AutopilotProgress["source"];
   screenshots?: number;
   learn?: Step["facts"];
   madeWith: string[];
+  media: Media;
+  /** The app's link has been read (or there is nothing to read). */
+  importDone: boolean;
 }
 
 /**
@@ -138,13 +161,15 @@ async function settledFacts(ws: WorkspaceDb, ap: Autopilot, importJob: Job | nul
   const key = `${ap.workspaceId}:${ap.id}:${ap.updatedAt}`;
   const hit = settledCache.get(key);
   if (hit && Date.now() - hit.at < SETTLED_TTL_MS) return hit.value;
-  const [app, dna, made] = await Promise.all([ws.collection("apps").get(ap.appId), ws.collection("brandProfiles").get(ap.appId), madeWith(ws, ap)]);
+  const [app, dna, made, media] = await Promise.all([ws.collection("apps").get(ap.appId), ws.collection("brandProfiles").get(ap.appId), madeWith(ws, ap), realAppMedia(ws, ap.appId)]);
   const importId = app?.lastImportId ?? (importJob?.payload as { importId?: string } | undefined)?.importId;
   const imp = importId ? await ws.collection("appImports").get(importId) : null;
   const kinds = imp?.sources.map((s) => s.kind) ?? [];
   const value: Settled = {
     source: kinds.includes("app_store") ? "app_store" : kinds.includes("google_play") ? "google_play" : kinds.includes("website") ? "website" : kinds.length ? "description" : null,
     madeWith: made,
+    media,
+    importDone: !imp || ["analyzing", "succeeded", "partial", "failed"].includes(imp.status),
   };
   // Screenshots are saved before the import moves on to analysis.
   if (imp?.importedAssetIds.length && ["analyzing", "succeeded", "partial"].includes(imp.status)) {
@@ -256,5 +281,5 @@ export async function autopilotProgress(p: Platform, workspaceId: string, input:
     }
     return { key, state, facts: facts[key], ...(live ? { live } : {}) };
   });
-  return { source, steps, videos, madeWith: settled.madeWith };
+  return { source, steps, videos, madeWith: settled.madeWith, media: { ...settled.media, ask: mediaAsk(ap, settled.media, { importDone: settled.importDone }) } };
 }

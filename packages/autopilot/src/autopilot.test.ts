@@ -1,7 +1,7 @@
 import type { Autopilot } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
 import { brandGate } from "@muselaunch/agents";
-import { autopilotDetail, cancelAutopilot, decideCheckpoint, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
+import { autopilotDetail, cancelAutopilot, decideCheckpoint, needsYou, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
 import { tagOf } from "./state";
 import { type MetaRoute, responsesBody, toolNames } from "@muselaunch/agents/testing";
 import { autopilotDecisionRoute, autopilotHarness, type AutopilotHarness } from "./testing";
@@ -116,6 +116,22 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(detail.runs).toHaveLength(3);
     expect(detail.jobs.map((j) => j.type)).toEqual(expect.arrayContaining(["research.run", "campaign.generate_concepts", "storyboard.generate", "brand.review", "render.final", "video.review", "copy.generate", "experiment.analyze", "recommendations.generate"]));
     expect(detail.checkpoint).toBeNull();
+    // The run's model cost covers every job it started (research, plans, checks…), not only its own
+    // Wonder decisions (Autopilot.spent.usd), and matches the usage records of those calls.
+    expect(detail.cost).not.toBeNull();
+    const cost = detail.cost!;
+    expect(cost.complete).toBe(true);
+    expect(cost.usd).toBeGreaterThan(ap.spent.usd);
+    const usage = (await h.p.db.ws(h.wid).collection("modelUsage").list({ limit: 2000 })).items;
+    const jobIds = new Set(detail.jobs.map((j) => j.id));
+    const runIds = new Set(ap.agentRunIds);
+    const delegated = usage.filter((u) => (u.jobId && jobIds.has(u.jobId)) || (u.agentRunId && runIds.has(u.agentRunId)));
+    expect(cost.calls).toBeGreaterThanOrEqual(delegated.length);
+    expect(cost.usd).toBeGreaterThanOrEqual(Math.round(delegated.reduce((n, u) => n + u.costUsdEstimate, 0) * 10_000) / 10_000 - 0.0001);
+    expect(cost.byModel.map((m) => m.name)).toEqual(expect.arrayContaining(["Muse Wonder", "Muse Spark"]));
+    // Nothing to ask for: the app has real screenshots.
+    expect(detail.progress.media).toMatchObject({ ask: null });
+    expect(detail.progress.media.screenshots).toBeGreaterThan(0);
 
     // Tenancy: invisible from another workspace
     await expect(h.p.db.ws("ws_other").collection("autopilots").getOrThrow(id)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -147,6 +163,11 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const detail = await autopilotDetail(h.p, h.wid, id);
     expect(detail.checkpoint).toMatchObject({ action: "agent_continue", status: "pending" });
     expect(detail.checkpoint?.summary).toMatch(/no screenshots or screen recordings of it yet/);
+    // The progress screen and the Needs-you card offer the recording upload right there.
+    expect(detail.progress.media).toEqual({ screenshots: 0, recordings: 0, ask: "waiting" });
+    expect(detail.progress.steps.find((s) => s.key === "make")?.state).toBe("needs_you");
+    const owner = await needsYou(h.p, h.wid, { role: "owner", canPublish: true, canManageAccounts: true, status: "active" }, { appId: h.appId });
+    expect(owner.items.find((i) => i.autopilotId === id)).toMatchObject({ kind: "decision", title: "Add a screen recording or screenshots of your app", preview: { needsMedia: true }, canDecide: true });
     const jobs = (await ws.collection("jobs").list({ where: [["appId", "==", h.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
     expect(jobs.some((j) => j.type === "storyboard.generate")).toBe(false);
     const budgetBefore = ap.budget.maxCredits;

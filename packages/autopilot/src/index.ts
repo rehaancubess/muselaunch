@@ -12,7 +12,8 @@ export { planAutoStart, startAutoAutopilot, tryStartAutoAutopilot, AUTO_VARIANTS
 export { autopilotSettings, defaultGoal, dnaJobsInFlight } from "./defaults";
 export { needsYou } from "./needs-you";
 export { startAutopilot, pauseAutopilot, resumeAutopilot, cancelAutopilot, decideCheckpoint, autopilotDetail, estimateAutopilot, type AutopilotDetail } from "./service";
-export { autopilotProgress } from "./progress";
+export { autopilotProgress, mediaAsk } from "./progress";
+export { runCost, summarizeCost } from "./cost";
 export { setAutopilotClock, reasonText, tagOf, STAGE_ORDER } from "./state";
 export { MAX_FIX_ROUNDS, MEASURE_DAYS } from "./stages";
 
