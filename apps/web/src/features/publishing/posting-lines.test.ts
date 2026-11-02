@@ -43,7 +43,8 @@ describe("Where do you post? (posting-lines.ts)", () => {
   it("one plain line each; anything that can't post falls back to posting it yourself", () => {
     const [ig, yt, , li, x] = platformStates(data, "app_1");
     expect(platformLine(x!, true)).toBe("X: connected as @tidy. Posts go out there after you approve them.");
-    expect(platformLine(yt!, true)).toBe("YouTube posting is waiting for Google’s review of MuseLaunch, so you’ll get the video and caption to post yourself.");
+    expect(platformLine(yt!, true)).toBe("YouTube is waiting for Google’s review of MuseLaunch. Until then only test accounts can connect (try Connect if yours is one); otherwise you’ll get the video and caption to post yourself.");
+    expect(platformLine(yt!, false)).not.toMatch(/try Connect/);
     expect(platformLine(ig!, true)).toBe("Posting to Instagram isn’t set up on MuseLaunch yet, so you’ll get the video and caption to post yourself.");
     expect(platformLine(li!, true)).toContain("Connect it, or you’ll get the video and caption to post yourself.");
     expect(platformLine(li!, false)).toContain("ask the workspace owner to connect it");

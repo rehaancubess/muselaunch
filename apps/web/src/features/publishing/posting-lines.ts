@@ -44,7 +44,8 @@ export function platformLine(s: PlatformState, canConnect: boolean): string {
     case "available":
       return canConnect ? `${s.label} isn’t connected yet. Connect it, or you’ll get the video and caption to post yourself.` : `${s.label} isn’t connected yet: ask the workspace owner to connect it. Until then you’ll get the video and caption to post yourself.`;
     case "pending_review":
-      return `${s.label} posting is waiting for ${reviewer}’s review of MuseLaunch, so you’ll get the video and caption to post yourself.`;
+      // Before the platform's review, accounts added to MuseLaunch's developer app as testers can still connect.
+      return `${s.label} is waiting for ${reviewer}’s review of MuseLaunch. Until then only test accounts can connect${canConnect ? " (try Connect if yours is one)" : ""}; otherwise you’ll get the video and caption to post yourself.`;
     case "not_configured":
       return `Posting to ${s.label} isn’t set up on MuseLaunch yet, so you’ll get the video and caption to post yourself.`;
   }

@@ -229,7 +229,7 @@ export function WherePostPicker({ app, back, beforeConnect, narrow, className }:
           {chosen.map((s) => (
             <li key={s.channel} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-footnote text-ink-2">
               <span className="min-w-0 flex-1 basis-60 text-pretty">{platformLine(s, canConnect)}</span>
-              {s.state === "available" && canConnect ? (
+              {(s.state === "available" || s.state === "pending_review") && canConnect ? (
                 <Button size="sm" variant="outline" className="h-11 px-4 sm:h-8 sm:px-3" icon={<Link2 aria-hidden />} loading={busy === s.channel} disabled={busy !== null} onClick={() => void connect(s)}>
                   Connect {s.label}
                 </Button>
