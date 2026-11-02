@@ -13,6 +13,7 @@ import { can, type App, type Approval, type Autopilot, type BrandReview, type Ca
 import type { WorkspaceDb } from "@muselaunch/db";
 import { APPROVER_CAP, currentSubjectHash } from "@muselaunch/growth";
 import type { Platform } from "@muselaunch/platform";
+import { ALWAYS_ON_ACTOR, alwaysOnNeedsYouItem } from "./always-on-loop";
 import { reasonText, tagOf } from "./state";
 
 type Member = Pick<WorkspaceMember, "role" | "canPublish" | "canManageAccounts" | "status">;
@@ -38,6 +39,8 @@ export async function needsYou(p: Platform, workspaceId: string, member: Member,
     ws.collection("agentRuns").getMany(ids("agentRuns")),
   ]);
   const comps = await ws.collection("compositions").getMany([...new Set(posts.flatMap((x) => (x.compositionId ? [x.compositionId] : [])))]);
+  // Always on's own decisions (research suggestions, the pace decision) belong to an app.
+  const alwaysOnApps = new Map((await ws.collection("apps").getMany([...new Set(pending.filter((a) => a.requestedBy === ALWAYS_ON_ACTOR && a.appId).map((a) => a.appId!))])).map((x) => [x.id, x]));
   const byId = <T extends { id: string }>(xs: T[]) => new Map(xs.map((x) => [x.id, x]));
   const [apMap, postMap, draftMap, runMap, compMap] = [byId(autopilots), byId(posts), byId(drafts), byId(runs), byId(comps)];
   const has = (cap: Capability) => can(member, cap);
@@ -54,13 +57,14 @@ export async function needsYou(p: Platform, workspaceId: string, member: Member,
   items.push(...(await brandCheckItems(ws, opts.appId, has, loops)));
   // Decisions that block a running loop first, then "About your app" (it shapes everything made next),
   // then blocked videos, then posts in the order they'd go out.
-  const RANK: Record<NeedsYouItem["kind"], number> = { spend: 0, decision: 0, app_dna: 1, brand_check: 2, post: 3, outreach: 3 };
+  const RANK: Record<NeedsYouItem["kind"], number> = { spend: 0, decision: 0, app_dna: 1, brand_check: 2, post: 3, outreach: 3, suggestion: 4 };
   items.sort((a, b) => RANK[a.kind] - RANK[b.kind] || (a.preview?.scheduledAt ?? "￿").localeCompare(b.preview?.scheduledAt ?? "￿") || b.createdAt.localeCompare(a.createdAt));
   const limited = items.slice(0, opts.limit ?? 50);
   return { items: limited, count: items.length };
 
   async function toItem(a: Approval, base: Pick<NeedsYouItem, "id" | "action" | "appId" | "createdAt" | "subject" | "credits" | "stale">, cap: Capability): Promise<NeedsYouItem | null> {
     const appPath = a.appId ? `/a/${a.appId}` : "";
+    if (a.requestedBy === ALWAYS_ON_ACTOR) return alwaysOnNeedsYouItem(a, base, has, a.appId ? alwaysOnApps.get(a.appId) : undefined);
     switch (a.subject.entity) {
       case "autopilots": {
         const ap = apMap.get(a.subject.id);

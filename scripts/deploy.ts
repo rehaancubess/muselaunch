@@ -250,10 +250,12 @@ for (const svc of [SVC.worker, SVC.render]) {
   sh(`gcloud run services add-iam-policy-binding ${svc} --region=${REGION} --member=serviceAccount:${TASKS_SA} --role=roles/run.invoker --project=${PROJECT} --quiet`, { quiet: true });
 }
 // Crons: publish approved posts whose scheduled time has arrived (every minute); wake Growth
-// Autopilot loops whose measurement window ended and repair missed job-completion resumes (every 5 min).
+// Autopilot loops whose measurement window ended and repair missed job-completion resumes (every 5 min);
+// Always on (hourly; its research sweep and email are weekly per app, whatever the tick rate).
 for (const [name, schedule] of [
   ["publish-due", "* * * * *"],
   ["autopilot-wake", "*/5 * * * *"],
+  ["always-on", "17 * * * *"],
 ] as const) {
   const cronUri = `${url(SVC.worker)}/tasks/cron/${name}`;
   const cronFlags = `--schedule="${schedule}" --uri=${cronUri} --http-method=POST --oidc-service-account-email=${TASKS_SA} --oidc-token-audience=${url(SVC.worker)} --location=${REGION} --project=${PROJECT}`;

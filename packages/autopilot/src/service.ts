@@ -35,7 +35,7 @@ export async function startAutopilot(
   appId: string,
   input: StartInput,
   actor: string,
-  opts: { auto?: Autopilot["auto"]; notes?: string[] } = {},
+  opts: { auto?: Autopilot["auto"]; notes?: string[]; alwaysOn?: Autopilot["alwaysOn"]; summary?: string } = {},
 ): Promise<{ autopilot: Autopilot; job: Job }> {
   const ws = p.db.ws(workspaceId);
   await ws.collection("apps").getOrThrow(appId);
@@ -44,7 +44,9 @@ export async function startAutopilot(
     throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "Autopilot is already running for this app. Pause or stop it first." });
   }
   const renders = input.autoApproveCredits ? `final renders run without asking up to ${input.autoApproveCredits} credits` : "final renders ask you first";
-  const summary = opts.auto
+  const summary = opts.summary
+    ? opts.summary
+    : opts.auto
     ? `Started automatically (Autopilot is on). Goal: “${input.goal}”. Budget ${input.maxCredits} credits for one full run: research, ${input.variants} video${input.variants > 1 ? "s" : ""}, checks, renders, post drafts and analysis; ${renders}. Posts, outreach and anything over budget always wait for your approval.${opts.notes?.length ? ` ${opts.notes.join(" ")}` : ""}`
     : `Started with goal “${input.goal}”. Budget ${input.maxCredits} credits, ${input.maxIterations} iteration(s), ${input.variants} variant(s); renders auto-approved up to ${input.autoApproveCredits} credits. Posts always need your approval.`;
   const autopilot = await ws.collection("autopilots").create(
@@ -58,6 +60,7 @@ export async function startAutopilot(
       waitingOn: { jobIds: [] },
       log: [{ at: new Date(nowMs(p)).toISOString(), stage: "understand", kind: "decision", summary: summary.slice(0, 1200), refs: [] }],
       ...(opts.auto ? { auto: opts.auto } : {}),
+      ...(opts.alwaysOn ? { alwaysOn: opts.alwaysOn } : {}),
     },
     { actor },
   );

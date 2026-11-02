@@ -7,6 +7,7 @@ import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growt
 import { AppError, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
+import { ALWAYS_ON_NEXT_INSTRUCTIONS, alwaysOnFocusLine, alwaysOnMeasure, alwaysOnNextRound, alwaysOnResearch, alwaysOnTimes, NEXT_ROUND_TAG } from "./always-on-loop";
 import { decide } from "./decide";
 import { defaultGoal, dnaJobsInFlight, hasRealAppMedia, screenJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
@@ -134,11 +135,14 @@ const understand: StageFn = async (env, step) => {
 
 const research: StageFn = async (env, step) => {
   if (step.phase !== "resume") {
+    // Always on: this week's research is reused instead of paid for again.
+    const reuse = await alwaysOnResearch(env);
+    if (reuse) return reuse;
     const gate = await env.budgetGate(env.estimate("research.run"), "research", step.approved);
     if (gate) return gate;
     const app = await env.ws.collection("apps").getOrThrow(env.appId);
     const lastLearn = [...env.fullLog].reverse().find((e) => e.stage === "learn" && e.kind === "decision");
-    const focus = clip(`${env.ap.goal}${lastLearn && env.iteration > 1 ? ` — iteration ${env.iteration} focus: ${lastLearn.summary}` : ""}`, 1000);
+    const focus = clip(`${env.ap.goal}${lastLearn && env.iteration > 1 ? ` — iteration ${env.iteration} focus: ${lastLearn.summary}` : ""}${env.ap.alwaysOn?.roundFocus ? ` — ${alwaysOnFocusLine(env)}` : ""}`, 1000);
     const rrId = hashId("rsr", env.ap.id, env.iteration);
     await env.ws.collection("researchRuns").createIfAbsent(
       { id: rrId, appId: env.appId, kinds: [...RESEARCH_KINDS], status: "queued", inputs: { countries: app.targetCountries, languages: app.targetLanguages, channels: [], competitorIds: [], focus } },
@@ -189,6 +193,7 @@ const selectAudience: StageFn = async (env) => {
     instructions: "Compare three plausible audiences for this goal using the research (two only if the app and findings genuinely support no third), then choose ONE for this iteration with call choose_audience. Prefer audiences the app's real features serve and that the findings show are reachable now.",
     input: [
       `Goal: ${env.ap.goal}`,
+      alwaysOnFocusLine(env),
       memory.items.length ? `Team memory:\n${memory.summary}` : "",
       `Audience segments (id | origin | name | pains):\n${segments.map((s) => `- ${s.id} | ${s.origin} | ${s.name} | ${s.painPoints.slice(0, 3).join("; ")}`).join("\n") || "(none)"}`,
       untrusted("research_findings", findingLines(findings) || "(no findings)", 14_000),
@@ -236,10 +241,13 @@ const hypothesis: StageFn = async (env) => {
     instructions: `Write ONE testable hypothesis for this iteration and call set_hypothesis. It must compare ${n} creative approach(es) (${n > 1 ? "control + challenger(s)" : "a single treatment"}) on a primary metric the founder can actually measure (views, clicks, installs, trials_started, new_subscriptions...). Do not promise results.`,
     input: [
       `Goal: ${env.ap.goal}`,
+      alwaysOnFocusLine(env),
       `Chosen audience: ${env.ap.audience?.description ?? "(none)"}\nWhy: ${env.ap.audience?.rationale ?? ""}`,
       untrusted("research_findings", findingLines(findings) || "(no findings)", 12_000),
       untrusted("app_dna", dnaSummary(app), 6000),
-    ].join("\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     tool: {
       name: "set_hypothesis",
       description: "Record the hypothesis, primary metric and the labels of the creative variants to compare.",
@@ -305,7 +313,7 @@ const planCreative: StageFn = async (env, step) => {
         name: truncateWords(`Autopilot ${env.iteration}: ${env.ap.audience?.description ?? env.ap.goal}`, 60),
         goal: GOAL_BY_METRIC[h?.primaryMetric ?? ""] ?? "awareness",
         request: clip(
-          [`Goal: ${env.ap.goal}`, `Audience: ${env.ap.audience?.description ?? ""}`, `Hypothesis to test: ${h?.statement ?? ""}`, `Make strategically distinct short vertical videos so the variants test the hypothesis (primary metric: ${h?.primaryMetric ?? "views"}).`].join("\n"),
+          [`Goal: ${env.ap.goal}`, ...(env.ap.alwaysOn?.roundFocus ? [alwaysOnFocusLine(env)] : []), `Audience: ${env.ap.audience?.description ?? ""}`, `Hypothesis to test: ${h?.statement ?? ""}`, `Make strategically distinct short vertical videos so the variants test the hypothesis (primary metric: ${h?.primaryMetric ?? "views"}).`].join("\n"),
           4000,
         ),
         channels: channels.length ? channels : ["instagram", "tiktok"],
@@ -744,7 +752,9 @@ const schedule: StageFn = async (env, step) => {
   const packs = (await env.ws.collection("copyPacks").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
   const existing = (await env.ws.collection("scheduledPosts").list({ where: [["campaignId", "==", campaignId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items;
   const tz = (await env.p.db.top("workspaces").get(env.ctx.workspaceId))?.settings.defaultTimezone ?? "UTC";
-  const times = await suggestTimes(env.ws, env.appId, { channel, count: Math.max(1, comps.length) }, tz, nowMs(env.p));
+  // Always on: spread over the next free posting days at the app's pace (labelled by where the time comes from).
+  const spread = env.ap.alwaysOn ? await alwaysOnTimes(env, channel, Math.max(1, comps.length), tz) : null;
+  const times = spread ?? (await suggestTimes(env.ws, env.appId, { channel, count: Math.max(1, comps.length) }, tz, nowMs(env.p)));
   const postIds: string[] = [];
   const refs: EntityRef[] = [];
   // Each post gets its own tracked link to the app's store page / site, tagged with the experiment
@@ -800,7 +810,7 @@ const schedule: StageFn = async (env, step) => {
   if (exp) await env.ws.collection("experiments").update(exp.id, { launchWindow: { start: new Date(start).toISOString(), end: new Date(start + MEASURE_DAYS * DAY_MS).toISOString() } }, { actor: env.ctx.actor });
   env.note(
     "action",
-    `Drafted ${postIds.length} ${channel} post(s) with suggested times (${times.basis === "your_results" ? "from your own results" : "general heuristic"}). Each post is awaiting your approval — nothing is published without you.`,
+    `Drafted ${postIds.length} ${channel} post(s) with suggested times (${"spreadLabel" in times ? times.spreadLabel : times.basis === "your_results" ? "from your own results" : "general heuristic"}). Each post is awaiting your approval — nothing is published without you.`,
     [...refs, ...(exp ? [ref("experiments", exp.id)] : [])],
   );
   return { kind: "advance", to: "measure" };
@@ -811,6 +821,9 @@ const schedule: StageFn = async (env, step) => {
 // ---------------------------------------------------------------------------
 
 const measure: StageFn = async (env, step) => {
+  // Always on: go on as soon as the coming week isn't covered; otherwise wait for the next post to go out.
+  const always = await alwaysOnMeasure(env);
+  if (always) return always;
   const exp = env.ap.hypothesis?.experimentId ? await env.ws.collection("experiments").get(env.ap.hypothesis.experimentId) : null;
   if (step.phase !== "resume") {
     const until = exp?.launchWindow.end ? Date.parse(exp.launchWindow.end) : nowMs(env.p) + MEASURE_DAYS * DAY_MS;
@@ -842,6 +855,8 @@ const measure: StageFn = async (env, step) => {
 // ---------------------------------------------------------------------------
 
 const learn: StageFn = async (env, step) => {
+  // Always on, waiting for its weekly allowance or for credits: check again (no second analysis).
+  if (step.tag === NEXT_ROUND_TAG) return (await alwaysOnNextRound(env)) ?? { kind: "done", summary: "Always on was turned off." };
   const expId = env.ap.hypothesis?.experimentId;
   if (step.phase !== "resume") {
     const gate = await env.budgetGate(env.estimate("experiment.analyze") + env.estimate("recommendations.generate"), "reading results and next steps", step.approved);
@@ -873,9 +888,11 @@ const learn: StageFn = async (env, step) => {
   if (recs.length) env.note("observation", `Next steps: ${recs.map((r) => r.title).join(" · ")}`, recs.map((r) => ref("recommendations", r.id)));
   else if (recJob && recJob.status !== "succeeded") env.note("error", `Next steps didn't complete: ${jobError(recJob)}`, [ref("jobs", recJob.id)]);
 
-  if (env.iteration >= env.ap.budget.maxIterations) return { kind: "done", summary: `Finished ${env.iteration} round${env.iteration === 1 ? "" : "s"}.` };
+  // Always on: no round cap; the next round is paced by the weekly allowance instead (always-on-loop.ts).
+  const always = Boolean(env.ap.alwaysOn);
+  if (!always && env.iteration >= env.ap.budget.maxIterations) return { kind: "done", summary: `Finished ${env.iteration} round${env.iteration === 1 ? "" : "s"}.` };
   const spent = await env.spent();
-  if (spent >= env.ap.budget.maxCredits) {
+  if (!always && spent >= env.ap.budget.maxCredits) {
     env.note("budget", `Stopping before round ${env.iteration + 1}: the ${env.ap.budget.maxCredits}-credit limit is used (${spent}).`);
     return { kind: "done", summary: "Credit limit used." };
   }
@@ -883,16 +900,22 @@ const learn: StageFn = async (env, step) => {
   const { args, runId } = await decide(env, {
     name: "next_iteration",
     title: `Plan round ${env.iteration + 1}`,
-    instructions: "Decide whether another iteration is worthwhile and what it should test differently, based only on measured results, the recommendations and remembered lessons. With no measured data, prefer stopping unless a clearly different test is justified. Call plan_next_iteration.",
+    instructions: always
+      ? ALWAYS_ON_NEXT_INSTRUCTIONS
+      : "Decide whether another iteration is worthwhile and what it should test differently, based only on measured results, the recommendations and remembered lessons. With no measured data, prefer stopping unless a clearly different test is justified. Call plan_next_iteration.",
     input: [
       `Goal: ${env.ap.goal}`,
       `Hypothesis tested: ${env.ap.hypothesis?.statement ?? ""}`,
       result ? `Analysis (${result.confidence}): ${result.summary}\nMeasured: ${result.measured.map((m) => m.text).join(" | ") || "none"}\nLimitations: ${result.limitations.join(" | ")}` : "No analysis available.",
       `Recommendations: ${recs.map((r) => `${r.title} (${r.confidence})`).join(" | ") || "none"}`,
-      `Budget left: ${env.ap.budget.maxCredits - spent} credits`,
+      always ? "Always on: the next round is paced by the founder's weekly credit allowance." : `Budget left: ${env.ap.budget.maxCredits - spent} credits`,
     ].join("\n\n"),
     tool: { name: "plan_next_iteration", description: "Record whether to run another iteration and its focus.", schema: Schema },
   });
+  if (always) {
+    env.note("decision", `Next round (Always on): ${args.focus || "same approach, with whatever has been measured by then"}. Why: ${args.rationale}`, [ref("agentRuns", runId)], runId);
+    return (await alwaysOnNextRound(env)) ?? { kind: "done", summary: "Always on was turned off." };
+  }
   env.note("decision", `${args.continueLoop ? `Next round: ${args.focus}` : "Stopping here"}. Why: ${args.rationale}`, [ref("agentRuns", runId)], runId);
   if (!args.continueLoop) return { kind: "done", summary: "Muse Wonder decided not to start another round." };
   env.set({

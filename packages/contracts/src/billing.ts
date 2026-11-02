@@ -17,6 +17,12 @@ export const Plan = z.object({
     maxVideoSec: z.number().int().positive(),
     finalRendersPerDay: z.number().int().positive(),
     researchRunsPerDay: z.number().int().positive(),
+    /**
+     * Highest "Always on" posting pace (posts a week: 1, 3, 5 or 7). One new video costs roughly
+     * 70–90 credits, so the pace follows the monthly credits. Missing in a PLANS_JSON override →
+     * the default plan's value (platform loadPlans merges limits).
+     */
+    postsPerWeek: z.number().int().min(1).max(7),
   }),
 });
 export type Plan = z.infer<typeof Plan>;
@@ -28,25 +34,25 @@ export const DEFAULT_PLANS: Record<PlanId, Plan> = {
     name: "Free beta",
     monthlyCredits: 300,
     // 60 s: videos default to 30–60 s for everyone (storyboards clamp to the plan's maxVideoSec).
-    limits: { apps: 2, members: 2, concurrentJobs: 2, maxVideoSec: 60, finalRendersPerDay: 5, researchRunsPerDay: 3 },
+    limits: { apps: 2, members: 2, concurrentJobs: 2, maxVideoSec: 60, finalRendersPerDay: 5, researchRunsPerDay: 3, postsPerWeek: 1 },
   },
   starter: {
     id: "starter",
     name: "Starter",
     monthlyCredits: 1500,
-    limits: { apps: 3, members: 3, concurrentJobs: 3, maxVideoSec: 60, finalRendersPerDay: 25, researchRunsPerDay: 10 },
+    limits: { apps: 3, members: 3, concurrentJobs: 3, maxVideoSec: 60, finalRendersPerDay: 25, researchRunsPerDay: 10, postsPerWeek: 3 },
   },
   growth: {
     id: "growth",
     name: "Growth",
     monthlyCredits: 5000,
-    limits: { apps: 10, members: 8, concurrentJobs: 5, maxVideoSec: 90, finalRendersPerDay: 100, researchRunsPerDay: 30 },
+    limits: { apps: 10, members: 8, concurrentJobs: 5, maxVideoSec: 90, finalRendersPerDay: 100, researchRunsPerDay: 30, postsPerWeek: 5 },
   },
   studio: {
     id: "studio",
     name: "Studio",
     monthlyCredits: 15000,
-    limits: { apps: 50, members: 25, concurrentJobs: 10, maxVideoSec: 180, finalRendersPerDay: 400, researchRunsPerDay: 100 },
+    limits: { apps: 50, members: 25, concurrentJobs: 10, maxVideoSec: 180, finalRendersPerDay: 400, researchRunsPerDay: 100, postsPerWeek: 7 },
   },
 };
 

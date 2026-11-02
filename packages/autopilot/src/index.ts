@@ -11,6 +11,21 @@ export { installAutopilotHooks, wakeDueAutopilots, autoRecommendOnNewData, AUTO_
 export { planAutoStart, startAutoAutopilot, tryStartAutoAutopilot, AUTO_VARIANTS } from "./auto";
 export { autopilotSettings, defaultGoal, dnaJobsInFlight } from "./defaults";
 export { needsYou } from "./needs-you";
+export { alwaysOnState, alwaysOnStatus, decidePace, decideSuggestion, ensureAlwaysOnLoop, runAlwaysOn, summaryEmail, updateAlwaysOn, weeklySummary, type AlwaysOnStart, type AlwaysOnTick } from "./always-on";
+export {
+  ALWAYS_ON_ACTOR,
+  alwaysOnSpent,
+  alwaysOnView,
+  clampPace,
+  FIX_ROOM_ROUNDS,
+  paceLimit,
+  postQueue,
+  roundCredits,
+  SUGGESTIONS_PER_WEEK,
+  videoCredits,
+  weekSlots,
+  weeklyAllowance,
+} from "./always-on-loop";
 export { startAutopilot, pauseAutopilot, resumeAutopilot, cancelAutopilot, decideCheckpoint, autopilotDetail, estimateAutopilot, type AutopilotDetail } from "./service";
 export { autopilotProgress, mediaAsk } from "./progress";
 export { runCost, summarizeCost } from "./cost";
