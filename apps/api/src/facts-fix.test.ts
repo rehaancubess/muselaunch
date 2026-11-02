@@ -76,7 +76,7 @@ describe("Fact check one-tap fixes (POST /posts/:id/facts/remove | confirm)", ()
     expect(posts.every((x: J) => x.status === "draft")).toBe(true);
     const v = await view(posts[0].id);
     const fc = PostFactCheck.parse(v.factCheck);
-    expect(fc).toMatchObject({ ok: false, message: "This post mentions racing and bowling, which aren’t in your confirmed facts yet.", quotes: ["racing, bowling"], statements: ["Tidy Timer has racing and bowling games."] });
+    expect(fc).toMatchObject({ ok: false, message: "This post mentions racing and bowling, which aren’t in your confirmed facts yet.", quotes: ["racing, bowling"], excerpts: ["Arcade, racing, bowling & co-op fun for game night."], statements: ["Tidy Timer has racing and bowling games."] });
     expect(v.preflight.errors[0]).toBe("This post mentions racing and bowling, which aren’t in your confirmed facts yet. Remove it or confirm it as a fact, then ask for approval.");
     expect(fc.preflightError).toBe(v.preflight.errors[0]);
     // Autopilot noted why it left the drafts, and nothing reached Needs you.

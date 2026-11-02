@@ -138,8 +138,10 @@ export const PostFactCheck = z.object({
   ),
   /** e.g. "This post mentions racing and bowling, which aren't in your confirmed facts yet." */
   message: z.string().max(600),
-  /** The words in the copy, e.g. "arcade, racing, bowling & co-op fun". */
+  /** The words in the copy, e.g. "racing, bowling". */
   quotes: z.array(z.string().max(300)).max(6).default([]),
+  /** The sentences of the post that say them, e.g. "Arcade, racing, bowling & co-op fun for game night." */
+  excerpts: z.array(z.string().max(300)).max(4).default([]),
   /** What "It's true, add it" confirms as facts; empty when it can't be offered (prohibited wording only). */
   statements: z.array(z.string().max(500)).max(3),
   /** The preflight error this replaces in the UI (so it isn't shown twice). */

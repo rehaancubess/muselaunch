@@ -95,6 +95,7 @@ export function factCheckOfPack(pack: CopyPack, fixJob?: Pick<Job, "id" | "statu
     issues,
     message: issues.length ? factMessage(issues) : "The post’s copy passed the fact check.",
     quotes: dedupe(issues.map((i) => i.quote ?? "").filter(Boolean)).slice(0, 6),
+    excerpts: dedupe(issues.map((i) => (i.quote ? sentenceWith(textOf(i.itemId), i.quote) : undefined) ?? (i.terms[0] ? sentenceWith(textOf(i.itemId), i.terms[0]) : undefined) ?? "").filter(Boolean)).slice(0, 4),
     statements,
     ...(fix ? { fix } : {}),
   };
