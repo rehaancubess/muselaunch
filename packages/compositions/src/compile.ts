@@ -128,13 +128,35 @@ interface DeviceSpec {
   outerRadius: number; // fraction of device width
   screenRadius: number;
 }
+
+/**
+ * A modern thin-bezel TV (fractions of the TV's width): a 16:9 screen, an even thin bezel, and a
+ * slim pedestal stand below the panel. The whole frame has a fixed aspect, so the box sizes by width.
+ */
+export const TV = (() => {
+  const bezel = 0.011;
+  const screenH = ((1 - bezel * 2) * 9) / 16;
+  const panel = screenH + bezel * 2;
+  const stand = 0.052;
+  return { bezel, panel, stand, aspect: 1 / (panel + stand) };
+})();
 const DEVICES: Record<string, DeviceSpec> = {
   iphone: { aspect: 0.4885, bezel: 0.042, outerRadius: 0.165, screenRadius: 0.128 },
   android: { aspect: 0.47, bezel: 0.03, outerRadius: 0.12, screenRadius: 0.1 },
   ipad: { aspect: 0.75, bezel: 0.045, outerRadius: 0.06, screenRadius: 0.035 },
   browser: { aspect: null, bezel: 0, outerRadius: 0.018, screenRadius: 0 },
   macbook: { aspect: 1.56, bezel: 0.025, outerRadius: 0.03, screenRadius: 0.012 },
+  tv: { aspect: TV.aspect, bezel: TV.bezel, outerRadius: 0.007, screenRadius: 0.0025 },
 };
+
+/**
+ * How the media is cover-fitted into a device screen: top-aligned on phones, tablets, browsers and
+ * laptops (an app's top bar stays visible); centred on a TV (game/TV footage has no top bar).
+ */
+export function screenAlign(device: string): "top" | "center" {
+  return device === "tv" ? "center" : "top";
+}
+
 export interface DeviceGeometry {
   /** Device size and offset inside the layer box (px). */
   dw: number;
@@ -164,6 +186,11 @@ export function deviceGeometry(device: string, w: number, h: number): DeviceGeom
     const bz = dw * spec.bezel;
     const border = Math.max(1, dw * 0.003);
     return { dw, dh, ox, oy, screen: { left: ox + dw * 0.06 + border + bz, top: oy + border + bz, width: dw * 0.88 - bz * 2, height: dh * 0.9 - bz * 2.2 } };
+  }
+  if (device === "tv") {
+    const bz = dw * TV.bezel;
+    const sw = dw - bz * 2;
+    return { dw, dh, ox, oy, screen: { left: ox + bz, top: oy + bz, width: sw, height: (sw * 9) / 16 } };
   }
   const bz = dw * spec.bezel;
   return { dw, dh, ox, oy, screen: { left: ox + bz, top: oy + bz, width: dw - bz * 2, height: dh - bz * 2 } };
@@ -727,6 +754,8 @@ function deviceHtml(ctx: Ctx, layer: DeviceL, w: number, h: number, win: Window,
   const fc = FRAME_COLORS[layer.frameColor] ?? FRAME_COLORS.black!;
   const media = mediaElement(ctx, layer.screenAssetId, layer.screenKind === "video" ? `v-${layer.id}` : `i-${layer.id}`, win, {
     cls: "media",
+    // Same fit as mediaToScreen (build.ts) assumes, so focus/tap/blur regions land on the right pixels.
+    ...(screenAlign(layer.device) === "center" ? { style: "object-position:50% 50%" } : {}),
     trimIn: layer.trimInSec,
     rate: layer.screenKind === "video" ? (layer.playbackRate ?? 1) : 1,
     muted: true,
@@ -764,6 +793,30 @@ function deviceHtml(ctx: Ctx, layer: DeviceL, w: number, h: number, win: Window,
 <div style="position:absolute;left:${px(dw * 0.06)};top:0;width:${px(dw * 0.88)};height:${px(lidH)};border-radius:${px(r)} ${px(r)} ${px(r * 0.3)} ${px(r * 0.3)};background:#0d0d0f;border:${px(Math.max(1, dw * 0.003))} solid ${fc.edge};${shadow}">
 <div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(dw * 0.88 - bz * 2)};height:${px(lidH - bz * 2.2)};border-radius:${px(dw * spec.screenRadius)}">${media}${screenExtra}</div></div>
 <div style="position:absolute;left:0;top:${px(lidH)};width:100%;height:${px(dh - lidH)};border-radius:0 0 ${px(dh * 0.08)} ${px(dh * 0.08)};background:linear-gradient(${fc.hi},${fc.body} 45%,${fc.edge})"></div></div>`);
+  }
+  if (layer.device === "tv") {
+    // Thin near-black bezel with a faint metal rim, glass sheen on the screen, slim pedestal stand.
+    const sw = g.screen.width;
+    const sh = g.screen.height;
+    const bz = g.screen.left - ox;
+    const panelH = sh + bz * 2;
+    const standH = dh - panelH;
+    const R = dw * spec.outerRadius;
+    const rim = Math.max(1, dw * 0.0016);
+    const neckW = dw * 0.042;
+    const baseW = dw * 0.27;
+    const baseH = Math.max(3, standH * 0.24);
+    const baseTop = dh - baseH - standH * 0.08;
+    const panelShadow = layer.shadow ? `0 ${px(dh * 0.05)} ${px(dh * 0.1)} rgba(15,20,35,.28),0 ${px(dh * 0.014)} ${px(dh * 0.03)} rgba(15,20,35,.2),` : "";
+    const floor = layer.shadow
+      ? `<div style="position:absolute;left:${px((dw - baseW * 1.5) / 2)};top:${px(baseTop + baseH * 0.2)};width:${px(baseW * 1.5)};height:${px(baseH * 1.9)};border-radius:50%;background:radial-gradient(closest-side,rgba(15,20,35,.32),rgba(15,20,35,0))"></div>`
+      : "";
+    return wrap(`<div class="dev dev-tv" style="left:${px(ox)};top:${px(oy)};width:${px(dw)};height:${px(dh)}">${floor}
+<div style="position:absolute;left:${px((dw - neckW) / 2)};top:${px(panelH - 1)};width:${px(neckW)};height:${px(baseTop - panelH + 2)};background:linear-gradient(90deg,${fc.edge},${fc.hi} 50%,${fc.edge})"></div>
+<div style="position:absolute;left:${px((dw - baseW) / 2)};top:${px(baseTop)};width:${px(baseW)};height:${px(baseH)};border-radius:${px(baseH * 0.35)} ${px(baseH * 0.35)} ${px(baseH * 0.5)} ${px(baseH * 0.5)};background:linear-gradient(${fc.hi},${fc.body} 38%,${fc.edge})"></div>
+<div class="dev-body" style="height:${px(panelH)};border-radius:${px(R)};background:linear-gradient(180deg,#1b1b1e,#0b0b0d 55%,#060607);box-shadow:${panelShadow}inset 0 0 0 ${px(rim)} ${withAlpha(fc.edge, 0.95)},inset 0 ${px(rim * 2)} ${px(rim * 2)} rgba(255,255,255,.06)">
+<div class="dev-screen" style="left:${px(bz)};top:${px(bz)};width:${px(sw)};height:${px(sh)};border-radius:${px(dw * spec.screenRadius)}">${media}<div style="position:absolute;inset:0;background:linear-gradient(118deg,rgba(255,255,255,.08),rgba(255,255,255,0) 34%);pointer-events:none;z-index:2"></div>${screenExtra}</div>
+</div></div>`);
   }
   const bz = dw * spec.bezel;
   const R = dw * spec.outerRadius;

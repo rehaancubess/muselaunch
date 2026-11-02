@@ -241,7 +241,7 @@ export type DeviceTilt = z.infer<typeof DeviceTilt>;
 /** Real app media shown inside an allowlisted device frame. */
 export const DeviceLayer = LayerBase.extend({
   type: z.literal("device"),
-  device: z.enum(["iphone", "android", "ipad", "browser", "macbook"]).default("iphone"),
+  device: z.enum(["iphone", "android", "ipad", "browser", "macbook", "tv"]).default("iphone"),
   screenAssetId: Id,
   screenKind: z.enum(["image", "video"]).default("image"),
   trimInSec: z.number().min(0).default(0),

@@ -317,7 +317,7 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
         <>
           <Group title="Device">
             <div className="grid grid-cols-2 gap-2">
-              <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={opts(["iphone", "android", "ipad", "browser", "macbook"])} onChange={(e) => set({ device: e.target.value }, "Change device")} />
+              <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={[...opts(["iphone", "android", "ipad", "browser", "macbook"]), { value: "tv", label: "TV" }]} onChange={(e) => set({ device: e.target.value }, "Change device")} />
               <Select selectSize="sm" aria-label="Frame colour" value={layer.frameColor} disabled={disabled} options={opts(["black", "silver", "natural", "white"])} onChange={(e) => set({ frameColor: e.target.value }, "Frame colour")} />
             </div>
             <div className="flex items-center justify-between">
