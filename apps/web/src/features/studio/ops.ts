@@ -27,6 +27,7 @@ export const TEMPLATE_LABELS: Record<string, string> = {
   "icon-reveal": "Icon reveal",
   "store-cta": "Store CTA",
   "fullscreen-showcase": "Full-screen showcase",
+  "fullscreen-recording": "Full-screen footage",
 };
 
 const rand = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "").slice(0, 12) : Math.random().toString(36).slice(2, 14));
