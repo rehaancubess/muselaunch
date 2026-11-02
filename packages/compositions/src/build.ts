@@ -29,7 +29,7 @@ import {
   type TemplateId,
   type Theme,
 } from "@muselaunch/contracts";
-import { deviceGeometry, luminance } from "./compile";
+import { deviceGeometry, luminance, screenAlign, TV } from "./compile";
 import { estimateTextHeight } from "./lint";
 import { validateDoc } from "./validate";
 
@@ -380,8 +380,16 @@ class AssetPicker {
   }
 }
 
-function deviceFor(app: App, asset: MediaAsset): { device: "iphone" | "android" | "ipad" | "browser" | "macbook"; aspect: number } {
+type DeviceKind = Extract<Layer, { type: "device" }>["device"];
+
+/**
+ * The frame for a piece of real media: landscape footage of a TV app goes on a TV (TV wins over
+ * web/macOS), other landscape media on a laptop or browser; portrait media keeps a phone/tablet
+ * (a TV app's phone-controller screenshots stay on a phone).
+ */
+function deviceFor(app: App, asset: MediaAsset): { device: DeviceKind; aspect: number } {
   const ar = asset.width && asset.height ? asset.width / asset.height : 0.46;
+  if (ar > 1.15 && app.platforms.includes("tv")) return { device: "tv", aspect: ar };
   if (ar > 1.15) return { device: app.platforms.includes("macos") && !app.platforms.includes("web") ? "macbook" : "browser", aspect: ar };
   if (ar > 0.6) return { device: "ipad", aspect: 0.75 };
   const androidOnly = app.platforms.includes("android") && !app.platforms.includes("ios");
@@ -392,6 +400,16 @@ function deviceFor(app: App, asset: MediaAsset): { device: "iphone" | "android" 
 function deviceBox(f: Frame, app: App, asset: MediaAsset, cx: number, y: number, heightFrac: number, maxWidthFrac = 0.9, z = 2) {
   const { device, aspect } = deviceFor(app, asset);
   let hPx = heightFrac * f.H;
+  if (device === "tv") {
+    // A fixed-aspect TV (16:9 screen, bezel and stand): size by width, capped by the height.
+    let wPx = Math.min(maxWidthFrac * f.W, hPx * TV.aspect);
+    hPx = wPx / TV.aspect;
+    if (hPx > heightFrac * f.H) {
+      hPx = heightFrac * f.H;
+      wPx = hPx * TV.aspect;
+    }
+    return box(cx - wPx / f.W / 2, y, wPx / f.W, hPx / f.H, z);
+  }
   if (device === "browser" || device === "macbook") {
     // Landscape media: size by width instead.
     let wPx = Math.min(maxWidthFrac * f.W, hPx * aspect);
@@ -411,18 +429,36 @@ function deviceBox(f: Frame, app: App, asset: MediaAsset, cx: number, y: number,
   return box(cx - wPx / f.W / 2, y, wPx / f.W, hPx / f.H, z);
 }
 
+/**
+ * Templates give a device a tall band (made for phones, which may bleed past the bottom edge); a TV
+ * is short and wide, so it sits in the band's room above the platform safe zone instead: whole (its
+ * stand is never cut off) and centred (a little above centre in portrait, under a top headline).
+ * Other devices are returned as they are.
+ */
+function centerTv(f: Frame, app: App, asset: MediaAsset, b: ReturnType<typeof box>, bandBottom: number): ReturnType<typeof box> {
+  if (deviceFor(app, asset).device !== "tv") return b;
+  const room = Math.min(bandBottom, 1 - f.safe.bottom) - b.y;
+  if (room <= 0) return b;
+  if (b.h > room) {
+    const w = (b.w * room) / b.h;
+    return { ...b, x: r4(b.x + (b.w - w) / 2), w: r4(w), h: r4(room) };
+  }
+  return { ...b, y: r4(b.y + (room - b.h) * (f.portrait ? 0.4 : 0.5)) };
+}
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /**
  * A region of the media (fractions of the screenshot / recording frame Spark saw) → fractions of the
  * device's visible screen. The screen shows the media `cover`-fitted and top-aligned (object-position
- * 50% 0%), so a taller image loses its bottom and a wider one its sides.
+ * 50% 0%), so a taller image loses its bottom and a wider one its sides. A TV centres it
+ * (`align: "center"`, object-position 50% 50%): a taller frame loses equal strips top and bottom.
  */
-export function mediaToScreen(r: Region01, mediaAspect: number, screenAspect: number): Region01 {
+export function mediaToScreen(r: Region01, mediaAspect: number, screenAspect: number, align: "top" | "center" = "top"): Region01 {
   let { x, y, w, h } = r;
   if (mediaAspect < screenAspect) {
     const k = mediaAspect / screenAspect;
-    y /= k;
+    y = align === "center" ? (y - (1 - k) / 2) / k : y / k;
     h /= k;
   } else if (mediaAspect > screenAspect) {
     const k = screenAspect / mediaAspect;
@@ -472,7 +508,8 @@ function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<ty
   const g = deviceGeometry(device, b.w * f.W, b.h * f.H);
   const screenAspect = g.screen.width / Math.max(1, g.screen.height);
   const mediaAspect = asset.width && asset.height ? asset.width / asset.height : screenAspect;
-  const toScreen = (r: Region01) => mediaToScreen(r, mediaAspect, screenAspect);
+  const align = screenAlign(device);
+  const toScreen = (r: Region01) => mediaToScreen(r, mediaAspect, screenAspect, align);
   const usable = (r: Region01) => r.w >= 0.02 && r.h >= 0.01;
   const blur = m.segment?.privacy.flagged ? m.segment.privacy.regions.map(toScreen).filter(usable) : [];
   let focus: Extract<Layer, { type: "device" }>["focus"];
@@ -655,7 +692,7 @@ function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpt
     headBox = box(0.07, 0.5 - fit.h / 2, tw, fit.h, 6);
     layers.push(glow(ctx, `${sceneId}_glow`, 0.72, 0.5, 0.75, theme.accent));
     layers.push(text(`${sceneId}_headline`, textValue, headBox, { size: fit.size, align: "left", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: "theme.accent" }, claimIds: ctx.sb.claimIds }));
-    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.72, 0.09, 0.86, 0.46), devOpts));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, asset, deviceBox(f, app, asset, 0.72, 0.09, 0.86, 0.46), 0.95), devOpts));
     if (scrim) layers.push({ ...shape(`${sceneId}_scrim`, "rect", box(0, 0, 0.5, 1, 5), `${bgTop}F5`, { gradientTo: `${bgBottom}F5`, enter: scrimIn }), name: "Headline backdrop" } as Layer);
   } else {
     const tw = 1 - f.safe.left - f.safe.right - 0.04;
@@ -666,7 +703,7 @@ function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpt
     layers.push(text(`${sceneId}_headline`, textValue, headBox, { size: fit.size, enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: "theme.accent" }, claimIds: ctx.sb.claimIds }));
     const devTop = headTop + fit.h + (f.portrait ? 0.035 : 0.03);
     const devH = f.portrait ? Math.min(0.66, 1.0 - devTop + 0.02) : 1 - devTop + 0.06; // may bleed past the bottom edge
-    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.5, devTop, devH, 0.86), devOpts));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, asset, deviceBox(f, app, asset, 0.5, devTop, devH, 0.86), devTop + devH), devOpts));
     if (scrim) {
       // Solid behind the headline, a short fade below it; both appear as the screen pushes in under them.
       const headBottom = Math.min(0.45, headTop + fit.h + 0.012);
@@ -709,12 +746,29 @@ function featureCallout(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built
   const fit = fitText(f, head, (f.portrait ? 80 : 72) * f.u, tw, { maxLines: f.portrait ? 3 : 2 });
   if (f.landscape) {
     layers.push(text(`${sceneId}_headline`, head, box(0.07, 0.14, tw, fit.h, 3), { size: fit.size, align: "left", enter: ENTER_HEAD, claimIds: sb.claimIds }));
-    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, asset, 0.72, 0.08, 0.86, 0.44), { enter: { preset: "slide-left", durationSec: 1, easing: "smooth" }, loop: "tilt" }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, asset, deviceBox(f, app, asset, 0.72, 0.08, 0.86, 0.44), 0.94), { enter: { preset: "slide-left", durationSec: 1, easing: "smooth" }, loop: "tilt" }));
     chips.forEach((c, i) => {
       const chipH = 0.085;
       layers.push(
         blockChip(`${sceneId}_chip${i + 1}`, c, box(0.07, 0.14 + fit.h + 0.08 + i * (chipH + 0.04), 0.36, chipH, 4), 0.55 + i * 0.25),
       );
+    });
+  } else if (deviceFor(app, asset).device === "tv") {
+    // A TV is wide: full width, with the chips stacked under it; the group sits centred below the headline.
+    const headTop = f.safe.top + 0.01;
+    layers.push(text(`${sceneId}_headline`, head, box(0.5 - tw / 2, headTop, tw, fit.h, 3), { size: fit.size, enter: ENTER_HEAD, claimIds: sb.claimIds }));
+    const devTop = headTop + fit.h + 0.04;
+    const chipH = f.portrait ? 0.042 : 0.065;
+    const gap = f.portrait ? 0.018 : 0.022;
+    const chipsH = chips.length ? 0.035 + chips.length * chipH + (chips.length - 1) * gap : 0;
+    const room = 1 - f.safe.bottom - devTop;
+    const tv = deviceBox(f, app, asset, 0.5, devTop, Math.max(0.12, Math.min(0.6, room - chipsH)), 0.86);
+    const y0 = r4(devTop + Math.max(0, (room - tv.h - chipsH) / 2));
+    const devBox = { ...tv, y: y0 };
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, devBox, { enter: { preset: "slide-up", durationSec: 1.05, easing: "smooth" }, loop: "float" }));
+    const chipW = 0.72;
+    chips.forEach((c, i) => {
+      layers.push(blockChip(`${sceneId}_chip${i + 1}`, c, box(0.5 - chipW / 2, y0 + tv.h + 0.035 + i * (chipH + gap), chipW, chipH, 4), 0.7 + i * 0.35));
     });
   } else {
     const headTop = f.safe.top + 0.01;
@@ -1007,14 +1061,15 @@ function phoneTilt(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
     const tw = 0.42;
     const fit = fitText(f, textValue, 92 * f.u, tw, { maxLines: 3 });
     layers.push(text(`${sceneId}_headline`, textValue, box(0.07, 0.5 - fit.h / 2, tw, fit.h, 6), { size: fit.size, align: "left", color: "#FFFFFF", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.4) }, claimIds: ctx.sb.claimIds }));
-    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.72, 0.1, 0.82, 0.44), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, m.asset, deviceBox(f, app, m.asset, 0.72, 0.1, 0.82, 0.44), 0.92), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
   } else {
     const tw = 1 - f.safe.left - f.safe.right - 0.04;
     const fit = fitText(f, textValue, (f.portrait ? 86 : 74) * f.u, tw, { maxLines: 2 });
     const headTop = f.safe.top + 0.01;
     layers.push(text(`${sceneId}_headline`, textValue, box(0.5 - tw / 2, headTop, tw, fit.h, 6), { size: fit.size, color: "#FFFFFF", enter: ENTER_HEAD, highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.4) }, claimIds: ctx.sb.claimIds }));
     const devTop = headTop + fit.h + 0.05;
-    layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.5, devTop, Math.min(f.portrait ? 0.62 : 0.66, 1 - devTop - 0.02), 0.8), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
+    const devH = Math.min(f.portrait ? 0.62 : 0.66, 1 - devTop - 0.02);
+    layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, m.asset, deviceBox(f, app, m.asset, 0.5, devTop, devH, 0.8), devTop + devH), { enter: { preset: "scale-in", durationSec: 1, delaySec: 0.1, easing: "smooth" }, loop: "none", tilt }));
   }
   return { template: "phone-tilt", layers, background: { kind: "gradient", colors: [dark, darker], angle: 160, dim: 0 } };
 }
@@ -1184,7 +1239,7 @@ function carouselSlide(ctx: SceneCtx, textValue: string, m: ScreenMedia | undefi
     layers.push(text(`${sceneId}_body`, bodyText, box(0.5 - tw / 2, y, tw, bf.h, 3), { role: "body", size: bf.size, weight: 500, font: "body", color: "theme.textMuted", lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
     y += bf.h + 0.02;
   }
-  if (m) layers.push(screenLayer(ctx, `${sceneId}_device`, m, deviceBox(f, app, m.asset, 0.5, y + 0.02, 1 - y + 0.04, 0.8), { loop: "none" }));
+  if (m) layers.push(screenLayer(ctx, `${sceneId}_device`, m, centerTv(f, app, m.asset, deviceBox(f, app, m.asset, 0.5, y + 0.02, 1 - y + 0.04, 0.8), 1), { loop: "none" }));
   return { template: "carousel-slide", layers, background: softBackground(ctx, ctx.index) };
 }
 
@@ -1658,5 +1713,5 @@ function objectAware(ctx: SceneCtx, t: "presenter-depth" | "object-spotlight" | 
 
 export { frameFor as _frameFor, mix as mixColor };
 export type { Frame as LayoutFrame };
-export const _test = { emphasisWords, splitParts, themeFromBrand, kineticLines };
+export const _test = { emphasisWords, splitParts, themeFromBrand, kineticLines, deviceFor, deviceBox };
 export type { CompositionDoc };

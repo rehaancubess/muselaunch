@@ -5,7 +5,7 @@ import { fixture, fixtureJson, installFakeMeta, installFakeWeb, jsonRoute, png, 
 
 const IOS_URL = "https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890";
 
-async function setup(opts: { meta?: boolean; missingShot?: number; firstDna?: unknown } = {}) {
+async function setup(opts: { meta?: boolean; missingShot?: number; firstDna?: unknown; dnaPatch?: () => Record<string, unknown> | undefined } = {}) {
   const p = createTestPlatform(opts.meta === false ? {} : { META_API_KEY: "test-key" }, handlers);
   const wid = "ws_import_a";
   await p.credits.ensureAccount(wid, { grant: 500, reason: "test" });
@@ -31,7 +31,7 @@ async function setup(opts: { meta?: boolean; missingShot?: number; firstDna?: un
   const meta =
     opts.meta === false
       ? { requests: [] }
-      : installFakeMeta(p, [jsonRoute("AppDna", (req) => (dnaCalls++ === 0 && opts.firstDna ? opts.firstDna : resolvePlaceholders(fixtureJson("spark-app-dna.json"), req)))]);
+      : installFakeMeta(p, [jsonRoute("AppDna", (req) => (dnaCalls++ === 0 && opts.firstDna ? opts.firstDna : { ...(resolvePlaceholders(fixtureJson("spark-app-dna.json"), req) as object), ...opts.dnaPatch?.() }))]);
   const ws = p.db.ws(wid);
   return { p, wid, ws, web, meta };
 }
@@ -196,6 +196,33 @@ describe("app.import → app.analyze → App DNA", () => {
     // credits for the failed analysis were released
     const bal = await s.p.credits.balance(s.wid);
     expect(bal.reserved).toBe(0);
+  });
+
+  it("adds tv when Spark reads that the app runs on a TV (no store importer can tell), unless the founder set the platforms", async () => {
+    let patch: Record<string, unknown> | undefined = { platforms: ["ios", "tv"] };
+    const s = await setup({ dnaPatch: () => patch });
+    const { appId } = await startImport(s, [{ kind: "app_store", url: IOS_URL }]);
+    // Spark is told what each platform means, tv included.
+    const req = s.meta.requests.find((r) => r.text?.format?.name === "AppDna")!;
+    const platformsSchema = JSON.stringify(req.text.format.schema.properties.platforms);
+    expect(platformsSchema).toContain('"tv"');
+    expect(platformsSchema).toMatch(/Fire TV/);
+    expect(JSON.stringify(req)).toMatch(/Use \\"tv\\" when it runs on a TV/);
+    expect((await s.ws.collection("apps").getOrThrow(appId)).platforms).toEqual(["ios", "tv"]);
+    expect((await s.ws.collection("brandProfiles").getOrThrow(appId)).platforms).toEqual(["ios", "tv"]);
+
+    // A later answer without tv never removes it; tv is never added over platforms the founder set.
+    patch = { platforms: ["ios"] };
+    await s.p.jobs.create(s.wid, "app.analyze", { appId, refresh: true }, { actor: "u1", credits: { operation: "app.analyze" } });
+    await s.p.inline!.drain();
+    expect((await s.ws.collection("apps").getOrThrow(appId)).platforms).toEqual(["ios", "tv"]);
+    await s.ws.collection("apps").update(appId, { platforms: ["ios"] }, { actor: "u1" });
+    await s.ws.collection("brandProfiles").update(appId, { platforms: ["ios"], userEditedPaths: ["platforms"] }, { actor: "u1" });
+    patch = { platforms: ["ios", "tv"] };
+    await s.p.jobs.create(s.wid, "app.analyze", { appId, refresh: true }, { actor: "u1", credits: { operation: "app.analyze" } });
+    await s.p.inline!.drain();
+    expect((await s.ws.collection("apps").getOrThrow(appId)).platforms).toEqual(["ios"]);
+    expect((await s.ws.collection("brandProfiles").getOrThrow(appId)).platforms).toEqual(["ios"]);
   });
 
   it("fails the import with a clear message when no source can be read", async () => {

@@ -295,7 +295,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
               </div>
               <div>
                 <dt className="text-caption text-ink-2">Platforms</dt>
-                <dd className="text-body-sm font-medium">{profile.platforms.length ? profile.platforms.map((p) => (p === "ios" ? "iOS" : p === "macos" ? "macOS" : p[0]!.toUpperCase() + p.slice(1))).join(", ") : "Not set"}</dd>
+                <dd className="text-body-sm font-medium">{profile.platforms.length ? profile.platforms.map((p) => (p === "ios" ? "iOS" : p === "macos" ? "macOS" : p === "tv" ? "TV" : p[0]!.toUpperCase() + p.slice(1))).join(", ") : "Not set"}</dd>
               </div>
               <div>
                 <dt className="text-caption text-ink-2">Business model</dt>

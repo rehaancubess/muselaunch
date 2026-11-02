@@ -39,7 +39,11 @@ export const SYSTEM_FIELDS = ["id", "workspaceId", "createdAt", "updatedAt", "cr
 export const ReviewState = z.enum(["verified", "needs_review", "rejected"]);
 export type ReviewState = z.infer<typeof ReviewState>;
 
-export const Platform = z.enum(["ios", "android", "web", "macos", "windows", "linux", "other"]);
+/**
+ * Where an app runs. `tv` = a TV app (Amazon Fire TV, Apple TV, Android TV / Google TV, smart TVs,
+ * games played on the TV); its landscape footage is shown on a TV in videos.
+ */
+export const Platform = z.enum(["ios", "android", "web", "macos", "windows", "linux", "tv", "other"]);
 export type Platform = z.infer<typeof Platform>;
 
 /** Distribution channels / social networks. */

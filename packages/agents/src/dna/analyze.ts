@@ -1,4 +1,4 @@
-import { ClaimContext, Monetization, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
+import { ClaimContext, Monetization, Platform as AppPlatform, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
 import { AppError, assertKeyInWorkspace, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { generateJson, imagePart, roleNames, untrusted, type InputPart } from "@muselaunch/providers";
 import sharp from "sharp";
@@ -16,6 +16,13 @@ export const DnaDraft = z.object({
   oneLiner: z.string().min(1).max(240),
   description: z.string().min(1).max(4000),
   category: z.string().max(120).optional(),
+  platforms: z
+    .array(AppPlatform)
+    .max(8)
+    .default([])
+    .describe(
+      "Where the app runs, only as the evidence or screenshots show it: ios, android, web (in a browser), macos, windows, linux, tv (runs on a TV: Amazon Fire TV, Apple TV, Android TV / Google TV or a smart TV, including TV games played with phones or remotes as controllers), other",
+    ),
   screenshotObservations: z
     .array(
       z.object({
@@ -78,6 +85,7 @@ Rules (non-negotiable):
 - screenshotObservations describe what is literally visible on a screenshot (UI elements, screens, text shown); use the exact asset id given for that image.
 - Audiences, problems and differentiators are positioning hypotheses; cite evidence where possible.
 - Claims are short marketing statements. support="direct" only when the listing or founder text literally states it; otherwise "inferred". Confidence reflects how well the evidence supports the claim.
+- Platforms: where the app runs, only from the evidence. Use "tv" when it runs on a TV (Fire TV, Apple TV, Android TV, smart TV), e.g. a TV game whose players use their phones as controllers.
 - Monetization: use only pricing evidence (price, in-app purchases, subscription wording). Use "unknown" if there is none.
 - Tone: describe the voice the listing already uses; styleKeywords describe the visual style of the screenshots and icon.
 - Write in English, concise and specific to this app.`;
@@ -244,11 +252,16 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     // Palette from the real icon + screenshots (deterministic image statistics).
     const palette = await paletteFromImages(icon ? buffers.get(icon.id) : undefined, shots.map((s) => buffers.get(s.id)).filter((b): b is Buffer => Boolean(b)));
 
+    // Store listings decide ios/android and a website decides web (import handler); no importer can
+    // tell a TV app, so "tv" read from the listing/founder text/screenshots is added (never removed),
+    // unless the founder edited the platforms themselves.
+    const addTv = draft.platforms.includes("tv") && !app.platforms.includes("tv") && !existing?.userEditedPaths.includes("platforms");
+    const platforms = addTv ? [...app.platforms, "tv" as const] : app.platforms;
     const generated: Partial<BrandProfile> = {
       oneLiner: clip(draft.oneLiner, 240),
       description: clip(draft.description, 4000),
       category: draft.category ?? app.category,
-      platforms: app.platforms,
+      platforms,
       audiences,
       problems: evidenced(draft.problems, "prob"),
       features,
@@ -317,8 +330,8 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
       );
     }
 
-    await run.step({ kind: "decision", title: "Grounded App DNA against evidence", output: { features: features.length, claimsCreated: created, dropped, palette: palette.length } });
-    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category }, { actor: ctx.actor });
+    await run.step({ kind: "decision", title: "Grounded App DNA against evidence", output: { features: features.length, claimsCreated: created, dropped, palette: palette.length, ...(addTv ? { platformAdded: "tv" } : {}) } });
+    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category, ...(addTv ? { platforms } : {}) }, { actor: ctx.actor });
     if (imp) await ws.collection("appImports").update(imp.id, { status: imp.warnings.length ? "partial" : "succeeded" }, { actor: ctx.actor });
     await run.finish("succeeded", { outputRefs: [{ entity: "brandProfiles", id: profile.id }] });
     // Designed store screenshots → Muse Spark check + SAM 3.1 screen cut-outs, in the background.
