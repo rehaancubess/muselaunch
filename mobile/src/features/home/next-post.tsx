@@ -136,7 +136,11 @@ export function NextPostCard({ post }: { post: TodayPost }) {
         <Notice icon={Info}>
           <T v="footnote">
             <T v="footnote" style={{ fontWeight: "600", color: color.ink }}>{`${channel} isn’t connected, so you post this one yourself. `}</T>
-            {`After you schedule it, ${shareLabel(post.channel).replace("…", "")} saves the video, copies the caption and opens the share sheet.`}
+            {post.images && post.images.length > 1
+              ? `After you schedule it, ${shareLabel(post.channel).replace("…", "")} saves each of the ${post.images.length} slides and copies the caption.`
+              : !post.video
+                ? `After you schedule it, ${shareLabel(post.channel).replace("…", "")} copies the post and opens the share sheet.`
+                : `After you schedule it, ${shareLabel(post.channel).replace("…", "")} saves the ${post.video.kind === "image" ? "image" : "video"}, copies the caption and opens the share sheet.`}
           </T>
         </Notice>
       ) : null}

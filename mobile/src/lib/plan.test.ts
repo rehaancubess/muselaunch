@@ -144,7 +144,23 @@ describe("a run the server carries (GET /apps/:appId/create-runs)", () => {
 
   it("done: the finished video to watch", () => {
     const d = displayFromServer(view({ stage: "done", status: "done", pct: 100, ideaTitle: "Focus in 20 seconds", video: { assetId: "ast_final" } }));
-    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final" });
+    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final", noun: "video" });
     expect(stepStateOf(d, "finish")).toBe("done");
+  });
+
+  it("stills and text posts: their own words, the slides in order, the text", () => {
+    const making = displayFromServer(view({ stage: "plan", format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 6 } }));
+    expect(making).toMatchObject({ noun: "carousel", line: "Planning the slides · rendering preview" });
+    const carousel = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 3 }, stills: { assetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] } }),
+    );
+    expect(carousel).toMatchObject({ noun: "carousel", line: "Your carousel is ready · 3 slides", stillAssetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] });
+    expect(carousel.videoAssetId).toBeUndefined();
+    const text = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "9:16", channel: "x", output: "text_post" }, text: { copyPackId: "cp_1", channel: "x", text: "Focus mode, finally.", ok: true } }),
+    );
+    expect(text).toMatchObject({ noun: "text post", line: "Your text post is ready", text: { text: "Focus mode, finally.", channel: "x", ok: true } });
+    // Runs started before stills have no output: a video.
+    expect(displayFromServer(view()).noun).toBe("video");
   });
 });
