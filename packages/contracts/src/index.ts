@@ -5,6 +5,7 @@ export * from "./app";
 export * from "./research";
 export * from "./agents";
 export * from "./campaign";
+export * from "./create-run";
 export * from "./composition";
 export * from "./media";
 export * from "./sound";

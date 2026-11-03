@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useAssetUrl } from "@/components/app-icon";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { STEP_LABEL, clock, isWait, type FinishedVideo } from "./plan";
+import { STEP_LABEL, clock, needsPerson, type FinishedVideo, type StepKey } from "./plan";
 import type { CreateRun } from "./runs";
 
 const TILE = "relative block aspect-[9/16] w-full overflow-hidden rounded-xl";
@@ -52,9 +52,9 @@ function VideoTile({ video, href, onPost, canPost }: { video: FinishedVideo; hre
 }
 
 function RunTile({ run, onOpen, active }: { run: CreateRun; onOpen: () => void; active: boolean }) {
-  const v = run.view;
-  const needsYou = Boolean(v.failure || (run.problem && !isWait(run.problem)) || v.stale);
-  const label = v.step === "done" ? "Ready" : needsYou ? (v.failure ? "Stopped" : "Needs you") : STEP_LABEL[run.busy === "final" ? "check" : v.step];
+  const v = run;
+  const needsYou = needsPerson(run);
+  const label = v.status === "done" ? "Ready" : needsYou ? (v.status === "failed" ? "Stopped" : "Needs you") : STEP_LABEL[v.stage as StepKey];
   return (
     <li className="min-w-0 space-y-2">
       <button
@@ -73,7 +73,7 @@ function RunTile({ run, onOpen, active }: { run: CreateRun; onOpen: () => void; 
           <span className={cn("block h-full rounded-full", needsYou ? "bg-warning" : "bg-accent")} style={{ width: `${Math.max(4, v.pct)}%` }} />
         </span>
       </button>
-      <p className="line-clamp-2 px-0.5 text-footnote text-ink-2">{v.ideaTitle ?? run.campaign.request ?? run.campaign.name}</p>
+      <p className="line-clamp-2 px-0.5 text-footnote text-ink-2">{v.ideaTitle ?? run.request}</p>
     </li>
   );
 }
@@ -100,7 +100,7 @@ export function YourContent({
   const { workspaceId } = useWorkspace();
   const r = routes.app(workspaceId, appId);
   // Finished runs show as their video; the rest show where they are.
-  const making = runs.filter((x) => x.view.step !== "done");
+  const making = runs.filter((x) => x.status !== "done");
   const empty = !loading && !making.length && !videos.length;
   return (
     <section aria-labelledby="create-content" className="space-y-4">
@@ -130,7 +130,7 @@ export function YourContent({
       ) : (
         <ul aria-label="Your videos" className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] sm:gap-x-4">
           {making.map((run) => (
-            <RunTile key={run.campaign.id} run={run} active={focusId === run.campaign.id} onOpen={() => onOpenRun(run.campaign.id)} />
+            <RunTile key={run.campaignId} run={run} active={focusId === run.campaignId} onOpen={() => onOpenRun(run.campaignId)} />
           ))}
           {videos.map((v) => (
             <VideoTile key={v.compositionId} video={v} href={r.studio(v.compositionId)} onPost={() => onPost(v)} canPost={canPost} />

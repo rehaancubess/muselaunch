@@ -5,7 +5,10 @@
  *    (publish / outreach.send / billing.manage / content.approve) and snapshot-hash check;
  *  - App DNA ("About your app") waiting for review (`apps.dnaStatus = needs_review`);
  *  - a video whose current version the Brand Guardian blocks (no one-tap route: the item links to the
- *    video in the Studio, where fixes and overrides keep their own checks).
+ *    video in the Studio, where fixes and overrides keep their own checks);
+ *  - a Create video ("Generate video") that stopped for the person (create-runner.ts): its decision,
+ *    answered through POST /create-runs/:id/resolve (content.write). A Create video blocked by the
+ *    Brand check shows once, as its Create decision.
  * Read-only: nothing here changes state.
  */
 import { isTerminalReview, reviewsFor } from "@muselaunch/agents";
@@ -14,6 +17,7 @@ import type { WorkspaceDb } from "@muselaunch/db";
 import { APPROVER_CAP, currentSubjectHash } from "@muselaunch/growth";
 import type { Platform } from "@muselaunch/platform";
 import { ALWAYS_ON_ACTOR, alwaysOnNeedsYouItem } from "./always-on-loop";
+import { createRunNeedsYou } from "./create-runner";
 import { reasonText, tagOf } from "./state";
 
 type Member = Pick<WorkspaceMember, "role" | "canPublish" | "canManageAccounts" | "status">;
@@ -54,7 +58,10 @@ export async function needsYou(p: Platform, workspaceId: string, member: Member,
   }
   const loops = loopLoader(ws);
   items.push(...(await appDnaItems(ws, opts.appId, has, loops)));
-  items.push(...(await brandCheckItems(ws, opts.appId, has, loops)));
+  const creates = await createRunNeedsYou(p, workspaceId, has, member, { appId: opts.appId });
+  const asCreate = new Set(creates.flatMap((i) => (i.preview?.compositionId ? [i.preview.compositionId] : [])));
+  items.push(...(await brandCheckItems(ws, opts.appId, has, loops)).filter((i) => !asCreate.has(i.subject.id)));
+  items.push(...creates);
   // Decisions that block a running loop first, then "About your app" (it shapes everything made next),
   // then blocked videos, then posts in the order they'd go out.
   const RANK: Record<NeedsYouItem["kind"], number> = { spend: 0, decision: 0, app_dna: 1, brand_check: 2, post: 3, outreach: 3, suggestion: 4 };

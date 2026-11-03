@@ -12,7 +12,7 @@
  * Nothing is posted from here: "Post it" opens the usual new-post flow, which waits for approval.
  */
 import type { AppDnaResponse, CreateCampaignResponse, CreditsResponse, Page } from "@/lib/api-types";
-import type { Campaign, Composition, MediaAsset } from "@muselaunch/contracts";
+import type { Composition, MediaAsset } from "@muselaunch/contracts";
 import { Button, Dialog, Notice, Skeleton, useToast } from "@muselaunch/ui";
 import { useQueries } from "@tanstack/react-query";
 import { Info, MonitorSmartphone, X } from "lucide-react";
@@ -80,7 +80,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
   const [length, setLength] = useState<number>(20);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(prefill.runId);
   const [postFor, setPostFor] = useState<FinishedVideo | null>(null);
   const [recordingOpen, setRecordingOpen] = useState(false);
   const idem = useRef(newIdempotencyKey("create"));
@@ -95,7 +95,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
   const walk = useWalkthroughs(workspaceId, appId);
   const renders = useApiQuery<Page<MediaAsset>>(wsPath(workspaceId, "/assets"), { query: { appId, role: "render", limit: 60 } });
   const comps = useApiQuery<Page<Composition>>(wsPath(workspaceId, "/compositions"), { query: { appId, limit: 100 } });
-  const runs = useCreateRuns(appId, { act: false });
+  const runs = useCreateRuns(appId);
 
   const profile = dna.data?.profile ?? null;
   const features = useMemo(() => (profile?.features ?? []).filter((f) => f.name.trim()).slice(0, 12), [profile]);
@@ -140,13 +140,14 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
   // ---- runs and videos
   const titles = useMemo(() => new Map((comps.data?.items ?? []).map((c) => [c.id, c.title])), [comps.data]);
   const videos = useMemo(() => finishedVideos(renders.data?.items ?? [], titles, 12), [renders.data, titles]);
-  const focus = runs.runs.find((x) => x.campaign.id === focusId) ?? (focusId === "none" ? null : runs.runs.find((x) => x.view.step !== "done" && !x.view.stale) ?? null);
+  // The run asked for (?run=, e.g. Needs you → Open it), else the newest one still on its way (not one left for later).
+  const focus = runs.runs.find((x) => x.campaignId === focusId) ?? (focusId === "none" ? null : runs.runs.find((x) => x.status !== "done" && x.status !== "stopped" && x.decision?.kind !== "resume") ?? null);
   // Keep showing the run being watched once it's ready ("Your video is ready"), until the person closes it.
   useEffect(() => {
-    if (!focusId && focus) setFocusId(focus.campaign.id);
-  }, [focusId, focus]);
-  const focusVideo = focus?.view.compositionId ? videos.find((v) => v.compositionId === focus.view.compositionId) : undefined;
-  const campaignsById = useMemo(() => new Map(runs.runs.map((x) => [x.campaign.id, x.campaign as Campaign])), [runs.runs]);
+    if (focus && focusId !== focus.campaignId && focusId !== "none" && !runs.runs.some((x) => x.campaignId === focusId)) setFocusId(focus.campaignId);
+  }, [focusId, focus, runs.runs]);
+  const focusVideo = focus?.compositionId ? videos.find((v) => v.compositionId === focus.compositionId) : undefined;
+  const runsById = useMemo(() => new Map(runs.runs.map((x) => [x.campaignId, x])), [runs.runs]);
 
   const pickKind = (k: CreateKind) => {
     setKind(k);
@@ -181,7 +182,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
       idem.current = newIdempotencyKey("create");
       setFocusId(res.campaign.id);
       // The balance under the button moves with what was just held ("estimate" keys carry it).
-      await invalidate(wsPath(workspaceId, `/apps/${appId}/campaigns`), wsPath(workspaceId, "/jobs"), wsPath(workspaceId, "/billing"), wsPath(workspaceId, `/apps/${appId}/discover`), "estimate");
+      await invalidate(wsPath(workspaceId, `/apps/${appId}/create-runs`), wsPath(workspaceId, `/apps/${appId}/campaigns`), wsPath(workspaceId, "/jobs"), wsPath(workspaceId, "/billing"), wsPath(workspaceId, `/apps/${appId}/discover`), "estimate");
       requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (e) {
       idem.current = newIdempotencyKey("create");
@@ -304,7 +305,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
       {focus ? (
         <div ref={panelRef} className="relative scroll-mt-24">
           <RunPanel run={focus} finished={focusVideo} actions={runs} appId={appId} onPost={setPostFor} />
-          {focus.view.step === "done" ? (
+          {focus.status === "done" ? (
             <button type="button" aria-label="Close" onClick={() => setFocusId("none")} className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-full text-ink-3 hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:shadow-focus">
               <X className="size-4" aria-hidden />
             </button>
@@ -321,7 +322,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
         runs={runs.runs}
         videos={videos}
         loading={renders.isLoading || runs.loading}
-        focusId={focus?.campaign.id ?? null}
+        focusId={focus?.campaignId ?? null}
         onOpenRun={(id) => {
           setFocusId(id);
           requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -336,7 +337,7 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
         onOpenChange={(o) => !o && setPostFor(null)}
         initialCampaignId={postFor?.campaignId}
         initialAssetId={postFor?.assetId}
-        initialChannel={channelFor(postFor?.campaignId ? campaignsById.get(postFor.campaignId) : null)}
+        initialChannel={channelFor(postFor?.campaignId ? runsById.get(postFor.campaignId) : null)}
         onCreated={() =>
           toast.toast({
             title: "Post drafted",

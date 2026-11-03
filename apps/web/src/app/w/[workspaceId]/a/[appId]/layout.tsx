@@ -4,7 +4,6 @@ import { AppWindow } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PageContainer } from "@/components/page-container";
-import { CreateRunner } from "@/features/create/runs";
 import { routes } from "@/lib/routes";
 import { useRouteIds, useWorkspace } from "@/lib/workspace";
 
@@ -37,11 +36,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </PageContainer>
     );
   }
-  return (
-    <>
-      {/* Create's "Generate video" keeps moving (the person's own runs) while they look at any page of the app. */}
-      <CreateRunner appId={app.id} />
-      {children}
-    </>
-  );
+  // Create's "Generate video" runs on the server (it keeps going with every tab closed): nothing to mount here.
+  return <>{children}</>;
 }

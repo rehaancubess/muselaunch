@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   campaignRequest,
+  channelFor,
   clampLength,
   clock,
   defaultFormat,
@@ -10,18 +11,14 @@ import {
   formatById,
   hasRealFootage,
   ideaPrompt,
-  isWait,
+  isMoving,
   lengthOptions,
-  overspend,
-  pickVariant,
-  problemFromError,
+  needsPerson,
   promotePrompt,
   readPrefill,
-  runView,
   shortName,
   stepState,
   sumCredits,
-  type RunInput,
 } from "./plan";
 
 const T0 = Date.parse("2026-11-03T10:00:00.000Z");
@@ -54,16 +51,19 @@ describe("Create: starting points and prompts", () => {
     expect(ideaPrompt({ title: "Exam season", summary: "Exam season" })).toBe("Exam season.");
   });
 
-  it("reads deep links (?kind=&prompt=&idea=) and ignores anything else", () => {
+  it("reads deep links (?kind=&prompt=&idea=&run=) and ignores anything else", () => {
     const q = (s: string) => {
       const p = new URLSearchParams(s);
       return readPrefill((k) => p.get(k));
     };
-    expect(q("kind=feature&prompt=Show%20how%20Focus%20Mode%20works")).toEqual({ kind: "feature", prompt: "Show how Focus Mode works", ideaId: null });
-    expect(q("idea=opp_1")).toEqual({ kind: "idea", prompt: "", ideaId: "opp_1" });
-    expect(q("kind=promote&idea=opp_1")).toEqual({ kind: "promote", prompt: "", ideaId: null });
-    expect(q("kind=hack")).toEqual({ kind: null, prompt: "", ideaId: null });
+    expect(q("kind=feature&prompt=Show%20how%20Focus%20Mode%20works")).toEqual({ kind: "feature", prompt: "Show how Focus Mode works", ideaId: null, runId: null });
+    expect(q("idea=opp_1")).toEqual({ kind: "idea", prompt: "", ideaId: "opp_1", runId: null });
+    expect(q("kind=promote&idea=opp_1")).toEqual({ kind: "promote", prompt: "", ideaId: null, runId: null });
+    expect(q("kind=hack")).toEqual({ kind: null, prompt: "", ideaId: null, runId: null });
     expect(q("").kind).toBeNull();
+    // Needs you → Open it: the run to show.
+    expect(q("run=cpg_123").runId).toBe("cpg_123");
+    expect(q("run=%3Cscript%3E").runId).toBeNull();
   });
 });
 
@@ -124,118 +124,21 @@ describe("Create: format, length and the request", () => {
   });
 });
 
-describe("Create: which idea a run uses", () => {
-  const v = (id: string, angleType: string, status = "proposed") => ({ id, angleType, status, title: id }) as RunInput["variants"][number];
-  it("keeps a picked idea, prefers a demo for “Show a feature”, else the first; never a set-aside one", () => {
-    expect(pickVariant([v("a", "emotional_problem"), v("b", "practical_demo")], "promote")?.id).toBe("a");
-    expect(pickVariant([v("a", "emotional_problem"), v("b", "practical_demo")], "feature")?.id).toBe("b");
-    expect(pickVariant([v("a", "emotional_problem"), v("b", "practical_demo", "selected")], "promote")?.id).toBe("b");
-    expect(pickVariant([v("a", "practical_demo", "rejected"), v("b", "founder_story")], "feature")?.id).toBe("b");
-    expect(pickVariant([v("a", "tutorial", "rejected")], "promote")).toBeNull();
-  });
-});
-
-describe("Create: where a run stands (stored records only)", () => {
-  const campaign = { id: "cmp_1", status: "planning", goal: "feature_announcement", createdAt: at(0), deliverables: [{ kind: "feature_promo", channel: "tiktok", aspectRatio: "9:16", durationSec: 20, count: 1 }] } as RunInput["campaign"];
-  const job = (id: string, type: string, status: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ id, type, status, payload, progress: { pct: 50, stage: "working" }, createdAt: at(1), ...extra }) as never;
-  const variants = [
-    { id: "var_a", status: "proposed", angleType: "emotional_problem", title: "Calm in exam season", compositionIds: [] },
-    { id: "var_b", status: "proposed", angleType: "practical_demo", title: "One tap to deep work", compositionIds: [] },
-  ] as RunInput["variants"];
-  const base: RunInput = { campaign, variants: [], compositions: [], jobs: [], finals: [], now: T0 + 60_000 };
-
-  it("writing the idea: the concepts job's progress; a failure says so and can be tried again", () => {
-    const running = runView({ ...base, jobs: [job("j1", "campaign.generate_concepts", "running", { campaignId: "cmp_1" })] });
-    expect(running).toMatchObject({ step: "idea", working: true, pct: 10, next: null, failure: null });
-    const failed = runView({ ...base, jobs: [job("j1", "campaign.generate_concepts", "failed", { campaignId: "cmp_1" }, { error: { code: "PROVIDER_ERROR", message: "x", userMessage: "Muse Spark is busy." } })] });
-    expect(failed.failure).toEqual({ step: "idea", message: "Muse Spark is busy.", jobId: "j1", retry: true });
-    // The job finished but the campaign read is a moment older (still "planning", no ideas yet): waiting, not failed.
-    expect(runView({ ...base, jobs: [job("j1", "campaign.generate_concepts", "succeeded", { campaignId: "cmp_1" })] })).toMatchObject({ step: "idea", failure: null, working: true });
-    // Past planning with no ideas: none came.
-    expect(runView({ ...base, campaign: { ...campaign, status: "concepts_ready" } }).failure?.message).toBe("Muse didn’t come up with an idea this time.");
-    // Another campaign's job isn't this run's.
-    expect(runView({ ...base, jobs: [job("j9", "campaign.generate_concepts", "failed", { campaignId: "cmp_other" })] })).toMatchObject({ step: "idea", failure: null, working: true });
-  });
-
-  it("ideas ready: plan the best-fitting one in the chosen format and length (select it first)", () => {
-    const view = runView({ ...base, variants, jobs: [job("j1", "campaign.generate_concepts", "succeeded", { campaignId: "cmp_1" })] });
-    expect(view).toMatchObject({ step: "plan", ideaTitle: "One tap to deep work", ideaCount: 2, working: false });
-    expect(view.next).toEqual({ kind: "produce", variantId: "var_b", select: true, aspectRatio: "9:16", targetDurationSec: 20 });
-    // The app's screens are still being checked: wait for that real footage.
-    expect(runView({ ...base, variants, footageBusy: true })).toMatchObject({ step: "plan", next: null, detail: "Getting your app’s screens ready first" });
-  });
-
-  it("planning → making it: follows the storyboard, b-roll, build and preview jobs", () => {
-    const chosen = [{ ...variants[1]!, status: "selected" as const }];
-    const sb = job("sb", "storyboard.generate", "running", { campaignId: "cmp_1", variantId: "var_b" });
-    expect(runView({ ...base, variants: chosen, jobs: [sb] })).toMatchObject({ step: "plan", working: true, pct: 33, next: null });
-    const done = { ...(sb as object), status: "succeeded" } as never;
-    const media = job("m", "storyboard.resolve_media", "succeeded", {}, { parentJobId: "sb" });
-    const build = job("b", "composition.build", "running", {}, { parentJobId: "m", progress: { pct: 40, stage: "building the video", message: "building the video" } });
-    expect(runView({ ...base, variants: chosen, jobs: [build, media, done] })).toMatchObject({ step: "make", working: true, detail: "building the video" });
-    const broken = job("b", "composition.build", "failed", {}, { parentJobId: "m", error: { code: "X", message: "boom" } });
-    expect(runView({ ...base, variants: chosen, jobs: [broken, media, done] }).failure).toEqual({ step: "make", message: "boom", jobId: "b", retry: true });
-  });
-
-  it("video made: waits for the preview, then checks facts and brand and finishes it; done once a final render is ready", () => {
-    const chosen = [{ ...variants[1]!, status: "produced" as const, compositionIds: ["cmp_v"] }];
-    const comp = { id: "cmp_v", status: "rendered", currentVersion: 2, variantId: "var_b", createdAt: at(3) } as RunInput["compositions"][number];
-    const preview = job("p", "render.preview", "running", { compositionId: "cmp_v" });
-    expect(runView({ ...base, variants: chosen, compositions: [comp], jobs: [preview] })).toMatchObject({ step: "make", working: true, next: null, compositionId: "cmp_v" });
-    // The video's record came before its preview job: not finished before the preview.
-    expect(runView({ ...base, variants: chosen, compositions: [{ ...comp, status: "draft" }] })).toMatchObject({ step: "make", working: true, next: null });
-    expect(runView({ ...base, variants: chosen, compositions: [{ ...comp, status: "draft" }], jobs: [{ ...(preview as object), status: "failed" } as never] }).next?.kind).toBe("final");
-    expect(runView({ ...base, variants: chosen, compositions: [comp] }).next).toEqual({ kind: "final", compositionId: "cmp_v", version: 2 });
-    const rendering = job("f", "render.final", "running", { compositionId: "cmp_v" }, { progress: { pct: 50, stage: "rendering video" } });
-    expect(runView({ ...base, variants: chosen, compositions: [comp], jobs: [rendering] })).toMatchObject({ step: "finish", pct: 90, detail: "rendering video" });
-    const finals = [{ id: "ast_r", status: "ready", kind: "video", render: { compositionId: "cmp_v", quality: "final", version: 2 } }];
-    expect(runView({ ...base, variants: chosen, compositions: [comp], finals })).toMatchObject({ step: "done", pct: 100, finalAssetId: "ast_r", next: null });
-    // The final render job finished before the video's records caught up: done, never sent again.
-    const rendered = job("f", "render.final", "succeeded", { compositionId: "cmp_v" }, { output: { refs: [], data: { assetId: "ast_new" } } });
-    expect(runView({ ...base, variants: chosen, compositions: [comp], jobs: [rendered] })).toMatchObject({ step: "done", next: null, finalAssetId: "ast_new" });
-    // A preview render isn't a finished video.
-    expect(runView({ ...base, variants: chosen, compositions: [comp], finals: [{ ...finals[0]!, render: { compositionId: "cmp_v", quality: "preview", version: 2 } }] }).step).toBe("check");
-  });
-
-  it("a run left for a day doesn't carry on (or spend) by itself", () => {
-    const view = runView({ ...base, variants, jobs: [job("j1", "campaign.generate_concepts", "succeeded", { campaignId: "cmp_1" })], now: T0 + 25 * 3_600_000 });
-    expect(view).toMatchObject({ step: "plan", next: null, stale: true });
-  });
-
+describe("Create: showing a run (the server's read model)", () => {
   it("step states for the list", () => {
-    const view = { step: "make" as const, failure: null };
-    expect(["idea", "plan", "make", "check", "finish"].map((s) => stepState(view, s as never))).toEqual(["done", "done", "current", "todo", "todo"]);
-    expect(stepState({ step: "make", failure: { step: "make", message: "x", retry: true } }, "make")).toBe("failed");
-    expect(stepState({ step: "done", failure: null }, "finish")).toBe("done");
-  });
-});
-
-describe("Create: when a step needs the person", () => {
-  it("names the decision: credits, a plan limit, the brand check, a fix; waits out passing ones", () => {
-    expect(problemFromError({ status: 402, code: "INSUFFICIENT_CREDITS", userMessage: "Not enough credits for this action." })).toEqual({ kind: "credits", message: "Not enough credits for this action." });
-    const busy = problemFromError({ status: 429, code: "QUOTA_EXCEEDED", userMessage: "Your plan runs up to 2 tasks at once.", details: { quota: "concurrentJobs" } });
-    expect(busy).toMatchObject({ kind: "limit", wait: true });
-    expect(isWait(busy)).toBe(true);
-    const daily = problemFromError({ status: 429, code: "QUOTA_EXCEEDED", userMessage: "5 final renders per day.", details: { quota: "finalRendersPerDay" } });
-    expect(daily).toMatchObject({ kind: "limit", wait: false });
-    expect(isWait(daily)).toBe(false);
-    expect(problemFromError({ status: 409, code: "APPROVAL_REQUIRED", userMessage: "x", details: { reason: "brand_review_blocked", requiresOverride: true, review: { blocking: [{ message: "Says “#1 timer” without proof" }] } } })).toEqual({
-      kind: "brand",
-      message: "Says “#1 timer” without proof",
-      canOverride: true,
-    });
-    expect(problemFromError({ status: 422, code: "VALIDATION_FAILED", userMessage: "Fix the flagged issues before the final render.", details: { issues: [{ message: "Scene 2: unconfirmed claim" }] } })).toEqual({ kind: "fix", message: "Fix the flagged issues before the final render. Scene 2: unconfirmed claim" });
-    expect(isWait(problemFromError({ status: 409, code: "CONFLICT", userMessage: "The brand check is still running.", details: { reason: "brand_review_running" } }))).toBe(true);
-    expect(isWait(problemFromError({ status: 0, code: "NETWORK" }))).toBe(true);
-    expect(problemFromError({ status: 500, code: "INTERNAL" }).kind).toBe("busy");
-    expect(problemFromError({ status: 403, code: "FORBIDDEN", userMessage: "No." })).toEqual({ kind: "error", message: "No." });
+    expect(["idea", "plan", "make", "check", "finish"].map((x) => stepState({ stage: "make", status: "working" }, x as never))).toEqual(["done", "done", "current", "todo", "todo"]);
+    expect(stepState({ stage: "make", status: "failed" }, "make")).toBe("failed");
+    expect(stepState({ stage: "check", status: "needs_you" }, "check")).toBe("current");
+    expect(stepState({ stage: "done", status: "done" }, "finish")).toBe("done");
   });
 
-  it("asks before a final video that costs more than shown", () => {
-    expect(overspend(24, 16)).toEqual({ credits: 24, shown: 16 });
-    expect(overspend(16, 16)).toBeNull();
-    expect(overspend(8, 16)).toBeNull();
-    expect(overspend(24, null)).toBeNull();
+  it("says whether it waits for the person or is still moving by itself", () => {
+    expect((["needs_you", "failed", "stopped"] as const).every((status) => needsPerson({ status }))).toBe(true);
+    expect((["working", "waiting", "done"] as const).some((status) => needsPerson({ status }))).toBe(false);
+    expect(isMoving({ status: "waiting" })).toBe(true);
+    expect(isMoving({ status: "needs_you" })).toBe(false);
+    expect(channelFor({ format: { aspectRatio: "9:16", channel: "tiktok" } })).toBe("tiktok");
+    expect(channelFor(null)).toBeUndefined();
   });
 });
 

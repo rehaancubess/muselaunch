@@ -78,7 +78,20 @@ campaignRoutes.post("/apps/:appId/campaigns", requireCap("content.write"), async
   // Provisional name cut at a word boundary; Muse Spark replaces it with a short name with the concepts. The full request stays in `request`.
   const name = autoCampaignName(input.request);
   const campaign = await ws(c).collection("campaigns").create(
-    { appId: app.id, name, goal: input.goal, request: input.request, channels: input.channels, deliverables: input.deliverables ?? [], opportunityIds: input.opportunityIds, creditCap: input.creditCap, status: "planning", ...(input.origin ? { origin: input.origin } : {}) },
+    {
+      appId: app.id,
+      name,
+      goal: input.goal,
+      request: input.request,
+      channels: input.channels,
+      deliverables: input.deliverables ?? [],
+      opportunityIds: input.opportunityIds,
+      creditCap: input.creditCap,
+      status: "planning",
+      ...(input.origin ? { origin: input.origin } : {}),
+      // Create: the server takes every next step as this person (packages/autopilot/src/create-runner.ts).
+      ...(input.origin === "create" ? { createRun: { startedBy: actor, actingAs: actor, status: "working" as const, stage: "idea" as const, waits: 0, jobIds: [], touchedAt: new Date().toISOString() } } : {}),
+    },
     { actor },
   );
   let job: Job;

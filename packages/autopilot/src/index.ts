@@ -12,6 +12,17 @@ export { installAutopilotHooks, wakeDueAutopilots, autoRecommendOnNewData, AUTO_
 export { planAutoStart, startAutoAutopilot, tryStartAutoAutopilot, AUTO_VARIANTS } from "./auto";
 export { autopilotSettings, defaultGoal, dnaJobsInFlight } from "./defaults";
 export { needsYou } from "./needs-you";
+export {
+  advanceCreateRun,
+  advanceCreateRunsForJob,
+  createRunNeedsYou,
+  CREATE_RUN_STALE_MS,
+  getCreateRun,
+  listCreateRuns,
+  resolveCreateRun,
+  sweepCreateRuns,
+} from "./create-runner";
+export { deriveRun, pickVariant, problemFromError, runSettings, stepKeyOf } from "./create-run";
 export { advancePostChange, advancePostChangesForJob, CHANGEABLE_POST, estimatePostChange, postReviseCopyHandler, repairPostChanges, requestPostChange, sceneWords, videoChangeLine } from "./post-change";
 export { today } from "./today";
 export { alwaysOnState, alwaysOnStatus, decidePace, decideSuggestion, ensureAlwaysOnLoop, runAlwaysOn, summaryEmail, updateAlwaysOn, weeklySummary, type AlwaysOnStart, type AlwaysOnTick } from "./always-on";
