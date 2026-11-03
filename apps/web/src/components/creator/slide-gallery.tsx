@@ -130,7 +130,7 @@ export function SlideGallery({
               className={cn("relative shrink-0 snap-center overflow-hidden rounded-xl bg-mist shadow-raised", aspect, n > 1 ? (wide ? "w-[86%]" : "w-[72%]") : "w-full", gridFrom && "sm:w-auto", slideClassName)}
             >
               <SlideImage assetId={id} alt={`${title}, slide ${i + 1} of ${n}`} eager={i < 2} />
-              {n > 1 && !compact ? <span className="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm">{i + 1}</span> : null}
+              {n > 1 && !compact ? <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm" aria-hidden>{i + 1}</span> : null}
             </li>
           ))}
         </ol>

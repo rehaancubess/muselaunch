@@ -16,7 +16,7 @@ import { SlideImage, frameClass } from "@/components/creator/slide-gallery";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { clock, contentKey, needsPerson, runMake, stageLabel, stillsBadge, type ContentItem, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
+import { LINK_TOKEN, clock, contentKey, needsPerson, runMake, stageLabel, stillsBadge, type ContentItem, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
 import type { CreateRun } from "./runs";
 import type { ScheduleTarget } from "./schedule";
 
@@ -63,7 +63,7 @@ function TextTile({ text, onOpen, onPost, canPost }: { text: FinishedText; onOpe
           <ChannelMark channel={text.channel} size={14} />
           {CHANNEL_LABEL[text.channel]}
         </span>
-        <span className="mt-2.5 line-clamp-[9] whitespace-pre-line break-words text-footnote text-ink">{text.text}</span>
+        <span className="mt-2.5 line-clamp-[9] whitespace-pre-line break-words text-footnote text-ink">{text.text.split(LINK_TOKEN).join("(link)")}</span>
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface to-transparent" aria-hidden />
         <span className="absolute bottom-2.5 left-3.5 rounded-full bg-mist px-2 py-0.5 text-caption font-medium text-ink-2">Text post</span>
       </button>

@@ -8,7 +8,7 @@ import { appBase, expectFixtureMode, nav, shooter, signUpAndImport } from "./hel
  * renders one image per slide → the slide gallery, Your content, and the Studio with the slide strip.
  * And a text post: Create → More → Text post (X) → Generate post → the post as it will read.
  */
-const shot = shooter("e2e-stills");
+const shot = shooter("stills/e2e-stills");
 
 test.describe.configure({ mode: "serial" });
 
