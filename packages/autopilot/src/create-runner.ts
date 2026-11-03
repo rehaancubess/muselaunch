@@ -674,6 +674,6 @@ function itemFor(v: CreateRunView, has: (cap: Capability) => boolean): NeedsYouI
     approve: { path: resolve, body: { action: d.kind === "spend" ? "approve_spend" : override ? "override" : "retry", stepKey: d.stepKey } },
     reviewPath,
     labels: labels(d.kind === "spend" && d.credits !== undefined ? `Finish it · ${d.credits} credits` : d.kind === "brand" && !override ? "Try again" : w.approve, w.review),
-    ...(override ? { approveReason: { label: "Why it’s fine to finish it", placeholder: "Kept with the Brand check" } } : {}),
+    ...(override ? { approveReason: { label: "Why it’s fine to finish it", placeholder: "Why it’s fine (kept with the Brand check)" } } : {}),
   };
 }
