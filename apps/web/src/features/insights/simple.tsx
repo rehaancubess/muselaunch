@@ -322,9 +322,10 @@ function TryNext({ appId, measured }: { appId: string; measured: boolean }) {
 // Connect your data: what isn't connected yet, one line and one button each
 // ---------------------------------------------------------------------------
 
-type SourcesState = ReturnType<typeof useSources>;
+/** Which data sources are connected (also used by Results). */
+export type SourcesState = ReturnType<typeof useSources>;
 
-function useSources(appId: string) {
+export function useSources(appId: string) {
   const { workspaceId, can } = useWorkspace();
   const toast = useToast();
   const accounts = useApiQuery<Page<ConnectedAccount>>(wsPath(workspaceId, `/apps/${appId}/analytics/connections`));
@@ -363,7 +364,7 @@ function useSources(appId: string) {
   };
 }
 
-function ConnectYourData({ appId, sources, installsMeasured, skipYouTube }: { appId: string; sources: SourcesState; installsMeasured: boolean; skipYouTube: boolean }) {
+export function ConnectYourData({ appId, sources, installsMeasured, skipYouTube }: { appId: string; sources: SourcesState; installsMeasured: boolean; skipYouTube: boolean }) {
   const { workspaceId } = useWorkspace();
   const r = routes.app(workspaceId, appId);
   if (sources.loading) return null;

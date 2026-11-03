@@ -437,6 +437,72 @@ export const InsightsOverview = z.object({
 export type InsightsOverview = z.infer<typeof InsightsOverview>;
 
 // ---------------------------------------------------------------------------
+// Results ("See what is working", GET /apps/:appId/insights/results): what the overview can't say.
+// The daily series of the main metric (real daily numbers only; a day without one is a gap), the
+// posts MuseLaunch published or saw marked as posted in the range, and the post with the most of
+// the main metric measured for it. The totals themselves stay on /insights/overview.
+// ---------------------------------------------------------------------------
+
+export const ResultsQuery = InsightsQuery.pick({ from: true, to: true });
+export type ResultsQuery = z.infer<typeof ResultsQuery>;
+
+/** Fewer measured days than this and the daily chart says so instead of drawing a line. */
+export const RESULTS_MIN_CHART_DAYS = 3;
+
+/** The main metrics of the Results page: views, else link clicks. */
+export const ResultsMetric = z.enum(["views", "clicks"]);
+export type ResultsMetric = z.infer<typeof ResultsMetric>;
+
+export const ResultsSource = MetricSourceValue.pick({ source: true, label: true, imported: true, observationCount: true });
+export type ResultsSource = z.infer<typeof ResultsSource>;
+
+export const ResultsSeries = z.object({
+  metric: ResultsMetric,
+  label: z.string(),
+  /** One point per UTC day of the range, oldest first. `null` = no daily number that day: a gap, never a guessed 0. */
+  points: z.array(z.object({ date: z.string(), value: z.number().nullable() })),
+  measuredDays: z.number().int().nonnegative(),
+  sources: z.array(ResultsSource),
+  /** Numbers in the range that cover several days at once (a weekly total, a post's lifetime count): never split into days, so not on the chart. */
+  multiDayLeftOut: z.number().int().nonnegative(),
+});
+export type ResultsSeries = z.infer<typeof ResultsSeries>;
+
+export const ResultsBestPost = z.object({
+  publicationId: Id,
+  scheduledPostId: Id,
+  channel: Channel,
+  title: z.string(),
+  thumbnailAssetId: Id.optional(),
+  remoteUrl: HttpUrl.optional(),
+  publishedAt: IsoDateTime,
+  metric: ResultsMetric,
+  label: z.string(),
+  value: z.number(),
+  sources: z.array(ResultsSource),
+  attribution: AttributionLevel.nullable(),
+  /** Posts with this number measured for them in the range, the best one included. */
+  comparedPosts: z.number().int().positive(),
+  /** Other posts with exactly the same number (the newest one is shown). */
+  tiedWith: z.number().int().nonnegative(),
+  observationIds: z.array(Id),
+});
+export type ResultsBestPost = z.infer<typeof ResultsBestPost>;
+
+export const ResultsSummary = z.object({
+  appId: Id,
+  range: z.object({ from: IsoDateTime, to: IsoDateTime, timezone: z.literal("UTC") }),
+  /** Views per day when any day has a daily views number (else link clicks); null when neither has one. */
+  series: ResultsSeries.nullable(),
+  /** MuseLaunch's own records: posts published through a connected account (`api`) or marked as posted (`manual`) in the range. */
+  postsPublished: z.object({ value: z.number().int().nonnegative(), api: z.number().int().nonnegative(), manual: z.number().int().nonnegative() }),
+  /** The post with the most views measured for it (else link clicks); null when no post has a number of its own above 0. */
+  bestPost: ResultsBestPost.nullable(),
+  generatedAt: IsoDateTime,
+});
+export type ResultsSummary = z.infer<typeof ResultsSummary>;
+
+// ---------------------------------------------------------------------------
 // YouTube channel analysis (module F). Public data via the YouTube Data API v3; every number is
 // copied from (or computed only from) the API response stored with its fetch time and video URLs.
 // ---------------------------------------------------------------------------

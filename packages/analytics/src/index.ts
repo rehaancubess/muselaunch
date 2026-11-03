@@ -26,6 +26,7 @@ export * from "./metrics";
 export * from "./observations";
 export * from "./ops";
 export * from "./recommendations";
+export * from "./results";
 export * from "./revenuecat";
 export * from "./youtube/channel";
 export * from "./youtube/social-sync";

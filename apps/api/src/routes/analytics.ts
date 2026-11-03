@@ -9,6 +9,7 @@ import {
   ManualObservationRequest,
   MetricName,
   MetricSource,
+  ResultsQuery,
 } from "@muselaunch/contracts";
 import {
   acceptRecommendation,
@@ -23,6 +24,7 @@ import {
   listYouTubeAnalyses,
   recordManualObservation,
   remapImport,
+  resultsSummary,
   rollbackImport,
   setLinkActive,
   startYouTubeAnalysis,
@@ -242,6 +244,13 @@ analyticsRoutes.get("/apps/:appId/insights/overview", async (c) => {
   const app = await appOf(c);
   const q = query(c, InsightsQuery);
   return c.json(await insightsOverview(c.get("platform"), c.get("workspaceId"), app.id, q));
+});
+
+/** Results ("See what is working"): the daily series, posts published and the best post. Totals stay on /insights/overview. */
+analyticsRoutes.get("/apps/:appId/insights/results", async (c) => {
+  const app = await appOf(c);
+  const q = query(c, ResultsQuery);
+  return c.json(await resultsSummary(c.get("platform"), c.get("workspaceId"), app.id, q));
 });
 
 // ---------------------------------------------------------------------------
