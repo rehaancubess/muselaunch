@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AspectRatio,
+  docKindOf,
+  isStillFormat,
   type ClipAnalysis,
   type Claim,
   type Composition,
@@ -23,14 +25,18 @@ import type { WorkspaceDb } from "@muselaunch/db";
 import { prepareSoundtrack, type SoundtrackResult } from "@muselaunch/media";
 import { AppError, assertKeyInWorkspace, workspaceKey, type HandlerRegistry, type JobContext, type ObjectStorage } from "@muselaunch/platform";
 import { exportPackage } from "./package";
-import { extFor, extractFrame, probe, sha256File, shortHash, toJpeg } from "./media";
+import { extFor, extractFrame, probe, sha256File, shortHash } from "./media";
 import { PREVIEW_SCALE, renderCacheKey } from "./keys";
 import { renderProject } from "./producer";
+import { encodeStill, finalStillEncoding, STILL_MAX_BYTES, stillKindOf, type EncodedStill, type StillEncoding, type StillKind } from "./stills";
 import { loadTracksFor, segmentationAssetIds } from "./tracks";
 
 const PREVIEW_TIMEOUT_MS = Number(process.env.RENDER_PREVIEW_TIMEOUT_MS ?? 8 * 60_000);
 const FINAL_TIMEOUT_MS = Number(process.env.RENDER_FINAL_TIMEOUT_MS ?? 25 * 60_000);
 const READY = new Set(["ready", "uploaded"]);
+/** Still capture: each slide gets a short slot on a 30 fps timeline (6 frames), its middle frame is kept. */
+const STILL_SLOT_SEC = 0.2;
+const STILL_FPS = 30;
 
 // ---------------------------------------------------------------------------
 // Loading helpers (always through the job's workspace — tenant-scoped)
@@ -116,7 +122,9 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
   const segmentations = await loadAppSegmentations(ctx.ws, appId);
   ctx.throwIfCancelled();
 
-  await ctx.progress(30, "building the video");
+  // Stills (post, carousel, thumbnail, store set): one slide per scene, in the storyboard's frame.
+  const stillFormat = isStillFormat(storyboard.format) ? storyboard.format : null;
+  await ctx.progress(30, stillFormat ? "building the slides" : "building the video");
   const existing = await ctx.ws.collection("compositions").get(compositionId);
   let composition: Composition;
   let version: CompositionVersion;
@@ -127,19 +135,33 @@ async function compositionBuild(ctx: JobContext<"composition.build">) {
   } else {
     const clipAnalyses = await loadAppClipAnalyses(ctx.ws, appId);
     const recordingSegments = await loadAppRecordingSegments(ctx.ws, appId);
-    const built = buildFromStoryboard({ storyboard, app, brand, assets, segmentations, clipAnalyses, recordingSegments });
-    // Sound pass (Track 3): original music + effects, and AI voiceover when the workspace allows it.
-    await ctx.progress(40, "adding original music and sound");
-    const { doc, ...soundInfo } = await prepareSoundtrack(ctx, { doc: built, compositionId, appId, storyboard, app });
-    sound = soundInfo;
-    for (const w of soundInfo.warnings) await ctx.log_event(`Sound: ${w}`, { entity: "compositions", id: compositionId });
+    const built = buildFromStoryboard({
+      storyboard,
+      app,
+      brand,
+      assets,
+      segmentations,
+      clipAnalyses,
+      recordingSegments,
+      ...(stillFormat ? { kind: docKindOf(stillFormat), aspectRatio: storyboard.aspectRatio } : {}),
+    });
+    let doc = built;
+    if (!stillFormat) {
+      // Sound pass (Track 3): original music + effects, and AI voiceover when the workspace allows it.
+      // Stills have no sound at all (no music, effects or voice).
+      await ctx.progress(40, "adding original music and sound");
+      const { doc: withSound, ...soundInfo } = await prepareSoundtrack(ctx, { doc: built, compositionId, appId, storyboard, app });
+      doc = withSound;
+      sound = soundInfo;
+      for (const w of soundInfo.warnings) await ctx.log_event(`Sound: ${w}`, { entity: "compositions", id: compositionId });
+    }
     ({ composition, version } = await createComposition(
       ctx.ws,
       { id: compositionId, appId, campaignId: storyboard.campaignId, variantId: storyboard.variantId, storyboardId, title: storyboard.title, doc },
       ctx.actor,
     ));
   }
-  await ctx.progress(60, "checking the video");
+  await ctx.progress(60, stillFormat ? "checking the slides" : "checking the video");
   const lint = await lintForRender(ctx.ws, version.doc, ctx.platform.storage);
 
   // Link back to the concept/variant (idempotent set-add).
@@ -198,12 +220,19 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
   const p = ctx.platform;
   const wid = ctx.workspaceId;
   const { compositionId, version } = ctx.payload;
-  const format = quality === "final" ? ((ctx.payload as { format?: string }).format ?? "mp4") : "mp4";
+  const requested = quality === "final" ? ((ctx.payload as { format?: string }).format ?? "mp4") : "mp4";
   const comp = await ctx.ws.collection("compositions").getOrThrow(compositionId);
   if (comp.appId !== ctx.payload.appId) throw new AppError("BAD_REQUEST", "Composition belongs to another app");
   const ver = await getVersion(ctx.ws, compositionId, version);
   const doc = ver.doc;
-  const still = doc.kind !== "video" || format !== "mp4";
+  const still = doc.kind !== "video" || requested !== "mp4";
+  // Stills are encoded for their kind (./stills.ts): JPEG for posts, carousels and thumbnails, 24-bit
+  // PNG without alpha for store sets, whatever "png" the caller sent; previews are small JPEGs. The
+  // cache key carries the real encoding, so the same doc never has two different "final" files.
+  const sb = still && comp.storyboardId ? await ctx.ws.collection("storyboards").get(comp.storyboardId) : null;
+  const stillKind = still ? stillKindOf(doc, sb) : null;
+  const encoding: StillEncoding | null = still ? (quality === "preview" ? "jpeg" : finalStillEncoding(doc, requested, sb)) : null;
+  const format = encoding ?? requested;
   const hash = docHash(doc);
   const cacheKey = renderCacheKey(hash, quality, format);
 
@@ -214,7 +243,16 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
     await ctx.progress(100, "reused cached render");
     await finish(ctx, comp, version, quality, cached.id, cached.posterAssetId);
     const frames = still ? await stillSiblings(ctx.ws, cachedId) : [];
-    return { refs: [{ entity: "mediaAssets", id: cached.id }, ...frames.map((id) => ({ entity: "mediaAssets", id }))], data: { cached: true, assetId: cached.id }, creditsUsed: 0 };
+    return {
+      refs: [{ entity: "mediaAssets", id: cached.id }, ...frames.map((id) => ({ entity: "mediaAssets", id }))],
+      data: {
+        cached: true,
+        assetId: cached.id,
+        posterAssetId: still ? cached.id : cached.posterAssetId,
+        ...(still ? { assetIds: [cached.id, ...frames], slides: frames.length + 1, format: encoding, mimeType: cached.mimeType, width: cached.width, height: cached.height, still: stillKind } : {}),
+      },
+      creditsUsed: 0,
+    };
   }
 
   // ---- lint gate ------------------------------------------------------------------------------
@@ -243,17 +281,17 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
       assetKinds: Object.fromEntries(assets.map((a) => [a.id, a.kind])),
       assetHasAudio: Object.fromEntries(assets.filter((a) => a.hasAudio !== undefined).map((a) => [a.id, a.hasAudio!])),
       still,
-      sceneSlotSec: still ? 0.2 : undefined,
+      sceneSlotSec: still ? STILL_SLOT_SEC : undefined,
     });
     await writeFile(join(dir, "index.html"), compiled.html);
     ctx.throwIfCancelled();
 
     const outPath = join(dir, still ? "frames" : "out.mp4");
-    await ctx.progress(10, quality === "preview" ? "rendering preview" : "rendering video");
+    await ctx.progress(10, still ? (quality === "preview" ? "rendering preview slides" : "rendering slides") : quality === "preview" ? "rendering preview" : "rendering video");
     await renderProject({
       projectDir: dir,
       outputPath: outPath,
-      fps: still ? 30 : fps,
+      fps: still ? STILL_FPS : fps,
       quality: quality === "preview" ? "draft" : "high",
       format: still ? "png-sequence" : "mp4",
       signal: ctx.signal,
@@ -263,7 +301,7 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
     ctx.throwIfCancelled();
     await ctx.progress(90, "saving");
 
-    if (still) return await saveStills(ctx, comp, ver, compiled.scenes, dir, outPath, cacheKey, format === "jpeg" ? "jpeg" : "png", quality);
+    if (still) return await saveStills(ctx, comp, ver, compiled.scenes, dir, outPath, cacheKey, { encoding: encoding!, kind: stillKind! }, quality);
 
     // ---- verify output ----------------------------------------------------------------------
     const info = await probe(outPath, ctx.signal);
@@ -365,7 +403,23 @@ async function finish(ctx: JobContext, comp: Composition, version: number, quali
 
 async function stillSiblings(ws: WorkspaceDb, firstId: string): Promise<string[]> {
   const ids = Array.from({ length: 30 }, (_, i) => `${firstId}_${i + 2}`);
-  return (await ws.collection("mediaAssets").getMany(ids)).map((a) => a.id);
+  const found = new Set((await ws.collection("mediaAssets").getMany(ids)).map((a) => a.id));
+  // In slide order (getMany doesn't promise an order), stopping at the first gap.
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!found.has(id)) break;
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * The frame a scene's slide is taken from: the middle of its slot. Stills compile without motion
+ * (compile `still: true`: no entrances, loops or transitions), so every frame of the slot is the
+ * settled slide; the middle keeps clear of the cut on either side.
+ */
+export function slideFrameIndex(scene: { start: number; end: number }, fps: number, frameCount: number): number {
+  return Math.max(0, Math.min(frameCount - 1, Math.floor(((scene.start + scene.end) / 2) * fps)));
 }
 
 async function saveStills(
@@ -376,25 +430,30 @@ async function saveStills(
   dir: string,
   framesDir: string,
   cacheKey: string,
-  fmt: "png" | "jpeg",
+  still: { encoding: StillEncoding; kind: StillKind },
   quality: Quality,
 ) {
   const p = ctx.platform;
   const files = (await readdir(framesDir)).filter((f) => f.endsWith(".png")).sort();
   if (!files.length) throw new AppError("PROVIDER_ERROR", "Render produced no frames", { retryable: true });
   const refs: { entity: string; id: string }[] = [];
+  const ext = still.encoding === "jpeg" ? "jpg" : "png";
+  let first: EncodedStill | undefined;
   for (let i = 0; i < scenes.length; i++) {
+    ctx.throwIfCancelled();
     const s = scenes[i]!;
-    const idx = Math.min(files.length - 1, Math.round(((s.start + s.end) / 2) * 30));
-    let src = join(framesDir, files[idx]!);
-    if (fmt === "jpeg") {
-      const jpg = join(dir, `slide-${i + 1}.jpg`);
-      await toJpeg(src, jpg, ctx.signal);
-      src = jpg;
-    }
-    const ext = fmt === "jpeg" ? "jpg" : "png";
+    const src = join(framesDir, files[slideFrameIndex(s, STILL_FPS, files.length)]!);
+    const enc = await encodeStill(src, join(dir, `slide-${String(i + 1).padStart(2, "0")}.${ext}`), {
+      encoding: still.encoding,
+      maxBytes: STILL_MAX_BYTES[still.kind],
+      preview: quality === "preview",
+      background: ver.doc.theme.background,
+      signal: ctx.signal,
+    });
+    first ??= enc;
     const key = workspaceKey(ctx.workspaceId, "renders", comp.id, `v${ver.version}-${quality}-${cacheKey.slice(0, 8)}-slide${i + 1}.${ext}`);
-    const { bytes } = await p.storage.uploadFile(src, key, { contentType: fmt === "jpeg" ? "image/jpeg" : "image/png" });
+    const { bytes } = await p.storage.uploadFile(enc.path, key, { contentType: enc.mimeType });
+    const sha256 = await sha256File(enc.path);
     const id = i === 0 ? `ast_r_${cacheKey}` : `ast_r_${cacheKey}_${i + 1}`;
     await ctx.ws.collection("mediaAssets").createIfAbsent(
       {
@@ -405,13 +464,15 @@ async function saveStills(
         role: quality === "final" ? "render" : "preview",
         origin: "render",
         storagePath: key,
-        mimeType: fmt === "jpeg" ? "image/jpeg" : "image/png",
+        mimeType: enc.mimeType,
         bytes,
-        width: ver.doc.width,
-        height: ver.doc.height,
+        sha256,
+        // The real pixel size of the file (previews are rendered at PREVIEW_SCALE).
+        width: enc.width,
+        height: enc.height,
         status: "ready",
-        title: `${comp.title} — slide ${i + 1}`.slice(0, 200),
-        labels: [`doc:${docHash(ver.doc).slice(0, 40)}`, `slide:${i + 1}`],
+        title: `${comp.title} — ${scenes.length > 1 ? `slide ${i + 1}` : "image"}`.slice(0, 200),
+        labels: [`doc:${docHash(ver.doc).slice(0, 40)}`, `slide:${i + 1}`, `still:${still.kind}`, ver.doc.aspectRatio],
         isProductTruth: false,
         license: { type: "owned" },
         render: { compositionId: comp.id, version: ver.version, quality },
@@ -420,9 +481,15 @@ async function saveStills(
     );
     refs.push({ entity: "mediaAssets", id });
   }
+  // Slide 1 is the composition's render and its thumbnail (the cover).
   await finish(ctx, comp, ver.version, quality, refs[0]!.id, refs[0]!.id);
   const credits = quality === "final" ? Math.max(1, Math.ceil(scenes.length / 4)) : 0;
-  return { refs, data: { slides: refs.length }, creditsUsed: ctx.job.reservation ? Math.min(credits, ctx.job.reservation.credits) : credits };
+  return {
+    refs,
+    // Same shape as a video render (assetId / posterAssetId: slide 1) plus every slide in order.
+    data: { assetId: refs[0]!.id, posterAssetId: refs[0]!.id, assetIds: refs.map((r) => r.id), slides: refs.length, format: still.encoding, mimeType: first!.mimeType, width: first!.width, height: first!.height, still: still.kind },
+    creditsUsed: ctx.job.reservation ? Math.min(credits, ctx.job.reservation.credits) : credits,
+  };
 }
 
 // ---------------------------------------------------------------------------
