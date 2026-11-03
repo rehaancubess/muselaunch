@@ -11,9 +11,36 @@ import { useJob } from "@/lib/jobs";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useMemberName, useWorkspace } from "@/lib/workspace";
+import { SlideGallery } from "@/components/creator/slide-gallery";
+import { TextPostCard } from "@/components/creator/text-post-card";
 import { ApprovalCard } from "./approval-card";
 import { FactCheckFix } from "./fact-check";
-import type { JobOut, ManualPackage, PostView } from "./types";
+import type { ChannelMediaRules, JobOut, ManualPackage, PostMedia, PostView } from "./types";
+
+/** What the post carries, in posting order: the slides of a carousel (swipeable), one image, or the words of a text post. */
+function PostMediaPreview({ media, caption, channel, title }: { media: PostMedia; caption: string; channel: PostView["post"]["channel"]; title: string }) {
+  if (media.shape === "text") return <TextPostCard text={caption} channel={channel} className="bg-canvas shadow-[0_0_0_1px_var(--ml-line)]" />;
+  const images = media.items.filter((i) => i.kind === "image");
+  if (media.shape === "carousel" || media.shape === "image")
+    return <SlideGallery assetIds={images.map((i) => i.assetId)} width={images[0]?.width} height={images[0]?.height} title={title} layout="strip" className="max-w-sm" />;
+  return null;
+}
+
+/** The channel's limits that matter for this post, in one or two plain lines. */
+export function rulesLines(rules: ChannelMediaRules, media: Pick<PostMedia, "shape" | "count">, mode: "api" | "manual"): string[] {
+  const out: string[] = [];
+  const name = CHANNEL_LABEL[rules.channel] ?? rules.channel;
+  if (media.shape === "carousel") {
+    const c = rules.api?.carousel;
+    if (mode === "api" && c) out.push(`Through the API, ${name} takes ${c.min}–${c.max} images in one post${rules.api?.imageFormats.length ? ` (${rules.api.imageFormats.join(" or ")})` : ""}.`);
+    else if (rules.manualMaxImages) out.push(`One post holds up to ${rules.manualMaxImages} images here.`);
+    if (mode === "manual" && rules.api?.manualReason.carousel) out.push(rules.api.manualReason.carousel);
+  }
+  if (media.shape === "text" && mode === "manual" && rules.api?.manualReason.text) out.push(rules.api.manualReason.text);
+  if (media.shape === "image" && mode === "manual" && rules.api?.manualReason.image) out.push(rules.api.manualReason.image);
+  if (rules.captionLimit) out.push(`${media.shape === "text" ? "Posts" : "Captions"} take up to ${rules.captionLimit.toLocaleString()} characters.`);
+  return out;
+}
 
 export const POST_STATUS_KIND = (s: string) =>
   s === "published" || s === "manually_posted" ? "success" : s === "manual_post_needed" || s === "awaiting_approval" ? "attention" : s === "publishing" ? "running" : s === "scheduled" ? "success" : statusKindOf(s);
@@ -80,9 +107,18 @@ function PostBody({ view }: { view: PostView }) {
         <Badge tone="neutral">{post.visibility}</Badge>
       </div>
 
+      {view.media ? <PostMediaPreview media={view.media} caption={post.caption} channel={post.channel} title={post.title ?? "This post"} /> : null}
+      {view.media && !terminal && rulesLines(view.media.rules, view.media, post.mode).length ? (
+        <ul className="space-y-1 text-caption text-ink-2">
+          {rulesLines(view.media.rules, view.media, post.mode).map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      ) : null}
+
       <section className="space-y-2">
         {post.title ? <p className="text-headline font-semibold">{post.title}</p> : null}
-        <p className="whitespace-pre-wrap text-body-sm text-ink">{post.caption}</p>
+        {view.media?.shape === "text" ? null : <p className="whitespace-pre-wrap text-body-sm text-ink">{post.caption}</p>}
         {post.tags.length ? <p className="text-footnote text-ink-2">{post.tags.map((t) => `#${t.replace(/^#/, "")}`).join(" ")}</p> : null}
         <p className="text-caption text-ink-3">
           {post.scheduledAt ? `Scheduled ${new Date(post.scheduledAt).toLocaleString()} (${post.timezone})` : "No time set"}
