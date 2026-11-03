@@ -297,6 +297,46 @@ export interface CampaignDetailResponse {
   compositions: Composition[];
 }
 
+// ---- Create runs, carried by the server (packages/contracts/src/create-run.ts) ----
+
+export type CreateRunStage = "idea" | "plan" | "make" | "check" | "finish" | "done";
+export type CreateRunStatus = "working" | "waiting" | "needs_you" | "failed" | "stopped" | "done";
+export type CreateRunAction = "retry" | "approve_spend" | "override" | "stop";
+
+export interface CreateRunDecision {
+  kind: "credits" | "limit" | "fix" | "brand" | "spend" | "permission" | "resume" | "error";
+  stepKey: string;
+  stage: CreateRunStage;
+  message: string;
+  at: string;
+  credits?: number;
+  shown?: number;
+  canOverride?: boolean;
+}
+
+export interface CreateRunView {
+  campaignId: string;
+  appId: string;
+  request: string;
+  name: string;
+  kind: "promote" | "feature";
+  format: { aspectRatio: AspectRatio; lengthSec?: number; channel?: Channel };
+  startedBy: string;
+  createdAt: string;
+  stage: CreateRunStage;
+  status: CreateRunStatus;
+  pct: number;
+  detail?: string;
+  ideaTitle?: string;
+  ideaCount: number;
+  compositionId?: string;
+  decision: CreateRunDecision | null;
+  failure: { stage: CreateRunStage; message: string; jobId?: string; canRetry: boolean } | null;
+  wait: { until?: string; reason: string } | null;
+  video: { assetId: string; posterAssetId?: string; durationSec?: number } | null;
+  actions: CreateRunAction[];
+}
+
 export interface DnaFeature {
   id: string;
   name: string;

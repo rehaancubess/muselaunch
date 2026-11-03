@@ -1,5 +1,5 @@
-import type { Campaign, Job } from "../api/types";
-import { campaignRequest, clampLength, defaultFormat, estimateSteps, featurePrompt, formatById, ideaPrompt, lengthOptions, promotePrompt, runLine, runView, stepState, topIdeas } from "./plan";
+import type { Campaign, CreateRunView, Job } from "../api/types";
+import { campaignRequest, clampLength, defaultFormat, displayFromServer, estimateSteps, featurePrompt, formatById, ideaPrompt, lengthOptions, promotePrompt, runLine, runView, stepState, stepStateOf, topIdeas } from "./plan";
 
 const now = Date.parse("2026-11-03T12:00:00Z");
 const campaign = (over: Partial<Campaign> = {}): Campaign => ({
@@ -94,5 +94,57 @@ describe("where a run stands (stored records only)", () => {
   it("a run left for over a day doesn't carry on by itself", () => {
     const v = runView({ campaign: campaign({ status: "ready", createdAt: "2026-11-01T00:00:00Z" }), variants: [{ id: "var_1", title: "Focus", status: "proposed" }], compositions: [], jobs: [], finals: [], now });
     expect(v).toMatchObject({ stale: true, next: null });
+  });
+});
+
+describe("a run the server carries (GET /apps/:appId/create-runs)", () => {
+  const view = (over: Partial<CreateRunView> = {}): CreateRunView => ({
+    campaignId: "cmp_1",
+    appId: "app_1",
+    request: "Show how Focus Mode blocks distractions. And more.",
+    name: "Focus Mode",
+    kind: "feature",
+    format: { aspectRatio: "9:16", lengthSec: 20, channel: "instagram" },
+    startedBy: "u1",
+    createdAt: "2026-11-03T11:50:00Z",
+    stage: "make",
+    status: "working",
+    pct: 60,
+    detail: "rendering preview",
+    ideaCount: 3,
+    decision: null,
+    failure: null,
+    wait: null,
+    video: null,
+    actions: ["stop"],
+    ...over,
+  });
+
+  it("shows the step it's on in the job's own words", () => {
+    const d = displayFromServer(view());
+    expect(d).toMatchObject({ title: "Show how Focus Mode blocks distractions.", status: "working", line: "Making it · rendering preview", action: null });
+    expect(stepStateOf(d, "plan")).toBe("done");
+    expect(stepStateOf(d, "make")).toBe("current");
+    expect(stepStateOf(d, "check")).toBe("todo");
+  });
+
+  it("offers only what the server offers: finish at the new price (that exact step), try again; the Brand check stays on the web", () => {
+    const spend = displayFromServer(
+      view({ stage: "check", status: "needs_you", decision: { kind: "spend", stepKey: "final:cmp_v:v2", stage: "check", message: "It came out longer: finishing costs 40 credits, not 30.", at: "", credits: 40, shown: 30 }, actions: ["approve_spend", "stop"] }),
+    );
+    expect(spend).toMatchObject({ line: "It came out longer: finishing costs 40 credits, not 30.", action: { kind: "approve_spend", label: "Finish it · 40 credits", stepKey: "final:cmp_v:v2" } });
+    expect(stepStateOf(spend, "check")).toBe("failed");
+    const failed = displayFromServer(view({ status: "failed", failure: { stage: "make", message: "Making the video failed.", canRetry: true }, actions: ["retry", "stop"] }));
+    expect(failed.action).toEqual({ kind: "retry", label: "Try again" });
+    const brand = displayFromServer(view({ stage: "check", status: "needs_you", decision: { kind: "brand", stepKey: "final:x:v1", stage: "check", message: "The Brand check blocked it.", at: "", canOverride: true }, actions: ["override", "retry", "stop"] }));
+    expect(brand.action).toBeNull();
+    // Without content.write the server offers nothing, so the phone offers nothing.
+    expect(displayFromServer(view({ status: "failed", failure: { stage: "make", message: "x", canRetry: true }, actions: [] })).action).toBeNull();
+  });
+
+  it("done: the finished video to watch", () => {
+    const d = displayFromServer(view({ stage: "done", status: "done", pct: 100, ideaTitle: "Focus in 20 seconds", video: { assetId: "ast_final" } }));
+    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final" });
+    expect(stepStateOf(d, "finish")).toBe("done");
   });
 });

@@ -3,9 +3,15 @@
 Expo SDK 58 (React Native 0.88, expo-router), TypeScript. Three tabs like the web: **Home** (review and
 schedule posts, Edit by typing or holding the mic, Share to Instagram / TikTok yourself and then "Did you
 post it?"), **Create** (the web's Create request: Promote my app / Show a feature / Use a suggested idea,
-format, length, the real credit cost, Generate video, then progress from stored records) and **Results**
-(three numbers, the daily chart, best post, the tip). Push notifications when posts are ready to review,
-when a post goes live and when the Always on weekly summary is ready.
+format, length, the real credit cost, Generate video; the server makes the video and the app shows where
+it stands from `GET /apps/:appId/create-runs`, with Try again / Finish it at the new price when the run
+stops for a decision) and **Results** (three numbers, the daily chart, best post, the tip). Push
+notifications when posts are ready to review, when a post goes live and when the Always on weekly summary
+is ready.
+
+The interface colour follows the open app (`src/lib/app-theme.ts` `themeFor(app)`): the app's
+`theme.color` (picked from its icon, changeable on the web in About your app) drives the accents;
+without one it's monochrome (graphite). The phone only reads it.
 
 This folder is **outside the pnpm workspace**: it has its own `package.json` and `package-lock.json`, and
 `pnpm install`, the web/API builds and the Cloud Run deploy ignore it.

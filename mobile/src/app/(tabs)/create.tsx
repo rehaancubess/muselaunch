@@ -133,7 +133,7 @@ export default function CreateScreen() {
       await api.post(api.ws(`/apps/${appId}/campaigns`), campaignRequest({ kind, prompt: text, format, lengthSec, ideaId: kind === "idea" ? ideaId : null }), { idempotencyKey: idem.current });
       idem.current = newKey("create");
       toast({ title: "Muse is making your video", body: "You can close the app: it carries on, and nothing is posted without your OK." });
-      await Promise.all([qc.invalidateQueries({ queryKey: ["campaigns"] }), qc.invalidateQueries({ queryKey: ["jobs"] }), qc.invalidateQueries({ queryKey: ["estimate"] }), qc.invalidateQueries({ queryKey: ["credits"] })]);
+      await Promise.all([qc.invalidateQueries({ queryKey: ["create-runs"] }), qc.invalidateQueries({ queryKey: ["campaigns"] }), qc.invalidateQueries({ queryKey: ["jobs"] }), qc.invalidateQueries({ queryKey: ["estimate"] }), qc.invalidateQueries({ queryKey: ["credits"] })]);
       setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 400);
     } catch (e) {
       idem.current = newKey("create");

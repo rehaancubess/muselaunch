@@ -7,7 +7,7 @@
  * MuseLaunch carries the run to the finished video on the server. Nothing is guessed: a job that
  * failed says so, and a run nobody touched for a day doesn't carry on by itself.
  */
-import type { AspectRatio, Campaign, CampaignGoal, CampaignVariant, Channel, Composition, Deliverable, DeliverableKind, FeedItem, Job, MediaAsset, SourceRef } from "../api/types";
+import type { AspectRatio, Campaign, CampaignGoal, CampaignVariant, Channel, Composition, CreateRunStatus, CreateRunView, Deliverable, DeliverableKind, FeedItem, Job, MediaAsset, SourceRef } from "../api/types";
 
 // ---------------------------------------------------------------------------
 // Starting points and prompts
@@ -349,9 +349,71 @@ export function stepState(view: Pick<RunView, "step" | "failure">, step: StepKey
   return view.failure ? "failed" : "current";
 }
 
+// ---------------------------------------------------------------------------
+// What the phone shows for a run
+// ---------------------------------------------------------------------------
+
 /**
- * The run's one line on the phone. The phone never takes a run's steps itself: when the next step
- * waits (nothing running), MuseLaunch picks it up on the server, or the person continues on the web.
+ * One run card, from the server's read model (GET /apps/:appId/create-runs, the server takes every
+ * step) or, on an API that predates it, from stored records (runView above). The phone never takes a
+ * run's steps itself; it only answers the decisions the server stops at.
+ */
+export interface RunDisplay {
+  campaignId: string;
+  title: string;
+  stage: StepKey | "done";
+  status: CreateRunStatus;
+  pct: number;
+  line: string;
+  videoAssetId?: string;
+  /** What the phone can do about it (only actions the server offers; Brand-check overrides stay on the web). */
+  action: { kind: "retry" | "approve_spend"; label: string; stepKey?: string } | null;
+}
+
+export function displayFromServer(v: CreateRunView): RunDisplay {
+  const title = v.ideaTitle || firstSentence(v.request, 90) || v.name || "Your video";
+  const stage = v.stage;
+  let line: string;
+  if (v.status === "done") line = "Your video is ready";
+  else if (v.status === "needs_you") line = v.decision?.message ?? "This video needs a decision.";
+  else if (v.status === "failed") line = v.failure?.message ?? "A step didn’t finish.";
+  else if (v.status === "waiting") line = v.wait?.reason ?? "Waiting a moment, then it carries on by itself.";
+  else if (v.status === "stopped") line = "Stopped. Continue it whenever you like.";
+  else line = stage === "done" ? "Finishing up" : `${STEP_LABEL[stage]}${v.detail ? ` · ${v.detail}` : ""}`;
+  let action: RunDisplay["action"] = null;
+  if (v.decision?.kind === "spend" && v.actions.includes("approve_spend")) action = { kind: "approve_spend", label: `Finish it · ${v.decision.credits ?? "?"} credits`, stepKey: v.decision.stepKey };
+  else if (v.decision?.kind === "brand") action = null;
+  else if ((v.status === "failed" || v.status === "needs_you" || v.status === "stopped") && v.actions.includes("retry")) action = { kind: "retry", label: v.status === "stopped" || v.decision?.kind === "resume" ? "Continue" : "Try again" };
+  return { campaignId: v.campaignId, title, stage, status: v.status, pct: v.pct, line, videoAssetId: v.video?.assetId, action };
+}
+
+export function displayFromRecords(campaign: Pick<Campaign, "id" | "request" | "name">, view: RunView): RunDisplay {
+  const status: CreateRunStatus = view.step === "done" ? "done" : view.failure ? "failed" : view.stale ? "stopped" : "working";
+  return {
+    campaignId: campaign.id,
+    title: view.ideaTitle || firstSentence(campaign.request, 90) || campaign.name || "Your video",
+    stage: view.step,
+    status,
+    pct: view.pct,
+    line: runLine(view),
+    videoAssetId: view.finalAssetId,
+    action: null,
+  };
+}
+
+/** The five steps' states for a card. */
+export function stepStateOf(d: Pick<RunDisplay, "stage" | "status">, step: StepKey): "done" | "current" | "failed" | "todo" {
+  if (d.stage === "done" || d.status === "done") return "done";
+  const at = STEPS.indexOf(d.stage);
+  const i = STEPS.indexOf(step);
+  if (i < at) return "done";
+  if (i > at) return "todo";
+  return d.status === "failed" || d.status === "needs_you" ? "failed" : "current";
+}
+
+/**
+ * The run's one line on the phone (stored-records view). When the next step waits with nothing
+ * running, MuseLaunch picks it up on the server, or the person continues on the web.
  */
 export function runLine(view: RunView): string {
   if (view.step === "done") return "Your video is ready";
