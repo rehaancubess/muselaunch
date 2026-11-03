@@ -14,6 +14,7 @@ import {
   type Composition,
   type CompositionDoc,
   type CompositionVersion,
+  type CreateInput,
   type MediaAsset,
   type RecordingSegment,
   type Segmentation,
@@ -239,10 +240,13 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
   // ---- cache: identical doc + quality already rendered -------------------------------------
   const cachedId = `ast_r_${cacheKey}`;
   const cached = await ctx.ws.collection("mediaAssets").get(cachedId);
-  if (cached && cached.status === "ready" && (await p.storage.stat(cached.storagePath))) {
+  // A still set counts as cached only when every slide is there: slide 1 is written last (saveStills),
+  // and the slide count must match the doc, so a render that stopped partway is never reused.
+  const frames = still && cached ? await stillSiblings(ctx.ws, cachedId) : [];
+  const complete = !still || frames.length + 1 === doc.scenes.length;
+  if (cached && cached.status === "ready" && complete && (await p.storage.stat(cached.storagePath))) {
     await ctx.progress(100, "reused cached render");
     await finish(ctx, comp, version, quality, cached.id, cached.posterAssetId);
-    const frames = still ? await stillSiblings(ctx.ws, cachedId) : [];
     return {
       refs: [{ entity: "mediaAssets", id: cached.id }, ...frames.map((id) => ({ entity: "mediaAssets", id }))],
       data: {
@@ -403,7 +407,7 @@ async function finish(ctx: JobContext, comp: Composition, version: number, quali
 
 async function stillSiblings(ws: WorkspaceDb, firstId: string): Promise<string[]> {
   const ids = Array.from({ length: 30 }, (_, i) => `${firstId}_${i + 2}`);
-  const found = new Set((await ws.collection("mediaAssets").getMany(ids)).map((a) => a.id));
+  const found = new Set((await ws.collection("mediaAssets").getMany(ids)).filter((a) => a.status === "ready").map((a) => a.id));
   // In slide order (getMany doesn't promise an order), stopping at the first gap.
   const out: string[] = [];
   for (const id of ids) {
@@ -420,6 +424,19 @@ async function stillSiblings(ws: WorkspaceDb, firstId: string): Promise<string[]
  */
 export function slideFrameIndex(scene: { start: number; end: number }, fps: number, frameCount: number): number {
   return Math.max(0, Math.min(frameCount - 1, Math.floor(((scene.start + scene.end) / 2) * fps)));
+}
+
+/**
+ * Save one slide's asset (ids are per doc + encoding, so a retry writes the same ids). A slide an
+ * earlier attempt left behind that isn't ready, or points at other bytes, takes this render's file.
+ */
+async function saveSlide(ctx: JobContext, record: CreateInput<"mediaAssets"> & { id: string }) {
+  const repo = ctx.ws.collection("mediaAssets");
+  const { entity, created } = await repo.createIfAbsent(record, { actor: ctx.actor });
+  if (!created && (entity.status !== "ready" || entity.storagePath !== record.storagePath || entity.sha256 !== record.sha256)) {
+    const { storagePath, mimeType, bytes, sha256, width, height } = record;
+    await repo.update(record.id, { status: "ready", storagePath, mimeType, bytes, sha256, width, height }, { actor: ctx.actor });
+  }
 }
 
 async function saveStills(
@@ -439,6 +456,7 @@ async function saveStills(
   const refs: { entity: string; id: string }[] = [];
   const ext = still.encoding === "jpeg" ? "jpg" : "png";
   let first: EncodedStill | undefined;
+  let firstRecord: (CreateInput<"mediaAssets"> & { id: string }) | undefined;
   for (let i = 0; i < scenes.length; i++) {
     ctx.throwIfCancelled();
     const s = scenes[i]!;
@@ -455,8 +473,7 @@ async function saveStills(
     const { bytes } = await p.storage.uploadFile(enc.path, key, { contentType: enc.mimeType });
     const sha256 = await sha256File(enc.path);
     const id = i === 0 ? `ast_r_${cacheKey}` : `ast_r_${cacheKey}_${i + 1}`;
-    await ctx.ws.collection("mediaAssets").createIfAbsent(
-      {
+    const record: CreateInput<"mediaAssets"> & { id: string } = {
         id,
         appId: comp.appId,
         campaignId: comp.campaignId,
@@ -476,11 +493,15 @@ async function saveStills(
         isProductTruth: false,
         license: { type: "owned" },
         render: { compositionId: comp.id, version: ver.version, quality },
-      },
-      { actor: ctx.actor },
-    );
+      };
+    // Slide 1's asset is written last: the cache check and every reader start from slide 1, so a
+    // render that stops partway (an error, a retry, a cancel) never leaves a set that looks finished.
+    if (i === 0) firstRecord = record;
+    else await saveSlide(ctx, record);
     refs.push({ entity: "mediaAssets", id });
   }
+  ctx.throwIfCancelled();
+  await saveSlide(ctx, firstRecord!);
   // Slide 1 is the composition's render and its thumbnail (the cover).
   await finish(ctx, comp, ver.version, quality, refs[0]!.id, refs[0]!.id);
   const credits = quality === "final" ? Math.max(1, Math.ceil(scenes.length / 4)) : 0;

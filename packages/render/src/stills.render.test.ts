@@ -49,6 +49,16 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real still renders", { tim
     const again = await p.jobs.create(wid, "render.final", { appId: seed.appId, compositionId, version: 1, format: "png" }, { actor: "u1", idempotencyKey: `f2:${compositionId}`, credits: { operation: "render.final", amount: 1 } });
     await p.inline!.drain();
     expect((await p.jobs.get(wid, again.id))?.output?.data).toMatchObject({ cached: true, assetId: ids[0], posterAssetId: ids[0], assetIds: ids, slides: ids.length });
+    if (ids.length > 1) {
+      // A set with a slide missing (a render that stopped partway) is never reused: it renders again, whole.
+      await ws.collection("mediaAssets").update(ids.at(-1)!, { status: "failed" }, { actor: "test" });
+      const redo = await p.jobs.create(wid, "render.final", { appId: seed.appId, compositionId, version: 1, format: "png" }, { actor: "u1", idempotencyKey: `f3:${compositionId}`, credits: { operation: "render.final", amount: 1 } });
+      await p.inline!.drain();
+      const out = (await p.jobs.get(wid, redo.id))?.output?.data;
+      expect(out?.cached).toBeUndefined();
+      expect(out).toMatchObject({ assetIds: ids, slides: ids.length });
+      expect((await ws.collection("mediaAssets").getOrThrow(ids.at(-1)!)).status).toBe("ready");
+    }
     const slides = (await ws.collection("mediaAssets").getMany(ids)) as MediaAsset[];
     const ordered = ids.map((id) => slides.find((a) => a.id === id)!);
     const after = await ws.collection("compositions").getOrThrow(compositionId);

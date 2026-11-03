@@ -106,7 +106,7 @@ export async function slideSet(ws: WorkspaceDb, first: MediaAsset): Promise<Medi
   const out = [first];
   for (const [i, id] of ids.entries()) {
     const a = found.find((x) => x.id === id);
-    if (!a || !a.render || a.render.compositionId !== first.render?.compositionId || a.render.version !== first.render.version || a.render.quality !== first.render.quality) break;
+    if (!a || a.status !== "ready" || !a.render || a.render.compositionId !== first.render?.compositionId || a.render.version !== first.render.version || a.render.quality !== first.render.quality) break;
     if (slideNumber(a) !== i + 2) break;
     out.push(a);
   }
@@ -160,9 +160,19 @@ export async function renderMediaFor(ws: WorkspaceDb, appId: string, composition
     }
     return b.createdAt.localeCompare(a.createdAt);
   });
-  const first = ranked[0];
-  if (!first) throw new AppError("CONFLICT", `No final slides of version ${v}`, { userMessage: "Finish the slides first (final render), then schedule them." });
-  const assets = await slideSet(ws, first);
+  if (!ranked.length) throw new AppError("CONFLICT", `No final slides of version ${v}`, { userMessage: "Finish the slides first (final render), then schedule them." });
+  // Only a whole set is posted: as many slides as the version has scenes (a render that stopped
+  // partway can leave some slides behind; the renderer saves slide 1 last, so this is a second guard).
+  const expected = ver?.doc.scenes.length;
+  let assets: MediaAsset[] | undefined;
+  for (const first of ranked) {
+    const set = await slideSet(ws, first);
+    if (expected === undefined || set.length === expected) {
+      assets = set;
+      break;
+    }
+  }
+  if (!assets) throw new AppError("CONFLICT", `The final render of version ${v} is missing slides`, { userMessage: "Some slides didn’t finish. Finish the slides again, then schedule them." });
   if (assets.length > MAX_POST_MEDIA) throw new AppError("VALIDATION_FAILED", `This render has ${assets.length} slides; a post takes at most ${MAX_POST_MEDIA}`, { userMessage: `A post takes at most ${MAX_POST_MEDIA} slides. Remove some slides, then finish them again.` });
   return { version: v, kind, assets };
 }

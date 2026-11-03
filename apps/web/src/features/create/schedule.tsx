@@ -5,40 +5,53 @@
  * (the copy pack Muse wrote and fact-checked; no media). One small sheet: where it goes, the caption
  * (from Muse's copy for that channel when there is one), a suggested time and the tracked link. It
  * drafts the post (POST /apps/:appId/posts) and asks for approval (POST /posts/:id/request-approval):
- * nothing goes out until someone with publishing rights says OK on Home. Videos keep the full
- * new-post form (NewPostDialog).
+ * nothing goes out until someone with publishing rights says OK on Home. It goes out through the
+ * channel's connected account when there is one (else the person posts it). Videos keep the full
+ * new-post form (NewPostDialog). A YouTube thumbnail isn't a post of its own: "Use as cover" puts it
+ * on a YouTube video post that isn't out yet (PATCH /posts/:id { thumbnailAssetId }).
  */
-import type { Channel, CopyPack } from "@muselaunch/contracts";
-import { Button, Dialog, Field, Notice, Select, Switch, Textarea, cn, useToast } from "@muselaunch/ui";
+import type { Channel, CopyPack, ScheduledPost } from "@muselaunch/contracts";
+import { Button, Dialog, Field, Notice, Select, Switch, Textarea, cn, humanizeStatus, useToast } from "@muselaunch/ui";
 import { CalendarClock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createTrackedLink, destinationsFor } from "@/components/creator/tracked-links";
 import { SlideImage, frameClass } from "@/components/creator/slide-gallery";
 import { TextPostCard } from "@/components/creator/text-post-card";
-import type { PostView, SuggestedTimes } from "@/features/publishing/types";
+import { PROVIDER_FOR } from "@/features/publishing/new-post";
+import type { ConnectionsResponse, PostView, SuggestedTimes } from "@/features/publishing/types";
 import { api, errorMessage, newIdempotencyKey, wsPath } from "@/lib/api";
 import type { CampaignDetailResponse } from "@/lib/api-types";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { CAROUSEL_CHANNELS, POST_CHANNELS, TEXT_POST_CHANNELS, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
+import { CAROUSEL_CHANNELS, POST_CHANNELS, isThumbnailStills, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
 
 /** What "Schedule post" was pressed on. */
 export type ScheduleTarget = ({ type: "video" } & FinishedVideo) | ({ type: "stills" } & FinishedStills) | ({ type: "text" } & FinishedText);
 
-/** Where a set of stills can go: one image anywhere an image post goes; several where carousels go; a thumbnail on YouTube. */
+/** X takes at most 4 images in one post. */
+const X_MAX_IMAGES = 4;
+
+/** Where a set of stills can go: one image anywhere an image post goes; several where carousels go (X up to 4). */
 function stillChannels(s: FinishedStills): Channel[] {
-  if (s.width && s.height && s.width > s.height) return ["youtube"];
-  return s.assetIds.length > 1 ? [...CAROUSEL_CHANNELS, "x"] : [...POST_CHANNELS];
+  return s.assetIds.length > 1 ? [...CAROUSEL_CHANNELS, ...(s.assetIds.length <= X_MAX_IMAGES ? (["x"] as const) : [])] : [...POST_CHANNELS];
 }
 
 function firstOf(pack: CopyPack | undefined, kind: string) {
   return pack?.items.find((i) => i.kind === kind)?.text;
 }
 
-export function SchedulePostDialog({ appId, target, channel: initial, onClose }: { appId: string; target: ScheduleTarget | null; channel?: Channel; onClose: () => void }) {
+type DialogProps = { appId: string; target: ScheduleTarget | null; channel?: Channel; onClose: () => void };
+
+export function SchedulePostDialog(props: DialogProps) {
+  const t = props.target;
+  if (t?.type === "stills" && isThumbnailStills(t)) return <UseAsCoverDialog appId={props.appId} stills={t} onClose={props.onClose} />;
+  return <PostDialog {...props} />;
+}
+
+function PostDialog({ appId, target, channel: initial, onClose }: DialogProps) {
   const open = Boolean(target && target.type !== "video");
   const { workspaceId, app } = useWorkspace();
   const toast = useToast();
@@ -46,7 +59,8 @@ export function SchedulePostDialog({ appId, target, channel: initial, onClose }:
   const invalidate = useInvalidate();
   const t = target && target.type !== "video" ? target : null;
   const campaignId = t?.campaignId;
-  const channels = useMemo<Channel[]>(() => (t?.type === "text" ? [...TEXT_POST_CHANNELS] : t ? stillChannels(t) : []), [t]);
+  // A text post stays on the channel Muse wrote it for (its copy pack is that channel's).
+  const channels = useMemo<Channel[]>(() => (t?.type === "text" ? [t.channel] : t ? stillChannels(t) : []), [t]);
   const [channel, setChannel] = useState<Channel>("instagram");
   const [caption, setCaption] = useState("");
   const [edited, setEdited] = useState(false);
@@ -65,6 +79,11 @@ export function SchedulePostDialog({ appId, target, channel: initial, onClose }:
   }, [t?.type === "text" ? t.campaignId : t?.compositionId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset per thing scheduled
 
   const detail = useApiQuery<CampaignDetailResponse>(open && campaignId ? wsPath(workspaceId, `/campaigns/${campaignId}`) : null, { retry: false, staleTime: 30_000 });
+  // The channel's connected account posts it after the OK (the server posts by hand what its API can't take).
+  const conns = useApiQuery<ConnectionsResponse>(open ? wsPath(workspaceId, "/connections") : null, { retry: false, staleTime: 30_000 });
+  const accounts = (conns.data?.items ?? []).filter((a) => a.status === "connected" && a.provider === PROVIDER_FOR[channel]);
+  const [accountId, setAccountId] = useState("");
+  useEffect(() => setAccountId(accounts[0]?.id ?? ""), [channel, conns.data]); // eslint-disable-line react-hooks/exhaustive-deps -- the first connected account per channel
   const pack = t?.type === "text" ? detail.data?.copyPacks.find((p) => p.id === t.copyPackId) : detail.data?.copyPacks.find((p) => p.channel === channel);
   // The caption Muse wrote for this channel, until the person writes their own.
   useEffect(() => {
@@ -86,9 +105,9 @@ export function SchedulePostDialog({ appId, target, channel: initial, onClose }:
         wsPath(workspaceId, `/apps/${appId}/posts`),
         t.type === "text"
           ? // A text post: the copy pack is the post (the server takes its text); no media.
-            { campaignId, copyPackId: t.copyPackId, channel, trackingLinkId, scheduledAt: when?.at, suggestedTimeReason: when?.reason, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+            { campaignId, copyPackId: t.copyPackId, channel, accountId: accountId || undefined, trackingLinkId, scheduledAt: when?.at, suggestedTimeReason: when?.reason, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
           : // Stills: every slide of the final render (the server takes them from the composition).
-            { campaignId, compositionId: t.compositionId, compositionVersion: t.version, copyPackId: pack?.id, caption: caption.trim(), title: firstOf(pack, "title"), channel, trackingLinkId, scheduledAt: when?.at, suggestedTimeReason: when?.reason, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+            { campaignId, compositionId: t.compositionId, compositionVersion: t.version, copyPackId: pack?.id, caption: caption.trim(), title: firstOf(pack, "title"), channel, accountId: accountId || undefined, trackingLinkId, scheduledAt: when?.at, suggestedTimeReason: when?.reason, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
         { idempotencyKey: idem.current },
       );
       postId = created.post.id;
@@ -141,6 +160,13 @@ export function SchedulePostDialog({ appId, target, channel: initial, onClose }:
           <Field label="Where">
             {({ id }) => <Select id={id} value={channel} onChange={(e) => setChannel(e.target.value as Channel)} options={channels.map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))} disabled={channels.length < 2} />}
           </Field>
+          {accounts.length ? (
+            <Field label="Posted by" hint={accountId ? "MuseLaunch posts it through this account after your OK." : "You post it yourself after your OK."}>
+              {({ id }) => <Select id={id} value={accountId} onChange={(e) => setAccountId(e.target.value)} options={[...accounts.map((a) => ({ value: a.id, label: a.displayName })), { value: "", label: "Post it myself" }]} />}
+            </Field>
+          ) : conns.data ? (
+            <p className="text-caption text-ink-3">{PROVIDER_FOR[channel] ? `${CHANNEL_LABEL[channel]} isn’t connected, so you post this one yourself after your OK.` : `${CHANNEL_LABEL[channel]} posts are always posted by hand: you get the ${text ? "text" : "images and caption"} to post yourself.`}</p>
+          ) : null}
           {text ? null : (
             <Field label="Caption" hint={pack && !edited ? `Written by Muse for ${CHANNEL_LABEL[channel]}` : `${caption.length} characters`}>
               {({ id }) => <Textarea id={id} rows={4} value={caption} onChange={(e) => (setCaption(e.target.value), setEdited(true))} placeholder="What goes with the images…" />}
@@ -184,6 +210,88 @@ export function SchedulePostDialog({ appId, target, channel: initial, onClose }:
           {detail.error ? <Notice tone="warning">Couldn’t load this campaign: {errorMessage(detail.error)}</Notice> : null}
         </div>
       ) : null}
+    </Dialog>
+  );
+}
+
+/** Posts a cover can go on: YouTube video posts that aren't out yet. */
+const COVER_STATUSES: ReadonlySet<ScheduledPost["status"]> = new Set(["draft", "awaiting_approval", "scheduled", "failed", "manual_post_needed"]);
+type PostListItem = ScheduledPost & { mediaCount: number; textOnly: boolean };
+
+/**
+ * "Use as cover" for a YouTube thumbnail: pick a YouTube video post that isn't out yet and the image
+ * becomes its custom thumbnail. Changing a post resets an OK given for it, so it asks again.
+ */
+function UseAsCoverDialog({ appId, stills, onClose }: { appId: string; stills: FinishedStills; onClose: () => void }) {
+  const { workspaceId } = useWorkspace();
+  const toast = useToast();
+  const router = useRouter();
+  const invalidate = useInvalidate();
+  const posts = useApiQuery<{ items: PostListItem[] }>(wsPath(workspaceId, `/apps/${appId}/posts`), { retry: false });
+  const videos = useMemo(() => (posts.data?.items ?? []).filter((p) => p.channel === "youtube" && COVER_STATUSES.has(p.status) && p.mediaCount > 0), [posts.data]);
+  const [postId, setPostId] = useState("");
+  useEffect(() => {
+    if (!videos.some((v) => v.id === postId)) setPostId(videos[0]?.id ?? "");
+  }, [videos, postId]);
+  const chosen = videos.find((v) => v.id === postId);
+  const [saving, setSaving] = useState(false);
+  const cover = stills.assetIds[0]!;
+  const r = routes.app(workspaceId, appId);
+
+  const submit = async () => {
+    if (!chosen) return;
+    setSaving(true);
+    try {
+      const out = await api.patch<{ post: ScheduledPost; approvalReset: boolean }>(wsPath(workspaceId, `/posts/${chosen.id}`), { thumbnailAssetId: cover });
+      if (chosen.status !== "draft" && out.post.status === "draft") {
+        // The post changed, so an OK given for it no longer counts: ask for it again.
+        try {
+          await api.post(wsPath(workspaceId, `/posts/${chosen.id}/request-approval`), {});
+          toast.toast({ title: "Cover added", description: "The post changed, so it waits for your OK again on Home.", action: { label: "Open Home", onClick: () => router.push(r.home) } });
+        } catch (e) {
+          toast.toast({ title: "Cover added", description: `The post changed, so its OK was reset. ${errorMessage(e)} It waits in Scheduled.`, action: { label: "Open Scheduled", onClick: () => router.push(r.scheduled) } });
+        }
+      } else toast.success("Cover added", "YouTube gets it as the video’s thumbnail when the post goes out.");
+      onClose();
+    } catch (e) {
+      toast.error("Couldn’t add the cover", errorMessage(e));
+    } finally {
+      setSaving(false);
+      await invalidate(wsPath(workspaceId, `/apps/${appId}/today`), wsPath(workspaceId, `/apps/${appId}/posts`), wsPath(workspaceId, `/apps/${appId}/calendar`), wsPath(workspaceId, "/needs-you"));
+    }
+  };
+
+  const label = (p: PostListItem) => `${(p.title?.trim() || p.caption.trim() || "Untitled video").slice(0, 70)} · ${humanizeStatus(p.status)}`;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Use as cover"
+      description="A thumbnail goes on a YouTube video as its cover. Pick the video post it’s for. YouTube shows custom covers on verified channels only."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} loading={saving} disabled={!chosen}>
+            Use as cover
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <span className={cn("relative block w-56 overflow-hidden rounded-lg bg-mist shadow-raised", frameClass(stills.width, stills.height))}>
+          <SlideImage assetId={cover} alt="The thumbnail" />
+        </span>
+        {posts.isLoading ? null : videos.length ? (
+          <Field label="Video post" hint={chosen?.thumbnailAssetId ? "Replaces the cover this post has now." : undefined}>
+            {({ id }) => <Select id={id} value={postId} onChange={(e) => setPostId(e.target.value)} options={videos.map((v) => ({ value: v.id, label: label(v) }))} />}
+          </Field>
+        ) : (
+          <Notice tone="neutral">No YouTube video post is waiting to go out. Make a video for YouTube and schedule it, then come back to use this as its cover. You can also download the thumbnail and add it in YouTube Studio.</Notice>
+        )}
+        {posts.error ? <Notice tone="warning">Couldn’t load your posts: {errorMessage(posts.error)}</Notice> : null}
+      </div>
     </Dialog>
   );
 }

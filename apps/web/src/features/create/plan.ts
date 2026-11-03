@@ -644,6 +644,11 @@ export function finishedContent(parts: { videos?: FinishedVideo[]; stills?: Fini
 }
 
 /** "Carousel · 6" for a tile: what a set of stills is, from its frame and slide count. */
+/** A YouTube thumbnail: one wide image. It goes on a video post as its cover, not out on its own. */
+export function isThumbnailStills(s: Pick<FinishedStills, "assetIds" | "width" | "height">): boolean {
+  return s.assetIds.length === 1 && Boolean(s.width && s.height && s.width > s.height);
+}
+
 export function stillsBadge(s: Pick<FinishedStills, "assetIds" | "width" | "height">): string {
   const n = s.assetIds.length;
   const store = s.width && s.height && ((s.width === 1290 && s.height === 2796) || (s.width === 1080 && s.height === 1920));

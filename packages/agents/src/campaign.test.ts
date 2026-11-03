@@ -359,6 +359,9 @@ describe("copy.generate for a text-only post (Create → a text post)", () => {
     expect(postLength("x", "Try it [APP_LINK]")).toBe(7 + 23);
     expect(postLength("x", "See https://example.com/a/very/long/path/that/goes/on")).toBe(4 + 23);
     expect(postLength("threads", "Try it [APP_LINK]")).toBe(17);
+    // X weights CJK and emoji as 2, like the publishing preflight: a post that fits here fits there.
+    expect(postLength("x", "日本語")).toBe(6);
+    expect(copyLimitProblems([{ channel: "x", items: [{ kind: "caption", text: "集".repeat(141), claimIds: [] }] }], { textPost: true })).toEqual(["x caption is 282 chars; limit 280."]);
     expect(textPostRules("x")).toEqual({ kinds: ["caption"], limits: { caption: 280 } });
     expect(textPostRules("threads")?.limits.caption).toBe(500);
     expect(textPostRules("linkedin")?.limits.caption).toBe(3000);

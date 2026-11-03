@@ -38,7 +38,7 @@ test("stills layout (fixture mode, intercepted results)", async ({ page, browser
   const slides = (name: string, n: number) => Array.from({ length: n }, (_, i) => (i === 0 ? `ast_fx_${name}` : `ast_fx_${name}_${i + 1}`));
   const carouselIds = slides("carousel", 4);
   const storeIds = slides("store", 4);
-  const files = new Map<string, string>([...carouselIds.map((id, i) => [id, `carousel-${i + 1}.png`] as const), ...storeIds.map((id, i) => [id, `store-${i + 1}.png`] as const)]);
+  const files = new Map<string, string>([...carouselIds.map((id, i) => [id, `carousel-${i + 1}.png`] as const), ...storeIds.map((id, i) => [id, `store-${i + 1}.png`] as const), ["ast_fx_thumb", "thumbnail-1.png"]]);
   const doc = JSON.parse(readFileSync(join(FX, "carousel-doc.json"), "utf8"));
   const previewFx = JSON.parse(readFileSync(join(FX, "carousel-preview.json"), "utf8"));
   const run = (over: Record<string, unknown>) => ({
@@ -119,6 +119,33 @@ test("stills layout (fixture mode, intercepted results)", async ({ page, browser
   await expect(page.getByRole("heading", { name: "Your carousel is ready" })).toBeVisible();
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${OUT}/result-carousel-1280.png`, fullPage: true });
+
+  // ---- Schedule post on the carousel: it goes out through the channel's connected account (fixture account).
+  await page.route(`${W}/connections`, (r) => json(r, { items: [{ id: "acc_fx_ig", provider: "instagram", displayName: "Tidy Timer (fixture account)", status: "connected", capabilities: ["publish_image", "publish_carousel"], limitations: [] }], providers: [] }));
+  await page.getByRole("button", { name: "Schedule post" }).first().click();
+  const schedule = page.getByRole("dialog", { name: "Schedule post" });
+  await expect(schedule.getByLabel("Where")).toHaveValue("instagram");
+  await expect(schedule.getByLabel("Posted by")).toHaveValue("acc_fx_ig");
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: `${OUT}/schedule-carousel-1280.png` });
+  await schedule.getByRole("button", { name: "Cancel" }).click();
+
+  // ---- A YouTube thumbnail: "Use as cover" on a YouTube video post, not a post of its own.
+  if (has("thumbnail-1.png")) {
+    const thumbRun = run({ campaignId: "cpg_fx_thumb", compositionId: "cmp_fx_thumb", createdAt: iso(2), ideaTitle: "Deep work, one tap", format: { aspectRatio: "16:9", channel: "youtube", output: "thumbnail", slides: 1 }, stills: { assetIds: ["ast_fx_thumb"], version: 1, width: 1920, height: 1080, renderedAt: iso(2) } });
+    const ytPost = { id: "pst_fx_yt", appId, campaignId: "cpg_fx_video", channel: "youtube", mode: "manual", status: "draft", title: "One tap to deep work (30 s)", caption: "A calm Pomodoro timer that blocks distracting apps.", tags: [], visibility: "public", containsSyntheticMedia: false, timezone: "UTC", manualInstructions: [], attempts: 0, assetIds: ["ast_fx_video"], mediaCount: 1, textOnly: false, workspaceId: wid, createdAt: iso(30), updatedAt: iso(30), createdBy: "u" };
+    await page.route(`${W}/apps/${appId}/posts`, (r) => (r.request().method() === "GET" ? json(r, { items: [ytPost], nextCursor: null }) : r.continue()));
+    runs = [thumbRun, makingRun, textRun, carouselRun];
+    await page.goto(`${base}/create?run=cpg_fx_thumb`);
+    await expect(page.getByRole("heading", { name: "Your thumbnail is ready" })).toBeVisible();
+    await page.getByRole("button", { name: "Use as cover" }).first().click();
+    const cover = page.getByRole("dialog", { name: "Use as cover" });
+    await expect(cover.getByLabel("Video post")).toHaveValue("pst_fx_yt");
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: `${OUT}/thumbnail-cover-1280.png` });
+    await cover.getByRole("button", { name: "Cancel" }).click();
+    runs = [makingRun, textRun, carouselRun];
+  }
   await page.goto(`${base}/create?run=cpg_fx_text`);
   await expect(page.getByRole("heading", { name: "Your post is ready" })).toBeVisible();
   await page.waitForTimeout(800);

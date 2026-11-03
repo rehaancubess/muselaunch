@@ -12,7 +12,8 @@ import { createTrackedLink, destinationsFor } from "@/components/creator/tracked
 import type { ConnectionsResponse, PostView, SuggestedTimes } from "./types";
 
 const CHANNELS: Channel[] = ["youtube", "instagram", "tiktok", "linkedin", "x", "facebook", "threads", "reddit", "producthunt", "hackernews", "newsletter", "website", "other"];
-const PROVIDER_FOR: Partial<Record<Channel, string>> = { youtube: "youtube", instagram: "instagram", tiktok: "tiktok", linkedin: "linkedin", x: "x", facebook: "facebook" };
+/** The connection provider that posts to a channel through its API (the rest are posted by hand). */
+export const PROVIDER_FOR: Partial<Record<Channel, string>> = { youtube: "youtube", instagram: "instagram", tiktok: "tiktok", linkedin: "linkedin", x: "x", facebook: "facebook" };
 
 const toLocalInput = (iso: string) => {
   const d = new Date(iso);

@@ -187,7 +187,10 @@ export function finalSlides(finals: FinalLike[], compositionId: string): FinalLi
   const first = finalFor(finals, compositionId, true);
   if (!first) return [];
   const base = renderBase(first.id);
-  return finals.filter((a) => renderBase(a.id) === base && a.render?.compositionId === compositionId && a.render.version === first.render!.version && a.render.quality === "final" && a.status === "ready" && a.kind === "image").sort((a, b) => slideNo(a) - slideNo(b));
+  const set = finals.filter((a) => renderBase(a.id) === base && a.render?.compositionId === compositionId && a.render.version === first.render!.version && a.render.quality === "final" && a.status === "ready" && a.kind === "image").sort((a, b) => slideNo(a) - slideNo(b));
+  // Only a whole set counts: slide 1 is saved last (the renderer), so a set without it, or with a gap,
+  // is a render that stopped partway.
+  return set.length && set.every((a, i) => slideNo(a) === i + 1) ? set : [];
 }
 
 export function deriveRun(input: RunInput): Derived {
@@ -283,8 +286,10 @@ export function deriveRun(input: RunInput): Derived {
   // Finished: a ready final render of this video (stills: its slide images).
   const finalJob = track(latest(mine("render.final", (p) => p.compositionId === comp.id)));
   if (still) {
-    // The renderer saves slide images one by one: a still is finished once its render job is, not at its first image.
-    const slides = isActive(finalJob) ? [] : finalSlides(input.finals, comp.id);
+    // The renderer saves slide images one by one: a still is finished once its render job is, not at its
+    // first image, and a render that failed or was stopped never counts as finished, whatever it left.
+    const stopped = finalJob?.status === "failed" || finalJob?.status === "cancelled";
+    const slides = isActive(finalJob) || stopped ? [] : finalSlides(input.finals, comp.id);
     if (slides.length) return result("done", { ...made, finalAssetId: slides[0]!.id, finalAssetIds: slides.map((a) => a.id) });
   } else {
     const final = finalFor(input.finals, comp.id);

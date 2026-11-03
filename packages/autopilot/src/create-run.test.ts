@@ -167,6 +167,12 @@ describe("Create runs: stills and text posts", () => {
     const done = deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [], finals });
     expect(done).toMatchObject({ stage: "done", pct: 100, finalAssetId: "ast_r_k", finalAssetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] });
     expect(finalSlides(finals, "cmp_c").map((a) => a.id)).toEqual(["ast_r_k", "ast_r_k_2", "ast_r_k_3"]);
+    // A set without slide 1, or with a gap, is a render that stopped partway: not finished.
+    expect(finalSlides([slide("ast_r_q_2", 2), slide("ast_r_q_3", 3)], "cmp_c")).toEqual([]);
+    expect(finalSlides([slide("ast_r_q", 1), slide("ast_r_q_3", 3)], "cmp_c")).toEqual([]);
+    // A final render that failed or was stopped is never done, whatever slides it left behind.
+    const failedFinal = job("f", "render.final", "failed", { compositionId: "cmp_c" }, { error: { code: "PROVIDER_ERROR", message: "frame unreadable", userMessage: "The render stopped." } });
+    expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [failedFinal], finals })).toMatchObject({ stage: "finish", failure: { message: "The render stopped." } });
     // While the renderer is still saving slides, the run isn't done (its first images aren't the whole set).
     const saving = job("f", "render.final", "running", { compositionId: "cmp_c" }, { progress: { pct: 92, stage: "saving" } });
     expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [saving], finals: finals.slice(0, 2) })).toMatchObject({ stage: "finish", working: true, detail: "saving" });

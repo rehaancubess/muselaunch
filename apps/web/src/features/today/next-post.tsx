@@ -181,6 +181,7 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
   const [sheet, setSheet] = useState(false);
   const channel = CHANNEL_LABEL[post.channel] ?? post.channel;
   const manual = post.mode === "manual";
+  const connected = post.account?.status === "connected";
   const when = post.scheduledAt ? whenInSentence(post.scheduledAt, tz) : null;
   const decision = useDecisionOrNull(post.decision, {
     approved: {
@@ -309,10 +310,14 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
           <p className="flex items-start gap-2.5 text-footnote text-ink-2 text-pretty">
             <Info className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
             <span>
-              <span className="font-medium text-ink">{channel} isn’t connected, so you post this one yourself.</span> After you schedule it, {textOnly ? "copy the post" : postImages(post).length ? "download the images and copy the caption" : `download the ${post.video?.kind === "image" ? "image" : "video"} and copy the caption`}.{" "}
-              <Link href={`${r.scheduled}?connections=1`} className="font-medium text-accent hover:underline" title={post.manualReason}>
-                Connect {channel}
-              </Link>
+              {/* Connected, but set to post by hand (the person chose it, or the API can't take this post): say why, not "isn't connected". */}
+              <span className="font-medium text-ink">{connected ? `This one is posted by hand on ${channel}.` : `${channel} isn’t connected, so you post this one yourself.`}</span>
+              {connected && post.manualReason ? ` ${post.manualReason}` : ""} After you schedule it, {textOnly ? "copy the post" : postImages(post).length ? "download the images and copy the caption" : `download the ${post.video?.kind === "image" ? "image" : "video"} and copy the caption`}.{" "}
+              {connected ? null : (
+                <Link href={`${r.scheduled}?connections=1`} className="font-medium text-accent hover:underline" title={post.manualReason}>
+                  Connect {channel}
+                </Link>
+              )}
             </span>
           </p>
           <div className="flex flex-wrap gap-2 sm:pl-6">

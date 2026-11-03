@@ -16,7 +16,7 @@ import { SlideImage, frameClass } from "@/components/creator/slide-gallery";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { LINK_TOKEN, clock, contentKey, needsPerson, runMake, stageLabel, stillsBadge, type ContentItem, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
+import { LINK_TOKEN, clock, contentKey, isThumbnailStills, needsPerson, runMake, stageLabel, stillsBadge, type ContentItem, type FinishedStills, type FinishedText, type FinishedVideo } from "./plan";
 import type { CreateRun } from "./runs";
 import type { ScheduleTarget } from "./schedule";
 
@@ -50,7 +50,7 @@ function StillsTile({ stills, href, onPost, canPost }: { stills: FinishedStills;
       <p className="line-clamp-2 px-0.5 text-footnote text-ink-2" title={stills.title}>
         {stills.title}
       </p>
-      {canPost && !badge.startsWith("Screenshots") ? <PostAction label="Schedule post" onClick={onPost} /> : null}
+      {canPost && !badge.startsWith("Screenshots") ? <PostAction label={isThumbnailStills(stills) ? "Use as cover" : "Schedule post"} onClick={onPost} /> : null}
     </li>
   );
 }

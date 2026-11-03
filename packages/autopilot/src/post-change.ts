@@ -20,7 +20,7 @@
 import { brandGate, rewriteCopyForPost } from "@muselaunch/agents";
 import { totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
-import { isPostChangeRunning, TERMINAL_JOB_STATUSES, type ChangePostRequest, type Job, type PostChange, type ScheduledPost } from "@muselaunch/contracts";
+import { isPostChangeRunning, TERMINAL_JOB_STATUSES, type ChangePostRequest, type CompositionDoc, type Job, type PostChange, type ScheduledPost } from "@muselaunch/contracts";
 import { expireApprovals, factCheckOfPack, requestPostApproval, usePostCopyPack, usePostRender } from "@muselaunch/growth";
 import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { hashId } from "./state";
@@ -37,18 +37,35 @@ const isDone = (j: Pick<Job, "status">) => (TERMINAL_JOB_STATUSES as readonly st
 const nowIso = () => new Date().toISOString();
 
 /** "scene 1", "scenes 1 and 3", "scenes 1, 2 and 4". */
-export function sceneWords(numbers: number[]): string {
+export function sceneWords(numbers: number[], noun = "scene"): string {
   const n = [...new Set(numbers)].sort((a, b) => a - b);
   if (!n.length) return "";
-  if (n.length === 1) return `scene ${n[0]}`;
-  return `scenes ${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
+  if (n.length === 1) return `${noun} ${n[0]}`;
+  return `${noun}s ${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
 }
 
-/** One plain line for a video change: Spark's own summary plus the scenes it touched. */
-export function videoChangeLine(summary: string | undefined, sceneNumbers: number[]): string {
-  const s = (summary ?? "").trim().replace(/[.\s]+$/, "") || "Changed the video";
-  const where = sceneWords(sceneNumbers);
+/** One plain line for a video change: Spark's own summary plus the scenes (stills: slides) it touched. */
+export function videoChangeLine(summary: string | undefined, sceneNumbers: number[], still = false): string {
+  const s = (summary ?? "").trim().replace(/[.\s]+$/, "") || (still ? "Changed the images" : "Changed the video");
+  const where = sceneWords(sceneNumbers, still ? "slide" : "scene");
   return clip(where ? `${s} (${where})` : s, 500);
+}
+
+/** The words a change uses for what the post shows: its video, or its images (posts, carousels, thumbnails, store sets). */
+function mediaWords(still: boolean) {
+  return still
+    ? { what: "images", asItWas: "the images are as they were", earlier: "the earlier images", newDidnt: "The new images didn’t finish, so the post still uses the earlier ones.", notFinished: "so they weren’t finished" }
+    : { what: "video", asItWas: "the video is as it was", earlier: "the earlier video", newDidnt: "The new video didn’t finish, so the post still uses the earlier one.", notFinished: "so it wasn’t finished" };
+}
+
+/**
+ * The final render's reservation for a composition version: a video by its length, stills by their
+ * slides (`render.final {slides}` = ceil(slides / 4), what the worker settles), sent as "png", which
+ * the renderer reads as "the right image file" (JPEG for posts, carousels and thumbnails; PNG for store sets).
+ */
+export function finalRenderFor(doc: CompositionDoc): { format: "mp4" | "png"; credits: { operation: "render.final"; params: Record<string, number> } } {
+  if (doc.kind === "video") return { format: "mp4", credits: { operation: "render.final", params: { durationSec: Math.round(totalDuration(doc)) } } };
+  return { format: "png", credits: { operation: "render.final", params: { slides: doc.scenes.length } } };
 }
 
 /** Credits a change uses, shown before anything is spent ("Uses about N credits"). */
@@ -61,10 +78,9 @@ export async function estimatePostChange(p: Platform, wid: string, postId: strin
   const comp = await ws.collection("compositions").getOrThrow(post.compositionId);
   const v = await getVersion(ws, comp.id, comp.currentVersion);
   // The edit may change the length a little; the render is reserved for the new length when it starts.
-  const durationSec = Math.round(totalDuration(v.doc));
   const edit = p.credits.estimate("composition.edit");
-  const render = p.credits.estimate("render.final", { durationSec });
-  return { credits: edit.credits + render.credits, breakdown: [{ label: "Change the video (Muse Spark)", credits: edit.credits }, ...render.breakdown], available };
+  const render = p.credits.estimate("render.final", finalRenderFor(v.doc).credits.params);
+  return { credits: edit.credits + render.credits, breakdown: [{ label: `Change the ${mediaWords(v.doc.kind !== "video").what} (Muse Spark)`, credits: edit.credits }, ...render.breakdown], available };
 }
 
 const noVideo = () => new AppError("BAD_REQUEST", "This post has no editable video", { userMessage: "This post’s video wasn’t made in MuseLaunch, so Muse can’t change it. You can still change the caption." });
@@ -146,6 +162,9 @@ export async function advancePostChange(p: Platform, wid: string, postId: string
     return save({ ...extra, status: "failed", note: clip(again ? `${note} ${again}` : note, 500), finishedAt: nowIso() });
   };
   const jobMessage = (j: Job) => j.error?.userMessage ?? (j.status === "cancelled" ? "It was stopped." : "That didn’t work.");
+  const kind = c.part === "caption" || !post.compositionId ? "video" : ((await ws.collection("compositions").get(post.compositionId))?.kind ?? "video");
+  const W = mediaWords(kind !== "video");
+  const sentence = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
 
   if (c.status === "rewriting") {
     if (job.status !== "succeeded") return fail(`${jobMessage(job)} The caption is as it was.`);
@@ -156,31 +175,32 @@ export async function advancePostChange(p: Platform, wid: string, postId: string
   }
 
   if (c.status === "editing") {
-    if (job.status !== "succeeded") return fail(`${jobMessage(job)} The video is as it was.`);
+    if (job.status !== "succeeded") return fail(`${jobMessage(job)} ${sentence(W.asItWas)}.`);
     const data = (job.output?.data ?? {}) as { status?: string; resultVersion?: number; routedTo?: string };
     if (data.routedTo) return fail("That asks for new versions, so Muse is making them as separate videos (they show up in Your videos). This post is as it was.");
-    if (data.status !== "applied" || !data.resultVersion || !post.compositionId) return fail("Muse couldn’t make that change safely on its own, so the video is as it was. Open Edit in detail to review the suggested change.");
+    if (data.status !== "applied" || !data.resultVersion || !post.compositionId) return fail(`Muse couldn’t make that change safely on its own, so ${W.asItWas}. Open Edit in detail to review the suggested change.`);
     const comp = await ws.collection("compositions").getOrThrow(post.compositionId);
     const v = await getVersion(ws, comp.id, data.resultVersion);
     const patch = c.patchId ? await ws.collection("compositionPatches").get(c.patchId) : null;
     const numbers = (patch?.affectedSceneIds ?? []).map((id) => v.doc.scenes.findIndex((s) => s.id === id) + 1).filter((n) => n > 0);
-    const summary = videoChangeLine(patch?.summary, numbers);
-    const kept = ` The change is saved in the editor (version ${data.resultVersion}); the post still uses the earlier video.`;
+    const summary = videoChangeLine(patch?.summary, numbers, v.doc.kind !== "video");
+    const kept = ` The change is saved in the editor (version ${data.resultVersion}); the post still uses ${W.earlier}.`;
     try {
       await brandGate(p, wid, { subject: { entity: "compositions", id: comp.id }, version: data.resultVersion, actor: c.by, canOverride: false, action: "render_final" });
     } catch (raw) {
       const e = toAppError(raw);
       if ((e.opts.details as { reason?: string } | undefined)?.reason === "brand_review_running") return post; // tried again when it's done
-      if (e.code === "APPROVAL_REQUIRED") return fail(`The brand check found a problem with the changed video, so it wasn’t finished.${kept} Fix it in the editor, or undo the change there.`, { summary, toVersion: data.resultVersion });
+      if (e.code === "APPROVAL_REQUIRED") return fail(`The brand check found a problem with the changed ${W.what}, ${W.notFinished}.${kept} Fix it in the editor, or undo the change there.`, { summary, toVersion: data.resultVersion });
       return fail(`${e.opts.userMessage ?? e.message}${kept}`, { summary, toVersion: data.resultVersion });
     }
     let render: Job;
     try {
+      const final = finalRenderFor(v.doc);
       render = await p.jobs.create(
         wid,
         "render.final",
-        { appId: comp.appId, compositionId: comp.id, version: data.resultVersion, format: "mp4" },
-        { actor: c.by, appId: comp.appId, idempotencyKey: `post.change:${c.id}:render`, credits: { operation: "render.final", params: { durationSec: Math.round(totalDuration(v.doc)) } }, deferDispatch: true },
+        { appId: comp.appId, compositionId: comp.id, version: data.resultVersion, format: final.format },
+        { actor: c.by, appId: comp.appId, idempotencyKey: `post.change:${c.id}:render`, credits: final.credits, deferDispatch: true },
       );
     } catch (raw) {
       const e = toAppError(raw);
@@ -193,9 +213,9 @@ export async function advancePostChange(p: Platform, wid: string, postId: string
   }
 
   // rendering
-  if (job.status !== "succeeded") return fail(`${jobMessage(job)} The change is saved in the editor${c.toVersion ? ` (version ${c.toVersion})` : ""}; the post still uses the earlier video.`);
+  if (job.status !== "succeeded") return fail(`${jobMessage(job)} The change is saved in the editor${c.toVersion ? ` (version ${c.toVersion})` : ""}; the post still uses ${W.earlier}.`);
   const assetId = (job.output?.data as { assetId?: string } | undefined)?.assetId;
-  if (!assetId || !c.toVersion) return fail("The new video didn’t finish, so the post still uses the earlier one.");
+  if (!assetId || !c.toVersion) return fail(W.newDidnt);
   try {
     await usePostRender(p, wid, post.id, { assetId, compositionVersion: c.toVersion }, c.by);
   } catch (raw) {

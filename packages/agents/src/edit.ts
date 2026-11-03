@@ -84,11 +84,17 @@ export function slideRefs(instruction: string, doc: Pick<CompositionDoc, "kind" 
   const n = doc.scenes.length;
   const picks = new Set<number>();
   const text = instruction.toLowerCase();
-  for (const m of text.matchAll(/\b(?:slides?|images?|screenshots?|pages?)\s*(?:#|no\.?\s*|number\s*)?(\d{1,2})(?:\s*(and|&|,|to|-|–)\s*(\d{1,2}))?/g)) {
-    const a = Number(m[1]);
-    const b = m[3] ? Number(m[3]) : undefined;
-    if (b !== undefined && /^(?:to|-|–)$/.test(m[2]!)) for (let k = Math.min(a, b); k <= Math.max(a, b); k++) picks.add(k);
-    else for (const k of [a, b]) if (k !== undefined) picks.add(k);
+  // "slide 3", "slides 2 and 5", "slides 1, 3 and 5", "slides 2-4", "slides 1, 2, and 6 to 8".
+  for (const m of text.matchAll(/\b(?:slides?|images?|screenshots?|pages?)\s*(?:#|no\.?\s*|number\s*)?(\d{1,2}(?:\s*(?:,\s*(?:and\s+)?|and|&|to|-|–)\s*\d{1,2})*)/g)) {
+    const parts = m[1]!.split(/\s*(,\s*(?:and\s+)?|and|&|to|-|–)\s*/);
+    let prev = Number(parts[0]);
+    picks.add(prev);
+    for (let i = 1; i + 1 < parts.length; i += 2) {
+      const k = Number(parts[i + 1]);
+      if (/^(?:to|-|–)$/.test(parts[i]!.trim())) for (let j = Math.min(prev, k); j <= Math.max(prev, k); j++) picks.add(j);
+      else picks.add(k);
+      prev = k;
+    }
   }
   for (const m of text.matchAll(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|final)\s+(?:slide|image|screenshot|page)\b/g)) picks.add(m[1] === "last" || m[1] === "final" ? n : ORDINALS[m[1]!]!);
   if (doc.kind === "carousel" && /\b(?:the\s+)?cover\b/.test(text)) picks.add(1);

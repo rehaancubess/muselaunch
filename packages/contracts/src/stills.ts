@@ -104,7 +104,24 @@ export const isTextDeliverable = (kind: string | null | undefined) => kind === "
 export const TEXT_POST_CHANNELS = ["x", "threads", "linkedin", "reddit", "facebook"] as const satisfies readonly Channel[];
 
 /** Longest text each of those channels takes in one post (X standard accounts: 280). */
-export const TEXT_POST_LIMITS: Record<(typeof TEXT_POST_CHANNELS)[number], number> = { x: 280, threads: 500, linkedin: 3000, reddit: 10000, facebook: 5000 };
+export const TEXT_POST_LIMITS: Record<(typeof TEXT_POST_CHANNELS)[number], number> = { x: 280, threads: 500, linkedin: 3000, reddit: 5000, facebook: 5000 };
+
+/**
+ * X weighted length (twitter-text v3: most Latin = 1, CJK/emoji = 2, URLs = 23): how X counts a post
+ * against its 280. Copy generation and the publishing preflight both measure with this.
+ */
+export function xWeightedLength(text: string): number {
+  let n = 0;
+  const withoutUrls = text.replace(/https?:\/\/\S+/g, () => {
+    n += 23;
+    return "";
+  });
+  for (const ch of withoutUrls) {
+    const cp = ch.codePointAt(0)!;
+    n += cp <= 4351 || (cp >= 8192 && cp <= 8205) || (cp >= 8208 && cp <= 8223) || (cp >= 8242 && cp <= 8247) ? 1 : 2;
+  }
+  return n;
+}
 
 /** Plain words for a format ("carousel" → "Carousel"). */
 export const FORMAT_LABEL: Record<OutputFormat, string> = {

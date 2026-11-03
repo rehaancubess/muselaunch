@@ -1,4 +1,4 @@
-import { Channel, CopyItemKind, isTextDeliverable, TEXT_POST_CHANNELS, TEXT_POST_LIMITS, type CopyPack, type CopyValidationIssue } from "@muselaunch/contracts";
+import { Channel, CopyItemKind, isTextDeliverable, TEXT_POST_CHANNELS, TEXT_POST_LIMITS, xWeightedLength, type CopyPack, type CopyValidationIssue } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
@@ -63,10 +63,13 @@ export function textPostRules(channel: ChannelT): { kinds: Kind[]; limits: Parti
   return { kinds: ["caption"], limits: { caption: Math.min(rules?.limits.caption ?? cap, cap) } };
 }
 
-/** Characters a text counts for on a channel: X counts every link as 23 characters (t.co), [APP_LINK] included. */
+/**
+ * Characters a text counts for on a channel. X: its weighted count, as the publishing preflight
+ * measures it (links 23 characters, [APP_LINK] included; CJK and emoji 2).
+ */
 export function postLength(channel: ChannelT, text: string): number {
   if (channel !== "x") return text.length;
-  return text.replace(/\[APP_LINK\]|https?:\/\/\S+/g, "x".repeat(23)).length;
+  return xWeightedLength(text.replace(/\[APP_LINK\]/g, "https://t.co/link"));
 }
 
 const limitOf = (channel: ChannelT, kind: Kind, textPost: boolean) => (textPost ? textPostRules(channel)?.limits[kind] : undefined) ?? CHANNEL_RULES[channel]?.limits[kind];

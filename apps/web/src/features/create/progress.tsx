@@ -21,7 +21,7 @@ import { errorMessage } from "@/lib/api";
 import { downloadSlides } from "@/lib/slides";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { clock, isMoving, isSlideSet, makeNoun, needsPerson, runMake, stageLabel, stepState, stepsFor, type FinishedStills, type FinishedVideo, type MakeFormat } from "./plan";
+import { clock, isMoving, isSlideSet, isThumbnailStills, makeNoun, needsPerson, runMake, stageLabel, stepState, stepsFor, type FinishedStills, type FinishedVideo, type MakeFormat } from "./plan";
 import type { CreateRun, CreateRunsState } from "./runs";
 import type { ScheduleTarget } from "./schedule";
 
@@ -349,7 +349,7 @@ function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stil
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {canWrite && !store ? (
           <Button size="lg" className="col-span-2 sm:col-span-1" icon={<CalendarClock className="size-4 shrink-0" aria-hidden />} onClick={onSchedule}>
-            Schedule post
+            {isThumbnailStills(stills) ? "Use as cover" : "Schedule post"}
           </Button>
         ) : null}
         <Button

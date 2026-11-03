@@ -150,6 +150,19 @@ describe("createPost with a still composition: every slide of the final render, 
     expect((await createPost(p, WID, appId, { campaignId, compositionId: video.id, channel: "linkedin", caption: "A video", visibility: "public" }, actor)).post.assetIds).toEqual([mp4.id]);
   });
 
+  it("never posts part of a set: a render missing a slide is refused (a whole earlier render of the version is used instead)", async () => {
+    const comp = await composition("carousel", 4);
+    // A render that stopped after slide 3 of 4 (an older ordering could leave slide 1 in place).
+    const partial = await stillRender(comp.id, 1, 4, { key: "partial" });
+    await ws.collection("mediaAssets").update(partial[3]!.id, { status: "failed" }, { actor });
+    await expect(createPost(p, WID, appId, { campaignId, compositionId: comp.id, channel: "linkedin", caption: "x", visibility: "public" }, actor)).rejects.toMatchObject({ code: "CONFLICT", opts: { userMessage: "Some slides didn’t finish. Finish the slides again, then schedule them." } });
+    const whole = await stillRender(comp.id, 1, 4, { key: "whole" });
+    // A newer render that stopped partway doesn't hide the whole one.
+    const later = await stillRender(comp.id, 1, 4, { key: "later" });
+    await ws.collection("mediaAssets").update(later[2]!.id, { status: "failed" }, { actor });
+    expect((await createPost(p, WID, appId, { campaignId, compositionId: comp.id, channel: "linkedin", caption: "x", visibility: "public" }, actor)).post.assetIds).toEqual(whole.map((a) => a.id));
+  });
+
   it("says plainly when the slides aren't finished yet", async () => {
     const comp = await composition("carousel", 3);
     await expect(createPost(p, WID, appId, { campaignId, compositionId: comp.id, channel: "instagram", caption: "x", visibility: "public" }, actor)).rejects.toMatchObject({ code: "CONFLICT", opts: { userMessage: "Finish the slides first (final render), then schedule them." } });

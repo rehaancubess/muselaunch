@@ -62,6 +62,10 @@ describe("Ask Muse on stills: which slide", () => {
     expect(slideRefs("Make slide 3 punchier", doc)).toEqual(["sc_s3"]);
     expect(slideRefs("Use the report screen on slides 2 and 3", doc)).toEqual(["sc_s2", "sc_s3"]);
     expect(slideRefs("Tighten slides 2-4", doc)).toEqual(["sc_s2", "sc_s3", "sc_s4"]);
+    // A list of three or more keeps every slide it names (not just the first two).
+    expect(slideRefs("Shorter headlines on slides 1, 3 and 4", doc)).toEqual(["sc_s1", "sc_s3", "sc_s4"]);
+    expect(slideRefs("Brighter slides 1, 2, and 4", doc)).toEqual(["sc_s1", "sc_s2", "sc_s4"]);
+    expect(slideRefs("Calmer colours on slides 1 and 3 to 4", doc)).toEqual(["sc_s1", "sc_s3", "sc_s4"]);
     expect(slideRefs("The third slide needs a shorter headline", doc)).toEqual(["sc_s3"]);
     expect(slideRefs("A bolder cover", doc)).toEqual(["sc_s1"]);
     expect(slideRefs("Change the last slide's call to action", doc)).toEqual(["sc_s4"]);

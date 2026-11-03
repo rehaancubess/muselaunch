@@ -3,7 +3,8 @@
  * Downloading the slides of a finished post, carousel, thumbnail or store set.
  *
  *  - One ZIP when the piece belongs to a campaign: the existing export package (POST
- *    /campaigns/:id/export with this one composition) puts every slide under images/ next to the
+ *    /campaigns/:id/export with this one composition) puts every slide in its own folder
+ *    (carousels/…, thumbnails/, app-store/ or google-play/, each with a README) next to the
  *    captions Muse wrote and the attribution list. It runs as a job; we wait for it here.
  *  - Otherwise (or when the package can't be made), each slide is downloaded on its own through its
  *    signed asset URL, one after the other.
