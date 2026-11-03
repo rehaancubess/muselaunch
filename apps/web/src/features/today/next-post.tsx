@@ -6,10 +6,17 @@
  * to the Studio) and Skip ("Not this one"). A channel that isn't connected says so and offers the
  * post-it-yourself path (download + copy); after scheduling, that post stays here as "Ready for you
  * to post" with the same two buttons.
+ *
+ * What the post shows: a video plays in place; a single image is the image; several images (a
+ * carousel, `TodayPost.images`) are a swipeable slide preview with a counter; a text-only post (no
+ * media) is its text, as it will read.
  */
 import { isPostChangeRunning, type TodayPost } from "@muselaunch/contracts";
 import { Button, Spinner, cn, useToast } from "@muselaunch/ui";
 import { CalendarDays, Copy, Download, Info, Play } from "lucide-react";
+import { SlideGallery, frameClass } from "@/components/creator/slide-gallery";
+import { TextPostCard } from "@/components/creator/text-post-card";
+import { downloadEachSlide } from "@/lib/slides";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
@@ -24,6 +31,13 @@ import { clock, postTimeLine, whenInSentence } from "./home-lines";
 
 /** A change that finished in the last day (its one-line result is still news). */
 const recent = (iso?: string) => Boolean(iso && Date.now() - Date.parse(iso) < 86_400_000);
+
+/** Every image of a multi-image post (a carousel), in posting order; the first is `video`. */
+export type PostImages = { assetId: string; width?: number; height?: number }[];
+/** The images of a post (TodayPost.images: absent for a single video or image, and for text posts). */
+export const postImages = (post: Pick<TodayPost, "video"> & { images?: PostImages | null }): PostImages => (post.images && post.images.length > 1 ? post.images : []);
+/** A post with nothing but its words (a text post: no media; the caption is the post). */
+export const isTextOnly = (post: Pick<TodayPost, "video"> & { images?: PostImages | null }) => !post.video && !post.images?.length;
 
 /** The post's name: its title, its video's title, or its caption's first line. */
 export function postTitle(post: Pick<TodayPost, "title" | "compositionTitle" | "caption">): string {
@@ -50,7 +64,7 @@ export function rowState(post: TodayPost): string {
  * The post's video as a thumbnail (poster first, so the page stays calm), playable in place: the
  * frame keeps its shape and the whole video shows while it plays.
  */
-export function PostVideo({ post, className }: { post: Pick<TodayPost, "video" | "compositionTitle" | "caption" | "title">; className?: string }) {
+export function PostVideo({ post, className }: { post: Pick<TodayPost, "video" | "compositionTitle" | "caption" | "title" | "channel"> & { images?: PostImages | null }; className?: string }) {
   const { workspaceId } = useWorkspace();
   const src = useAssetUrl(workspaceId, post.video?.kind === "video" ? post.video.assetId : null);
   const poster = useAssetUrl(workspaceId, post.video?.posterAssetId ?? (post.video?.kind === "image" ? post.video.assetId : null));
@@ -58,8 +72,24 @@ export function PostVideo({ post, className }: { post: Pick<TodayPost, "video" |
   const [playing, setPlaying] = useState(false);
   const v = post.video;
   const label = `${post.compositionTitle ?? postTitle(post)}${v?.durationSec ? `, ${Math.round(v.durationSec)} seconds` : ""}`;
+  const images = postImages(post);
+  if (images.length) {
+    // A carousel: swipe through the real slides, with a counter.
+    return <SlideGallery assetIds={images.map((i) => i.assetId)} width={images[0]!.width} height={images[0]!.height} title={post.compositionTitle ?? postTitle(post)} layout="strip" compact slideClassName="!w-full" className={cn("self-start", className)} />;
+  }
+  if (isTextOnly(post)) {
+    // A text post: the words are the post.
+    return (
+      <div className={cn("relative flex aspect-[4/5] w-full flex-col overflow-hidden rounded-2xl bg-mist p-3 shadow-raised sm:p-4", className)} role="img" aria-label={`Text post: ${post.caption.slice(0, 120)}`}>
+        <span className="text-caption font-semibold uppercase tracking-wide text-ink-3">Text post</span>
+        <span className="mt-2 line-clamp-[8] whitespace-pre-line break-words text-footnote text-ink sm:line-clamp-[10] sm:text-body-sm">{post.caption}</span>
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-mist to-transparent" aria-hidden />
+      </div>
+    );
+  }
+  const shape = v?.kind === "image" ? frameClass(v.width, v.height) : "aspect-[4/5]";
   return (
-    <div className={cn("relative aspect-[4/5] w-full overflow-hidden rounded-2xl bg-ink shadow-raised", className)}>
+    <div className={cn("relative w-full overflow-hidden rounded-2xl bg-ink shadow-raised", shape, className)}>
       {v?.kind === "video" && src.data?.url ? (
         <>
           <video
@@ -102,6 +132,7 @@ export function PostVideo({ post, className }: { post: Pick<TodayPost, "video" |
 
 function CopyCaption({ post, size = "md" }: { post: TodayPost; size?: "md" | "lg" }) {
   const toast = useToast();
+  const text = isTextOnly(post);
   return (
     <Button
       size={size}
@@ -109,19 +140,27 @@ function CopyCaption({ post, size = "md" }: { post: TodayPost; size?: "md" | "lg
       icon={<Copy className="size-4" aria-hidden />}
       onClick={() =>
         void navigator.clipboard?.writeText(post.copyText).then(
-          () => toast.success("Caption copied", post.copyText.includes("http") ? "With its tracked link, so Results can count the clicks." : undefined),
-          () => toast.error("Couldn’t copy", "Open the post and copy the caption by hand."),
+          () => toast.success(text ? "Post copied" : "Caption copied", post.copyText.includes("http") ? "With its tracked link, so Results can count the clicks." : undefined),
+          () => toast.error("Couldn’t copy", `Open the post and copy the ${text ? "text" : "caption"} by hand.`),
         )
       }
     >
-      Copy caption
+      {text ? "Copy post" : "Copy caption"}
     </Button>
   );
 }
 
 function DownloadVideo({ post, size = "md", primary }: { post: TodayPost; size?: "md" | "lg"; primary?: boolean }) {
   const { workspaceId } = useWorkspace();
-  const dl = useAssetUrl(workspaceId, post.video?.assetId, { download: true });
+  const toast = useToast();
+  const images = postImages(post);
+  const dl = useAssetUrl(workspaceId, images.length ? null : post.video?.assetId, { download: true });
+  if (images.length)
+    return (
+      <Button size={size} variant={primary ? "primary" : "outline"} icon={<Download className="size-4" aria-hidden />} onClick={() => void downloadEachSlide(workspaceId, images.map((i) => i.assetId)).catch((e) => toast.error("Download failed", e instanceof Error ? e.message : undefined))}>
+        Download {images.length} images
+      </Button>
+    );
   if (!dl.data?.url) return null;
   return (
     <Button size={size} variant={primary ? "primary" : "outline"} asChild>
@@ -147,7 +186,7 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
     approved: {
       title: "Post scheduled",
       text: manual
-        ? `It’s ready for you to post on ${channel}${when ? ` ${when}` : ""}: download the video and copy the caption here on Home.`
+        ? `It’s ready for you to post on ${channel}${when ? ` ${when}` : ""}: ${isTextOnly(post) ? "copy the post here on Home." : postImages(post).length ? "download the images and copy the caption here on Home." : "download the video and copy the caption here on Home."}`
         : `It goes out on ${channel}${when ? ` ${when}` : ""}, through your connected account. It’s under Coming up.`,
     },
   });
@@ -157,6 +196,8 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
   // With no title of its own, the caption's first line is the title: show the rest here.
   const caption = post.title?.trim() || post.compositionTitle?.trim() ? post.caption : post.caption.split("\n").slice(1).join("\n").trim();
   const longCaption = caption.length > 110 || caption.includes("\n");
+  // A text post: its words are the post, shown in full as they'll read (no picture column, no caption line).
+  const textOnly = isTextOnly(post);
   const r = routes.app(workspaceId, appId);
   const canSchedule = Boolean(post.decision && decision && post.decision.canDecide && post.decision.approve && !post.decision.stale);
   const editButton = post.canChange ? (
@@ -172,8 +213,8 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
 
   return (
     <article aria-labelledby={`next-${post.id}`} className="rounded-[22px] bg-surface p-4 shadow-raised sm:p-5">
-      <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-5 sm:grid-cols-[176px_minmax(0,1fr)] sm:gap-x-6">
-        <PostVideo post={post} className="self-start sm:row-span-2" />
+      <div className={cn("grid gap-x-4 gap-y-5 sm:gap-x-6", textOnly ? "grid-cols-1" : "grid-cols-[104px_minmax(0,1fr)] sm:grid-cols-[176px_minmax(0,1fr)]")}>
+        {textOnly ? null : <PostVideo post={post} className="self-start sm:row-span-2" />}
 
         <div className="min-w-0 space-y-2 sm:pt-1">
           {state ? (
@@ -186,7 +227,7 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
             {title}
           </h3>
           <ChannelName channel={post.channel} className="text-body-sm text-ink" />
-          <div className={cn(!caption && "hidden")}>
+          <div className={cn((!caption || textOnly) && "hidden")}>
             <p id={`cap-${post.id}`} className={cn("break-words text-body-sm text-ink-2", more ? "whitespace-pre-line" : "line-clamp-2")}>
               {more ? caption : caption.replace(/\s+/g, " ")}
             </p>
@@ -205,7 +246,9 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
           </p>
         </div>
 
-        <div className="col-span-2 min-w-0 space-y-4 sm:col-span-1 sm:col-start-2 sm:self-end">
+        {textOnly ? <TextPostCard text={post.caption} channel={post.channel} className="bg-canvas shadow-[0_0_0_1px_var(--ml-line)]" /> : null}
+
+        <div className={cn("min-w-0 space-y-4", textOnly ? "" : "col-span-2 sm:col-span-1 sm:col-start-2 sm:self-end")}>
           {/* What Muse is doing to this post, or what it just changed: first, so it's seen. */}
           {running && post.change ? <ChangeProgress change={post.change} /> : post.change && !editing && recent(post.change.finishedAt) ? <ChangeResult change={post.change} waiting={Boolean(post.decision)} /> : null}
 
@@ -265,7 +308,7 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
           <p className="flex items-start gap-2.5 text-footnote text-ink-2 text-pretty">
             <Info className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden />
             <span>
-              <span className="font-medium text-ink">{channel} isn’t connected, so you post this one yourself.</span> After you schedule it, download the video and copy the caption.{" "}
+              <span className="font-medium text-ink">{channel} isn’t connected, so you post this one yourself.</span> After you schedule it, {textOnly ? "copy the post" : postImages(post).length ? "download the images and copy the caption" : `download the ${post.video?.kind === "image" ? "image" : "video"} and copy the caption`}.{" "}
               <Link href={`${r.scheduled}?connections=1`} className="font-medium text-accent hover:underline" title={post.manualReason}>
                 Connect {channel}
               </Link>

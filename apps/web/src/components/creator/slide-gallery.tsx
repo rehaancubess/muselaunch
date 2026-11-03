@@ -48,6 +48,7 @@ export function SlideGallery({
   layout = "auto",
   className,
   slideClassName,
+  compact,
 }: {
   assetIds: string[];
   width?: number;
@@ -59,6 +60,8 @@ export function SlideGallery({
   className?: string;
   /** Extra classes for each slide (e.g. a fixed width in a strip). */
   slideClassName?: string;
+  /** Small spaces (Home's post card): the counter sits on the image ("2 / 6") and the dots show from `sm`. */
+  compact?: boolean;
 }) {
   const strip = useRef<HTMLOListElement>(null);
   const [index, setIndex] = useState(0);
@@ -126,11 +129,16 @@ export function SlideGallery({
               className={cn("relative shrink-0 snap-center overflow-hidden rounded-xl bg-mist shadow-raised", aspect, n > 1 ? (wide ? "w-[86%]" : "w-[72%]") : "w-full", gridFrom && "sm:w-auto", slideClassName)}
             >
               <SlideImage assetId={id} alt={`${title}, slide ${i + 1} of ${n}`} eager={i < 2} />
-              {n > 1 ? <span className="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm">{i + 1}</span> : null}
+              {n > 1 && !compact ? <span className="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm">{i + 1}</span> : null}
             </li>
           ))}
         </ol>
-        {n > 1 ? (
+        {n > 1 && compact ? (
+          <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm" aria-live="polite">
+            {index + 1}/{n}
+          </span>
+        ) : null}
+        {n > 1 && !compact ? (
           <>
             <button
               type="button"
@@ -154,15 +162,17 @@ export function SlideGallery({
         ) : null}
       </div>
       {n > 1 ? (
-        <div className={cn("mt-2.5 flex items-center justify-center gap-3", gridFrom && "sm:hidden")}>
+        <div className={cn("mt-2.5 flex items-center justify-center gap-3", gridFrom && "sm:hidden", compact && "hidden sm:flex")}>
           <div className="flex items-center gap-1.5" aria-hidden>
             {assetIds.map((id, i) => (
               <span key={id} className={cn("h-1.5 rounded-full transition-[width,background-color] duration-200", i === index ? "w-4 bg-ink" : "w-1.5 bg-ink/20")} />
             ))}
           </div>
-          <span className="text-caption font-medium tabular text-ink-2" aria-live="polite">
-            {index + 1} / {n}
-          </span>
+          {compact ? null : (
+            <span className="text-caption font-medium tabular text-ink-2" aria-live="polite">
+              {index + 1} / {n}
+            </span>
+          )}
         </div>
       ) : null}
     </div>
