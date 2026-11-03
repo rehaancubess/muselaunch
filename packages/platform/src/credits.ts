@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CreditBalance, CreditReservation, DEFAULT_CREDIT_PRICES, DEFAULT_PLANS, type CreditLedgerEntry, type Plan, type PlanId } from "@muselaunch/contracts";
+import { clampSlides, CreditBalance, CreditReservation, DEFAULT_CREDIT_PRICES, DEFAULT_PLANS, isStillFormat, OutputFormat, StoreTarget, type CreditLedgerEntry, type Plan, type PlanId } from "@muselaunch/contracts";
 import { nowIso, type Db, type Tx } from "@muselaunch/db";
 import type { Config } from "./config";
 import { AppError } from "./errors";
@@ -38,6 +38,16 @@ export function estimateCredits(prices: CreditPrices, operation: string, params:
   const line = (label: string, credits: number) => ({ credits, breakdown: [{ label, credits }] });
   switch (operation) {
     case "storyboard.generate": {
+      // Stills (a post, a carousel, a thumbnail, a store set): one Muse Spark slide plan, priced on
+      // its slide count (`slides`, clamped like the job clamps it); no SAM focus lookups.
+      // `slides` without a format: that many slides (1–10).
+      const format = OutputFormat.safeParse(params.format);
+      const asked = typeof params.slides === "number" && Number.isFinite(params.slides) ? params.slides : undefined;
+      if ((format.success && isStillFormat(format.data)) || (!format.success && asked !== undefined)) {
+        const store = StoreTarget.safeParse(params.store);
+        const n = format.success ? clampSlides(format.data, asked, store.success ? store.data : undefined) : Math.max(1, Math.min(10, Math.round(asked!)));
+        return line(`Slide plan (${n} slide${n === 1 ? "" : "s"})`, (prices["storyboard.generate_still"] ?? 3) + Math.ceil(n / 2) * (prices["storyboard.generate_per_2_slides"] ?? 1));
+      }
       // Length unknown until the concept's own (30–60 s) is read: reserve for the longest.
       const sec = num("targetDurationSec", 60);
       const extra = Math.max(0, Math.ceil((sec - 30) / 15));
@@ -48,6 +58,11 @@ export function estimateCredits(prices: CreditPrices, operation: string, params:
       return { credits: breakdown.reduce((n, b) => n + b.credits, 0), breakdown };
     }
     case "render.final": {
+      // Stills: one image per slide, per started 4 slides (what the render worker charges).
+      if (typeof params.slides === "number") {
+        const n = Math.max(1, Math.round(params.slides));
+        return line(`Final images (${n} slide${n === 1 ? "" : "s"})`, Math.ceil(n / 4) * (prices["render.final_per_4_slides"] ?? 1));
+      }
       const blocks = Math.max(1, Math.ceil(num("durationSec", 15) / 15));
       return line(`Final render (${blocks}×15s)`, blocks * (prices["render.final_per_15s"] ?? 8));
     }

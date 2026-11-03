@@ -53,6 +53,7 @@ Check the asset against the brand kit, the verified claim library and the team's
 - claim tags ("claims clm_…" next to a text) only record which verified claim backs that copy. Copy may shorten, paraphrase or use part of a claim, or describe a grounded feature in everyday words; it never has to quote a claim verbatim. Judge what the text actually says: block it only if that statement goes beyond the verified claims and grounded features. A tag that points at a loosely related claim is bookkeeping: at most "info", never "block",
 - prohibited phrases, CTA problems, privacy problems, platform fit.
 Deterministic checks already ran (palette, contrast, safe zones, figures/superlatives, prohibited phrases); their results are listed — do not repeat them.
+Stills (a post, a carousel, a thumbnail, store screenshots) are reviewed slide by slide: each scene is one slide. Judge each slide's words and real screen, and whether the slides read as one sequence; there is no timing, motion, sound or caption track to judge.
 
 Rules:
 - "quote" must be copied exactly from the asset's text. Never invent ids: cite only preference ids and claim ids given to you, and locate findings with the asset's own scene/layer/item ids.
@@ -90,6 +91,8 @@ export function buildPacket(s: LoadedSubject, b: BrandContext, memory: BrandPref
   lines.push("Verified claims (id: text) — the only product claims the asset may make:", ...(b.verifiedClaims.length ? b.verifiedClaims.slice(0, 60).map((c) => `- ${c.id}: ${clip(c.text, 300)}`) : ["- (none verified yet)"]));
   if (memory.length) lines.push("Team memory (id [kind] text):", ...memory.map((m) => `- ${m.id} [${m.kind}] ${clip(m.text, 400)}`));
   if (ruleFindings.length) lines.push("Already flagged by deterministic rules (do not repeat):", ...ruleFindings.slice(0, 30).map((f) => `- [${f.severity}/${f.category}] ${clip(f.message, 160)}`));
+  const doc = s.composition?.doc;
+  if (doc && doc.kind !== "video") lines.push("", doc.kind === "carousel" ? `You are reviewing slides: a carousel of ${doc.scenes.length} still slides (scene n = slide n).` : "You are reviewing slides: one still image (a single slide).");
   lines.push("", "Asset to review:", untrusted(`${s.ref.entity}:${s.ref.id}`, describeSubject(s), 30_000));
   return lines.join("\n");
 }

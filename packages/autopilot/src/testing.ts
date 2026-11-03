@@ -14,6 +14,8 @@ import {
   responsesBody,
   searchRoute,
   seedApp,
+  slidePlanRoute,
+  textPostCopyRoute,
   textRoute,
   toolNames,
   wonderRoute,
@@ -22,7 +24,7 @@ import {
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { attachAudio, buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
-import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
+import { DEFAULT_AUTOPILOT_SETTINGS, docKindOf, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
 import { AppError, createTestPlatform, workspaceKey, type HandlerRegistry, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
@@ -148,6 +150,8 @@ export function standardRoutes(extra: MetaRoute[] = []): MetaRoute[] {
     textRoute("Summarise these research findings", "Sources report study-with-me timer videos recur on short-form platforms. This may mean the timer screen is a natural hook."),
     jsonRoute("CampaignConcepts", (req) => resolvePlaceholders(fixtureJson("spark-concepts.json"), req)),
     jsonRoute("Storyboard", (req) => resolvePlaceholders(fixtureJson("spark-storyboard-repaired.json"), req)),
+    slidePlanRoute(),
+    textPostCopyRoute(),
     jsonRoute("CopyPacks", (req) => resolvePlaceholders(fixtureJson<{ repaired: unknown }>("spark-copy.json").repaired, req)),
     jsonRoute("ClaimValidation", (req) => ({ results: requestText(req).split("\n").filter((l) => l.startsWith('{"id":')).map((l) => ({ id: JSON.parse(l).id, issues: [] })) })),
     fixEditRoute,
@@ -192,7 +196,10 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
         { id: "ast_mus_harness", kind: "audio", role: "music", origin: "generated", storagePath: `workspaces/${ctx.workspaceId}/generated/music.m4a`, mimeType: "audio/mp4", status: "ready", durationSec: 60, sourceLabel: "original_music", license: { type: "owned", provider: "MuseLaunch" } },
         { actor: ctx.actor },
       );
-      const doc = attachAudio(buildFromStoryboard({ storyboard: sb, app, brand, assets }), { music: { assetId: music.entity.id, mood: "calm-pad", label: "Original music" } });
+      // Like the real build (packages/render): stills are built as their doc kind, with no soundtrack.
+      const kind = docKindOf(sb.format ?? "video");
+      const built = buildFromStoryboard({ storyboard: sb, app, brand, assets, kind });
+      const doc = kind === "video" ? attachAudio(built, { music: { assetId: music.entity.id, mood: "calm-pad", label: "Original music" } }) : built;
       await createComposition(ctx.ws, { id: ctx.payload.compositionId, appId: sb.appId, campaignId: sb.campaignId, variantId: sb.variantId, storyboardId: sb.id, title: sb.title, doc }, ctx.actor);
       return { refs: [{ entity: "compositions", id: ctx.payload.compositionId }], creditsUsed: 2 };
     },
@@ -205,6 +212,25 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
     // Stand-in for module C's renderer: a labelled stub file, never shown as a real render.
     "render.final": async (ctx: JobContext<"render.final">) => {
       const comp = await ctx.ws.collection("compositions").getOrThrow(ctx.payload.compositionId);
+      const ver = await getVersion(ctx.ws, comp.id, ctx.payload.version);
+      if (ver.doc.kind !== "video") {
+        // Stills: one stub image per slide, with the real worker's ids and labels (slide 1 = ast_r_<key>, slide n = ast_r_<key>_<n>).
+        const key = `${ctx.payload.compositionId.slice(-12)}_v${ctx.payload.version}`;
+        const mime = ctx.payload.format === "jpeg" ? "image/jpeg" : "image/png";
+        const refs: { entity: string; id: string }[] = [];
+        for (let i = 0; i < ver.doc.scenes.length; i++) {
+          const id = i === 0 ? `ast_r_${key}` : `ast_r_${key}_${i + 1}`;
+          const path = workspaceKey(ctx.workspaceId, "renders", `${id}.${ctx.payload.format === "jpeg" ? "jpg" : "png"}`);
+          const put = await ctx.platform.storage.put(path, "FIXTURE: stub slide (test only)", { contentType: mime });
+          await ctx.ws.collection("mediaAssets").createIfAbsent(
+            { id, appId: comp.appId, campaignId: comp.campaignId, kind: "image", role: "render", origin: "render", storagePath: path, mimeType: mime, bytes: put.bytes, status: "ready", width: ver.doc.width, height: ver.doc.height, labels: [`slide:${i + 1}`], render: { compositionId: comp.id, version: ctx.payload.version, quality: "final" } },
+            { actor: ctx.actor },
+          );
+          refs.push({ entity: "mediaAssets", id });
+        }
+        rendered.push(comp.id);
+        return { refs, data: { slides: refs.length, format: ctx.payload.format }, creditsUsed: Math.max(1, Math.ceil(refs.length / 4)) };
+      }
       const id = `ast_render_${ctx.payload.compositionId.slice(-12)}_v${ctx.payload.version}`;
       const key = workspaceKey(ctx.workspaceId, "renders", `${id}.mp4`);
       const put = await ctx.platform.storage.put(key, "FIXTURE: stub render (test only)", { contentType: "video/mp4" });

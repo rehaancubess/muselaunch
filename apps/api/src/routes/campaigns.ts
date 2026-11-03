@@ -1,5 +1,24 @@
 import { autoCampaignName, decideStrategy, syncCampaignProduction } from "@muselaunch/agents";
-import { AgentBudget, Channel, CreateCampaignRequest, Id, ProduceVariantRequest, ResearchKind, type DeliverableKind, type Job } from "@muselaunch/contracts";
+import {
+  AgentBudget,
+  Channel,
+  CreateCampaignRequest,
+  FORMAT_LABEL,
+  formatOfDeliverable,
+  Id,
+  isStillFormat,
+  isTextDeliverable,
+  OutputFormat,
+  ProduceVariantRequest,
+  ResearchKind,
+  slideLimits,
+  StoreTarget,
+  TEXT_POST_CHANNELS,
+  VIDEO_ASPECTS,
+  type Campaign,
+  type Deliverable,
+  type Job,
+} from "@muselaunch/contracts";
 import { APPROVER_CAP } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
@@ -44,8 +63,43 @@ async function requireDna(c: Ctx, appId: string) {
   }
 }
 
-/** Deliverable kinds that are a video (Create's one deliverable must be one). */
-const CREATE_VIDEO_KINDS = new Set<DeliverableKind>(["short_video", "app_demo", "feature_promo", "launch_announcement", "app_trailer"]);
+/**
+ * Create makes ONE piece: a video, stills (a post, a carousel, a thumbnail, a store screenshot set) or
+ * a text post. Its one deliverable says which, in plain words when it can't be made.
+ */
+export function createDeliverableProblem(d: Deliverable[] | undefined): string | null {
+  const list = d ?? [];
+  if (list.length !== 1 || list[0]!.count !== 1) return "Create makes one thing at a time: pass one deliverable with count 1";
+  const one = list[0]!;
+  if (isTextDeliverable(one.kind)) {
+    if (!one.channel || !(TEXT_POST_CHANNELS as readonly string[]).includes(one.channel)) return `A text post needs a channel that takes text only: ${TEXT_POST_CHANNELS.join(", ")}`;
+    return null;
+  }
+  const format = formatOfDeliverable(one.kind);
+  if (!format) return `Create can't make a ${one.kind.replace(/_/g, " ")}: choose a video, a post, a carousel, a thumbnail, store screenshots or a text post`;
+  if (format === "video") return (VIDEO_ASPECTS as readonly string[]).includes(one.aspectRatio) ? null : `A video can't be ${one.aspectRatio}; choose ${VIDEO_ASPECTS.join(", ")}`;
+  if (format === "store_screenshots" && !one.store) return "Store screenshots need a store: ios (App Store) or android (Google Play)";
+  if (one.slides !== undefined) {
+    const l = slideLimits(format, one.store);
+    if (one.slides < l.min || one.slides > l.max) return l.min === l.max ? `A ${FORMAT_LABEL[format].toLowerCase()} is one image` : `${FORMAT_LABEL[format]} take ${l.min}–${l.max} slides${format === "store_screenshots" ? ` on ${one.store === "android" ? "Google Play" : "the App Store"}` : ""}`;
+  }
+  return null;
+}
+
+/** What "produce" makes when the request doesn't say: the campaign's first still deliverable when it asks for no video, else a video. */
+export function produceDefaults(c: Pick<Campaign, "deliverables">): { format?: OutputFormat; slides?: number; store?: StoreTarget } {
+  const formats = c.deliverables.map((d) => ({ d, f: formatOfDeliverable(d.kind) }));
+  if (formats.some((x) => x.f === "video")) return {};
+  const still = formats.find((x) => isStillFormat(x.f));
+  return still ? { format: still.f!, ...(still.d.slides ? { slides: still.d.slides } : {}), ...(still.d.store ? { store: still.d.store } : {}) } : {};
+}
+
+/** POST …/produce: the video request, plus a still format, its slide count and store. */
+const ProduceRequest = ProduceVariantRequest.extend({
+  format: OutputFormat.optional(),
+  slides: z.number().int().min(1).max(10).optional(),
+  store: StoreTarget.optional(),
+});
 
 const List = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(512).optional() });
 
@@ -68,9 +122,9 @@ campaignRoutes.post("/apps/:appId/campaigns", requireCap("content.write"), async
   const input = await body(c, CreateCampaignRequest);
   await requireDna(c, app.id);
   if (input.origin === "create") {
-    // Create makes ONE video: its format and length travel with the campaign (deliverables[0]).
-    const d = input.deliverables ?? [];
-    if (d.length !== 1 || d[0]!.count !== 1 || !CREATE_VIDEO_KINDS.has(d[0]!.kind)) throw new AppError("BAD_REQUEST", "Create makes exactly one video: pass one video deliverable with count 1");
+    // Create makes ONE piece: its format, length or slides travel with the campaign (deliverables[0]).
+    const problem = createDeliverableProblem(input.deliverables);
+    if (problem) throw new AppError("BAD_REQUEST", problem, { userMessage: problem });
   }
   const opps = input.opportunityIds.length ? await ws(c).collection("opportunities").getMany(input.opportunityIds) : [];
   if (opps.length !== input.opportunityIds.length || opps.some((o) => o.appId !== app.id)) throw new AppError("BAD_REQUEST", "opportunityIds must belong to this app");
@@ -157,14 +211,17 @@ campaignRoutes.post("/campaigns/:id/variants/:variantId/produce", requireCap("co
   const campaign = await campaignOf(c);
   const variant = await variantOf(c, campaign.id);
   if (variant.status === "rejected") throw new AppError("CONFLICT", "This concept was rejected; select it again first");
-  const input = await body(c, ProduceVariantRequest);
-  const job = await p.jobs.create(
-    c.get("workspaceId"),
-    "storyboard.generate",
-    // Omitted length = the concept's own (30–60 s); the storyboard job falls back the same way.
-    { appId: campaign.appId, campaignId: campaign.id, variantId: variant.id, aspectRatio: input.aspectRatio, targetDurationSec: input.targetDurationSec ?? variant.targetDurationSec },
-    { actor: actorOf(c), appId: campaign.appId, idempotencyKey: idempotencyKey(c), credits: { operation: "storyboard.generate" } },
-  );
+  const raw = await body(c, ProduceRequest);
+  // No format given: the campaign's still deliverable when it asks for no video, else a video.
+  const input = raw.format ? raw : { ...raw, ...produceDefaults(campaign) };
+  const still = isStillFormat(input.format);
+  const payload = still
+    ? // Stills: one slide per scene in the format's frame (the job clamps slides and picks the frame).
+      { appId: campaign.appId, campaignId: campaign.id, variantId: variant.id, aspectRatio: input.aspectRatio, format: input.format, ...(input.slides ? { slides: input.slides } : {}), ...(input.format === "store_screenshots" ? { store: input.store ?? "ios" } : {}) }
+    : // Omitted length = the concept's own (30–60 s); the storyboard job falls back the same way.
+      { appId: campaign.appId, campaignId: campaign.id, variantId: variant.id, aspectRatio: input.aspectRatio, targetDurationSec: input.targetDurationSec ?? variant.targetDurationSec };
+  if (!still && !(VIDEO_ASPECTS as readonly string[]).includes(payload.aspectRatio)) throw new AppError("BAD_REQUEST", `A video can't be ${payload.aspectRatio}`, { userMessage: `A video can't be ${payload.aspectRatio}; choose ${VIDEO_ASPECTS.join(", ")}.` });
+  const job = await p.jobs.create(c.get("workspaceId"), "storyboard.generate", payload, { actor: actorOf(c), appId: campaign.appId, idempotencyKey: idempotencyKey(c), credits: { operation: "storyboard.generate" } });
   return c.json({ job }, 202);
 });
 

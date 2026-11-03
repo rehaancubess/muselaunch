@@ -48,6 +48,15 @@ async function campaignChannels(ws: WorkspaceDb, campaignId: string | undefined)
   return c?.channels ?? [];
 }
 
+/** Where a still is meant to go: a store set's store; else the channels it's scheduled on; else its deliverable's (or the campaign's) channels. */
+async function stillChannels(ws: WorkspaceDb, doc: CompositionDoc, campaignId: string | undefined, posted: Channel[]): Promise<Channel[]> {
+  if (doc.scenes.length && doc.scenes.every((sc) => sc.template === "store-screenshot")) return [doc.aspectRatio === "9:19.5" ? "app_store" : "google_play"];
+  if (posted.length) return [...new Set(posted)];
+  const c = campaignId ? await ws.collection("campaigns").get(campaignId) : null;
+  const d = c?.deliverables.find((x) => x.kind === "store_screenshots") ? undefined : c?.deliverables.find((x) => x.channel);
+  return d?.channel ? [d.channel] : (c?.channels ?? []);
+}
+
 /**
  * Load the subject of a review from this workspace only (tenancy: `ws` is already scoped).
  * `version` applies to compositions; other subjects are reviewed at their current content.
@@ -68,9 +77,11 @@ export async function loadSubject(ws: WorkspaceDb, ref: EntityRef, version?: num
       if (doc.captions.enabled) for (const cue of doc.captions.cues) texts.push({ id: cue.id, text: cue.text, kind: "caption_cue", where: { field: `captions.${cue.id}`.slice(0, 80) }, claimIds: [] });
       const refs = collectAssetRefs(doc);
       const assets = (await ws.collection("mediaAssets").getMany(refs.assetIds)) as MediaAsset[];
-      // Target channels: the campaign's, plus any channel this composition is scheduled on.
+      // Target channels: the campaign's, plus any channel this composition is scheduled on. Stills go
+      // where they're posted (the scheduled post's channel, else the deliverable's), and a store
+      // screenshot set goes to its store.
       const posts = (await ws.collection("scheduledPosts").list({ where: [["appId", "==", comp.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items.filter((x) => x.compositionId === comp.id);
-      const channels = [...new Set([...(await campaignChannels(ws, comp.campaignId)), ...posts.map((x) => x.channel)])];
+      const channels = doc.kind === "video" ? [...new Set([...(await campaignChannels(ws, comp.campaignId)), ...posts.map((x) => x.channel)])] : await stillChannels(ws, doc, comp.campaignId, posts.map((x) => x.channel));
       return {
         ref: { entity: "compositions", id: comp.id },
         appId: comp.appId,
@@ -148,6 +159,11 @@ export async function loadSubject(ws: WorkspaceDb, ref: EntityRef, version?: num
 export function describeSubject(s: LoadedSubject): string {
   if (s.composition) {
     const { doc } = s.composition;
+    if (doc.kind !== "video") {
+      // Stills: one scene = one slide; their durations are only a render slot.
+      const what = doc.kind === "carousel" ? `${doc.scenes.length} still slides` : "one still image";
+      return `${doc.kind === "carousel" ? "Carousel" : "Still image"} "${s.title}" version ${s.version} (${what}, ${doc.aspectRatio}; each scene below is one slide, no motion, sound or timing)${s.channels.length ? ` for ${s.channels.join(", ")}` : ""}\n${describeForLLM(doc)}`;
+    }
     return `Composition "${s.title}" version ${s.version} (${doc.kind}, ${doc.aspectRatio}, ${Math.round(totalDuration(doc) * 10) / 10}s)${s.channels.length ? ` for ${s.channels.join(", ")}` : ""}\n${describeForLLM(doc)}`;
   }
   if (s.copyPack) {
