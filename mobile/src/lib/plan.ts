@@ -130,6 +130,106 @@ export function defaultFormat(postTo: readonly string[] | null | undefined): Vid
   return FORMATS[0]!;
 }
 
+// ---------------------------------------------------------------------------
+// What to make: a video, or stills / a text post (the web's Create offers the same; the server's
+// rules are packages/contracts/src/stills.ts)
+// ---------------------------------------------------------------------------
+
+export type MakeId = "video" | "post" | "carousel" | "thumbnail" | "app_store" | "google_play" | "text_post";
+
+export interface Make {
+  id: MakeId;
+  label: string;
+  /** For "Generate …" and messages. */
+  noun: string;
+  /** Where it can go (the first is the default); empty = a fixed place. */
+  channels: Channel[];
+  /** Slides: min / max / default (null = one image or no image). */
+  slides: { min: number; max: number; def: number } | null;
+}
+
+export const MAKES: Make[] = [
+  { id: "video", label: "Video", noun: "video", channels: [], slides: null },
+  { id: "post", label: "Post", noun: "post", channels: ["instagram", "facebook", "linkedin", "x", "threads"], slides: null },
+  { id: "carousel", label: "Carousel", noun: "carousel", channels: ["instagram", "linkedin", "facebook", "threads"], slides: { min: 3, max: 10, def: 6 } },
+  { id: "thumbnail", label: "Thumbnail", noun: "thumbnail", channels: ["youtube"], slides: null },
+  { id: "app_store", label: "App Store screenshots", noun: "screenshots", channels: ["app_store"], slides: { min: 3, max: 10, def: 6 } },
+  { id: "google_play", label: "Google Play screenshots", noun: "screenshots", channels: ["google_play"], slides: { min: 3, max: 8, def: 6 } },
+  { id: "text_post", label: "Text post", noun: "post", channels: ["x", "threads", "linkedin", "reddit", "facebook"], slides: null },
+];
+
+export const makeById = (id: string | null | undefined): Make => MAKES.find((m) => m.id === id) ?? MAKES[0]!;
+
+/** A slide count the choice allows (the default when nothing was picked). */
+export function clampSlideCount(make: Make, n: number | null | undefined): number {
+  if (!make.slides) return 1;
+  if (typeof n !== "number" || !Number.isFinite(n)) return make.slides.def;
+  return Math.max(make.slides.min, Math.min(make.slides.max, Math.round(n)));
+}
+
+export interface StillInput {
+  kind: CreateKind;
+  prompt: string;
+  make: Make;
+  channel: Channel;
+  slides: number;
+  ideaId?: string | null;
+}
+
+/** Body of POST /apps/:appId/campaigns for one still piece or text post (the web sends the same). */
+export function stillCampaignRequest(input: StillInput) {
+  const m = input.make;
+  const slides = clampSlideCount(m, input.slides);
+  let deliverable: Deliverable;
+  switch (m.id) {
+    case "post":
+      deliverable = { kind: "static_ad", channel: input.channel, aspectRatio: "4:5", count: 1 };
+      break;
+    case "carousel":
+      deliverable = { kind: "carousel", channel: input.channel, aspectRatio: "4:5", count: 1, slides };
+      break;
+    case "thumbnail":
+      deliverable = { kind: "thumbnail", channel: "youtube", aspectRatio: "16:9", count: 1 };
+      break;
+    case "app_store":
+      deliverable = { kind: "store_screenshots", channel: "app_store", aspectRatio: "9:19.5", count: 1, slides, store: "ios" };
+      break;
+    case "google_play":
+      deliverable = { kind: "store_screenshots", channel: "google_play", aspectRatio: "9:16", count: 1, slides, store: "android" };
+      break;
+    default:
+      deliverable = { kind: "text_post", channel: input.channel, aspectRatio: "9:16", count: 1 };
+  }
+  return {
+    request: input.prompt.trim().slice(0, MAX_PROMPT),
+    goal: GOAL[input.kind],
+    channels: [deliverable.channel ?? input.channel],
+    deliverables: [deliverable],
+    opportunityIds: input.kind === "idea" && input.ideaId ? [input.ideaId] : [],
+    conceptCount: 3,
+    origin: "create" as const,
+  };
+}
+
+/** The estimates "Generate …" adds up for stills and text posts (the server prices each step the same way). */
+export function stillEstimateSteps(make: Make, slides: number): { key: string; label: string; operation: string; params: Record<string, unknown> }[] {
+  const n = clampSlideCount(make, slides);
+  if (make.id === "text_post")
+    return [
+      { key: "idea", label: "Writing the idea (Muse Spark)", operation: "campaign.generate_concepts", params: {} },
+      { key: "post", label: "Writing the post (Muse Spark)", operation: "copy.generate", params: {} },
+    ];
+  const format = make.id === "app_store" || make.id === "google_play" ? "store_screenshots" : make.id;
+  const plan: Record<string, unknown> = format === "post" || format === "thumbnail" ? { format } : { format, slides: n, ...(format === "store_screenshots" ? { store: make.id === "google_play" ? "android" : "ios" } : {}) };
+  const one = !make.slides;
+  return [
+    { key: "idea", label: "Writing the idea (Muse Spark)", operation: "campaign.generate_concepts", params: {} },
+    { key: "plan", label: one ? "Planning the image (Muse Spark)" : "Planning the slides (Muse Spark)", operation: "storyboard.generate", params: plan },
+    { key: "make", label: "Making it, editable", operation: "composition.build", params: {} },
+    { key: "finish", label: one ? "Final image" : `Final slides (${n})`, operation: "render.final", params: { slides: one ? 1 : n } },
+  ];
+}
+
 export const LENGTHS = [15, 20, 30, 45, 60] as const;
 export const DEFAULT_LENGTH = 20;
 

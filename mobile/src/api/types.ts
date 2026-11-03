@@ -262,6 +262,10 @@ export interface Deliverable {
   aspectRatio?: AspectRatio;
   durationSec?: number;
   count?: number;
+  /** Stills: how many slides. */
+  slides?: number;
+  /** store_screenshots: which store. */
+  store?: "ios" | "android";
 }
 
 export interface Campaign {
