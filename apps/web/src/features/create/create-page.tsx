@@ -180,7 +180,8 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
       const res = await api.post<CreateCampaignResponse>(wsPath(workspaceId, `/apps/${appId}/campaigns`), campaignRequest({ kind, prompt: text, format, lengthSec, ideaId: kind === "idea" ? ideaId : null }), { idempotencyKey: idem.current });
       idem.current = newIdempotencyKey("create");
       setFocusId(res.campaign.id);
-      await invalidate(wsPath(workspaceId, `/apps/${appId}/campaigns`), wsPath(workspaceId, "/jobs"), wsPath(workspaceId, "/billing"), wsPath(workspaceId, `/apps/${appId}/discover`));
+      // The balance under the button moves with what was just held ("estimate" keys carry it).
+      await invalidate(wsPath(workspaceId, `/apps/${appId}/campaigns`), wsPath(workspaceId, "/jobs"), wsPath(workspaceId, "/billing"), wsPath(workspaceId, `/apps/${appId}/discover`), "estimate");
       requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (e) {
       idem.current = newIdempotencyKey("create");
