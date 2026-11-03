@@ -1963,12 +1963,17 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   const set: StillSet | undefined = stillFormat
     ? { format: stillFormat, store: stillFormat === "store_screenshots" || ar === "9:19.5", paged: stillFormat !== "store_screenshots" && ar !== "9:19.5" && kind === "carousel" && ordered.length > 1 }
     : undefined;
+  // A store set shows the phone of its store: an Android phone for Google Play, an iPhone for the
+  // App Store (deviceFor picks the phone from the app's platforms).
+  const storePhone = set?.store ? (storyboard.store === "android" || (!storyboard.store && ar === "9:16") ? "android" : "ios") : null;
+  const frameApp: App =
+    storePhone === "android" ? { ...app, platforms: [...app.platforms.filter((x) => x !== "ios"), ...(app.platforms.includes("android") ? [] : ["android" as const])] } : storePhone === "ios" && !app.platforms.includes("ios") ? { ...app, platforms: [...app.platforms, "ios"] } : app;
   const clipCursor = new Map<string, number>();
   const scenes: Scene[] = [];
   let prevTemplate: TemplateId | undefined;
   ordered.forEach((sb, index) => {
     const sceneId = `sc_${sb.id}`.slice(0, 100);
-    const ctx: SceneCtx = { f, theme, app, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords, analyses: input.clipAnalyses ?? [], clipCursor, durationSec: Math.max(0.5, Math.min(60, sb.durationSec)), still: set };
+    const ctx: SceneCtx = { f, theme, app: frameApp, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords, analyses: input.clipAnalyses ?? [], clipCursor, durationSec: Math.max(0.5, Math.min(60, sb.durationSec)), still: set };
     const requested = ((TEMPLATE_IDS as readonly string[]).includes(sb.template) ? sb.template : null) as TemplateId | null;
     const fallbackText = sb.onScreenText.trim() || (sb.purpose === "cta" ? "" : app.tagline || app.name);
     const t = kind === "video" ? (requested ?? defaultTemplate(sb)) : stillTemplateFor(sb, set!, index);

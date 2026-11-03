@@ -223,9 +223,15 @@ describe("still templates", () => {
         expect(s.layers.some((l) => /_(swipe|dots|counter)$/.test(l.id))).toBe(false);
       }
       expect(doc.scenes[2]!.layers.some((l) => l.type === "block" && l.blockId === "store-badges")).toBe(false);
+      // The store's own phone: an Android phone on Google Play, an iPhone on the App Store (this app is on both).
+      expect(new Set(doc.scenes.flatMap((s) => devices(s.layers).map((d) => d.device)))).toEqual(new Set([store === "android" ? "android" : "iphone"]));
       expectSlideFits(doc);
       expect(lintOf(doc).filter((i) => i.level === "error")).toEqual([]);
     }
+    // An iPhone-only app's App Store set keeps the iPhone; an Android-only app's Play set the Android phone.
+    const iosOnly = { ...app, platforms: ["android"] } as App;
+    const ios = buildFromStoryboard({ storyboard: storyboard("store_screenshots", "9:19.5", [scene("feature", "store-screenshot", "Plan your day", { assets: [{ kind: "screenshot", assetId: "ast_today" }] })], "ios"), app: iosOnly, brand, assets });
+    expect(devices(ios.scenes[0]!.layers)[0]!.device).toBe("iphone");
   });
 
   it("maps non-still templates by purpose and never makes a proof slide without a verified claim", () => {
@@ -286,5 +292,48 @@ describe("still compile", () => {
     const still = compileToHtml(doc, { assetUrl: (id) => `assets/${id}`, mode: "render", gsapSource: "inline", still: true, sceneSlotSec: 0.2 });
     expect(still.durationSec).toBe(1);
     expect(still.scenes.map((s) => s.start)).toEqual([0, 0.2, 0.4, 0.6, 0.8]);
+  });
+});
+
+describe("still lint", () => {
+  const assetsById = Object.fromEntries(assets.map((a) => [a.id, a]));
+  const carousel = () => buildFromStoryboard({ storyboard: storyboard("carousel", "4:5", carouselScenes()), app, brand, assets });
+
+  it("has no video-only warnings on stills (length, pacing, timing, captions, audio)", () => {
+    const doc = carousel();
+    // Lots of words on one 3 s slide would be a pacing warning in a video.
+    const wordy = applyPatch(doc, [{ op: "update_layer", sceneId: doc.scenes[1]!.id, layerId: `${doc.scenes[1]!.id}_body`, set: { text: "Weekly stats show your best hours to focus so you plan the next week" } }]).doc;
+    const issues = lintDoc(wordy, { assets: assetsById });
+    expect(issues.filter((i) => /words in|Video is|Transition|Entrance|Caption|Audio|footage/.test(i.message))).toEqual([]);
+  });
+
+  it("errors on a proof slide without a verified claim and on a store screenshot without a real screen", () => {
+    const doc = carousel();
+    const proof = doc.scenes[3]!;
+    const unlinked = applyPatch(doc, proof.layers.filter((l) => l.type === "text").map((l) => ({ op: "update_layer" as const, sceneId: proof.id, layerId: l.id, set: { claimIds: [] } }))).doc;
+    expect(lintDoc(unlinked, { assets: assetsById }).find((i) => i.sceneId === proof.id && i.level === "error")?.message).toMatch(/proof slide needs a verified claim/);
+    // With the claim store: an unverified claim is an error too.
+    const claims = { clm_rating: { id: "clm_rating", text: "Rated 4.8 on the App Store", state: "needs_review", permittedContexts: ["all"] } } as never;
+    expect(lintDoc(doc, { assets: assetsById, claims }).some((i) => i.level === "error" && /needs review/.test(i.message))).toBe(true);
+
+    const store = buildFromStoryboard({ storyboard: storyboard("store_screenshots", "9:19.5", [scene("feature", "store-screenshot", "Plan your day", { assets: [{ kind: "screenshot", assetId: "ast_today" }] })], "ios"), app, brand, assets });
+    expect(lintDoc(store, { assets: assetsById }).filter((i) => i.level === "error")).toEqual([]);
+    const s0 = store.scenes[0]!;
+    const noScreen = applyPatch(store, [{ op: "remove_layer", sceneId: s0.id, layerId: devices(s0.layers)[0]!.id }]).doc;
+    expect(lintDoc(noScreen, { assets: assetsById }).find((i) => i.level === "error")?.message).toMatch(/store screenshot must show a real screen/);
+    // Type-only store slide built without any screens: flagged, never filled with invented UI.
+    const empty = buildFromStoryboard({ storyboard: storyboard("store_screenshots", "9:19.5", [scene("feature", "store-screenshot", "Plan your day")], "ios"), app, brand, assets: [] });
+    expect(lintDoc(empty, { assets: {} }).some((i) => i.level === "error" && /real screen/.test(i.message))).toBe(true);
+  });
+
+  it("warns about text outside the safe zone or off the slide, and carousels over 10 slides", () => {
+    const doc = carousel();
+    const s1 = doc.scenes[1]!;
+    const moved = applyPatch(doc, [{ op: "update_layer", sceneId: s1.id, layerId: `${s1.id}_headline`, set: { box: { x: 0.6, y: 0.95, w: 0.6, h: 0.1 } } }]).doc;
+    const msgs = lintDoc(moved, { assets: assetsById }).filter((i) => i.layerId === `${s1.id}_headline`).map((i) => i.message);
+    expect(msgs).toEqual(expect.arrayContaining(["Text extends outside the platform safe zone", "Text runs off the edge of the slide"]));
+    const many = buildFromStoryboard({ storyboard: storyboard("carousel", "4:5", Array.from({ length: 11 }, (_, i) => scene(i ? "feature" : "hook", "slide-feature", `Slide ${i + 1}`))), app, brand, assets });
+    expect(lintDoc(many, { assets: assetsById }).some((i) => /Instagram takes at most 10/.test(i.message))).toBe(true);
+    expect(lintDoc(carousel(), { assets: assetsById }).some((i) => /Instagram/.test(i.message))).toBe(false);
   });
 });
