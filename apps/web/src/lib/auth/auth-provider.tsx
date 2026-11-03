@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { setTokenGetter, setUnauthenticatedHandler } from "../api";
 import { env, firebaseConfigured } from "../env";
+import { disableWebPush } from "../web-push";
 
 export interface SessionUser {
   uid: string;
@@ -126,6 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [mode]);
 
   const signOut = useCallback(async () => {
+    // This browser stops getting this person's notifications (while the session can still say so).
+    await Promise.race([disableWebPush().catch(() => undefined), new Promise((r) => setTimeout(r, 3000))]);
     if (mode === "dev") {
       try {
         window.localStorage.removeItem(DEV_KEY);

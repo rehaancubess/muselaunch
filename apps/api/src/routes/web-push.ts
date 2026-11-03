@@ -48,7 +48,8 @@ webPushRoutes.post("/me/web-push", async (c) => {
   const input = await body(c, WebPushSubscriptionInput);
   await ensureUser(p, user);
   const saved = await saveWebPushSubscription(p, user.uid, input, c.req.header("user-agent"));
-  p.log.info({ uid: user.uid, sub: saved.id.slice(0, 8), label: saved.label }, "browser notifications on");
+  // (The page sends it again on each visit: only a newly added browser is worth a log line.)
+  if (saved.createdAt === saved.updatedAt) p.log.info({ uid: user.uid, sub: saved.id.slice(0, 8), label: saved.label }, "browser notifications on");
   return c.json({ browser: webPushView(saved) }, 201);
 });
 

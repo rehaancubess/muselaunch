@@ -12,6 +12,7 @@ import { ArrowUpRight, Check, Play, RotateCcw, Send, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
+import { NotifyMe } from "@/features/notifications/browser-notifications";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 import { STEP_LABEL, STEPS, clock, isMoving, needsPerson, stepState, type FinishedVideo, type StepKey } from "./plan";
@@ -133,6 +134,8 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
           ) : null}
         </Decision>
       ) : null}
+
+      {isMoving(run) ? <NotifyMe label="Notify me when it’s done" /> : null}
 
       {run.status === "done" && run.compositionId ? (
         <div className="flex flex-wrap gap-2">

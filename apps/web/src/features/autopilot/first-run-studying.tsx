@@ -5,18 +5,19 @@
  * - A live loader around the app's own icon. The ring is the run's real progress (finished steps
  *   plus the measured share of the current step's jobs); the moving arc and glow only say "working".
  * - The current task in one sentence, which changes as the run moves on.
- * - The promise: you can leave; you're told when the first videos are ready (in this browser if you
- *   allow it, on your phone if it's linked, and on Home either way).
+ * - The promise: you can leave; you're told when the first videos are ready (in this browser even
+ *   with MuseLaunch closed if you allow it, on your phone if it's linked, and on Home either way).
  * - What Muse has learned so far: real counts as each step finishes, and "What we're testing".
  * - The full step list one tap away ("Show all steps").
  */
-import type { NeedsYouItem } from "@muselaunch/contracts";
+import { runNotificationTag, type NeedsYouItem } from "@muselaunch/contracts";
 import { Button, cn } from "@muselaunch/ui";
 import { Bell, BellRing, Check, ChevronDown, Smartphone } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { AppIcon } from "@/components/app-icon";
 import { QuickSetup } from "@/components/onboarding/quick-setup";
+import { NotifyMe as BrowserNotifyMe, useBrowserNotifications } from "@/features/notifications/browser-notifications";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
@@ -90,15 +91,17 @@ function Loader({ pct, appId }: { pct: number; appId: string }) {
   );
 }
 
-function NotifyMe({ runId }: { runId: string }) {
+/**
+ * When the server can't send browser notifications (they're off there, or this browser can't take
+ * them): an in-page notice while a MuseLaunch tab is open, and it says exactly that.
+ */
+function InTabNotice({ runId }: { runId: string }) {
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
   const [on, setOn] = useState(false);
   useEffect(() => {
     setPerm(notificationPermission());
     setOn(readFlag(notifyKey(runId)));
   }, [runId]);
-  const devices = useApiQuery<{ items: unknown[] }>("/v1/me/devices", { staleTime: 60_000, retry: false });
-  const phone = (devices.data?.items.length ?? 0) > 0;
 
   const enable = async () => {
     const p = perm === "granted" ? "granted" : await Notification.requestPermission();
@@ -113,20 +116,27 @@ function NotifyMe({ runId }: { runId: string }) {
     }
   };
 
+  if (perm === "unsupported" || perm === "denied") return null;
+  return on && perm === "granted" ? (
+    <p className="inline-flex items-center gap-1.5 text-footnote font-medium text-ink">
+      <BellRing className="size-4 text-accent" aria-hidden />
+      We’ll notify you in this browser while MuseLaunch is open
+    </p>
+  ) : (
+    <Button variant="secondary" icon={<Bell className="size-4" aria-hidden />} onClick={() => void enable()}>
+      Notify me when it’s ready
+    </Button>
+  );
+}
+
+function NotifyMe({ runId }: { runId: string }) {
+  const devices = useApiQuery<{ items: unknown[] }>("/v1/me/devices", { staleTime: 60_000, retry: false });
+  const phone = (devices.data?.items.length ?? 0) > 0;
+
   return (
     <div className="flex flex-col items-center gap-2.5">
-      {perm !== "unsupported" && perm !== "denied" ? (
-        on && perm === "granted" ? (
-          <p className="inline-flex items-center gap-1.5 text-footnote font-medium text-ink">
-            <BellRing className="size-4 text-accent" aria-hidden />
-            We’ll notify you in this browser while MuseLaunch is open
-          </p>
-        ) : (
-          <Button variant="secondary" icon={<Bell className="size-4" aria-hidden />} onClick={() => void enable()}>
-            Notify me when it’s ready
-          </Button>
-        )
-      ) : null}
+      {/* Notifications from the server reach this browser even with MuseLaunch closed. */}
+      <BrowserNotifyMe label="Notify me when it’s ready" fallback={<InTabNotice runId={runId} />} />
       {phone ? (
         <p className="inline-flex items-center gap-1.5 text-footnote text-ink-2">
           <Smartphone className="size-3.5" aria-hidden />
@@ -287,12 +297,17 @@ export function FirstRunStudying({ detail, needs }: { detail: AutopilotDetail; n
 }
 
 /**
- * Tells the person in this browser (if they asked to be notified) when the first run's videos are
- * ready, or when it stops to ask them something. Fires once, on the change itself, while MuseLaunch
- * is open in some tab; the phone app gets its own push from the server.
+ * The in-tab fallback: tells the person in this browser (if they asked) when the first run's videos
+ * are ready, or when it stops to ask them something, while MuseLaunch is open in some tab. When
+ * notifications from the server are on for this browser it stays quiet (the server sends the same
+ * notes, with every tab closed too); the shared tag (`runNotificationTag`) would fold any overlap into
+ * one notification anyway. The phone app gets its own push from the server.
  */
 export function useFirstRunNotice(detail: AutopilotDetail | undefined, firstRun: boolean, appName: string): void {
   const prev = useRef<{ id: string; first: boolean; status: string; phase: string } | null>(null);
+  const { state: pushState } = useBrowserNotifications();
+  const serverSends = useRef(false);
+  serverSends.current = pushState === "on";
   useEffect(() => {
     if (!detail) return;
     const id = detail.autopilot.id;
@@ -301,11 +316,13 @@ export function useFirstRunNotice(detail: AutopilotDetail | undefined, firstRun:
     const p = prev.current;
     prev.current = { id, first: firstRun, status, phase };
     if (!p || p.id !== id || !p.first) return;
+    if (serverSends.current) return;
     if (!readFlag(notifyKey(id)) || notificationPermission() !== "granted") return;
+    const tag = runNotificationTag(id);
     const studied = firstRun && p.phase === "studying" && phase === "making";
     if (studied) {
       try {
-        new Notification(`Muse has finished studying ${appName}`, { body: "Now making your first videos. You’ll get one more note when they’re ready.", icon: "/icon.svg", tag: `ml-first-run-studied-${id}` });
+        new Notification(`Muse has finished studying ${appName}`, { body: "Now making your first videos. You’ll get one more note when they’re ready.", icon: "/apple-icon.png", tag });
       } catch {
         /* notifications unavailable */
       }
@@ -323,7 +340,7 @@ export function useFirstRunNotice(detail: AutopilotDetail | undefined, firstRun:
       : `${appName}: one quick decision, then Muse carries on.`;
     try {
       if (ready) localStorage.removeItem(notifyKey(id));
-      const n = new Notification(ready ? "Your first videos are ready" : "Muse needs you for a moment", { body, icon: "/icon.svg", tag: `ml-first-run-${id}` });
+      const n = new Notification(ready ? "Your first videos are ready" : "Muse needs you for a moment", { body, icon: "/apple-icon.png", tag });
       n.onclick = () => {
         window.focus();
         n.close();

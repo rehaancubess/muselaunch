@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppIcon } from "@/components/app-icon";
 import { MoreLink, MoreSection, TheBasics, TTS_VOICES } from "@/components/settings/basics";
 import { AlwaysOnSettings } from "@/features/autopilot/always-on";
+import { BrowserNotificationSettings } from "@/features/notifications/browser-notifications";
 import { PhoneAppSettings } from "@/features/phone/phone-app";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { countryOptions } from "@/lib/countries";
@@ -255,6 +256,9 @@ export default function WorkspaceSettingsPage() {
         <div className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-raised">
           <MoreSection id="phone" title="Phone app" summary="Link your phone: review, schedule and share posts, with notifications">
             <PhoneAppSettings />
+          </MoreSection>
+          <MoreSection id="notifications" title="Notifications" summary="Notes in this browser even with MuseLaunch closed, your other browsers, a test">
+            <BrowserNotificationSettings />
           </MoreSection>
           <MoreSection id="autopilot" title="Autopilot" summary="Starting on new apps, rendering without asking, credit limit per run">
             <AutopilotSettings />
