@@ -33,7 +33,10 @@ export type Channel =
   | "google_play"
   | "other";
 
-export type AspectRatio = "9:16" | "1:1" | "16:9" | "4:5";
+export type AspectRatio = "9:16" | "1:1" | "16:9" | "4:5" | "9:19.5";
+
+/** What a Create run makes (packages/contracts/src/stills.ts OutputFormat, or a text post). */
+export type CreateOutput = "video" | "post" | "carousel" | "thumbnail" | "store_screenshots" | "text_post";
 
 export type Page<T> = { items: T[]; nextCursor?: string | null };
 
@@ -174,6 +177,8 @@ export interface TodayPost {
   account: { name: string; status: string } | null;
   manualReason?: string;
   video: { assetId: string; posterAssetId?: string; kind: "video" | "image"; durationSec?: number; width?: number; height?: number } | null;
+  /** Every image of a carousel post, in posting order (absent for one video or image; text posts have no media). */
+  images?: { assetId: string; width?: number; height?: number }[];
   compositionId?: string;
   compositionTitle?: string;
   decision: NeedsYouItem | null;
@@ -320,7 +325,7 @@ export interface CreateRunView {
   request: string;
   name: string;
   kind: "promote" | "feature";
-  format: { aspectRatio: AspectRatio; lengthSec?: number; channel?: Channel };
+  format: { aspectRatio: AspectRatio; lengthSec?: number; channel?: Channel; output?: CreateOutput; slides?: number; store?: "ios" | "android" };
   startedBy: string;
   createdAt: string;
   stage: CreateRunStage;
@@ -334,6 +339,10 @@ export interface CreateRunView {
   failure: { stage: CreateRunStage; message: string; jobId?: string; canRetry: boolean } | null;
   wait: { until?: string; reason: string } | null;
   video: { assetId: string; posterAssetId?: string; durationSec?: number } | null;
+  /** Finished stills (post, carousel, thumbnail, store screenshots): slide images in order. */
+  stills?: { assetIds: string[]; width?: number; height?: number } | null;
+  /** Finished text post. */
+  text?: { copyPackId: string; channel: Channel; text: string; ok: boolean } | null;
   actions: CreateRunAction[];
 }
 

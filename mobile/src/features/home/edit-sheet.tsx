@@ -47,7 +47,17 @@ export function costLine(est: EstimateResponse | undefined): { text: string | nu
   return { text: short ? `Needs about ${fullNumber(est.credits)} credits; ${fullNumber(Math.max(0, est.available))} left` : `Uses about ${fullNumber(est.credits)} credits`, short };
 }
 
+/** Suggestions for an image post or a carousel (the "video" part of a post is its composition, here stills). */
+const STILL_CHIPS: { label: string; text: string }[] = [
+  { label: "Shorter headline", text: "Make the headline shorter and punchier" },
+  { label: "Another screen", text: "Use a different screen of the app" },
+  { label: "Darker look", text: "Try a darker background" },
+];
+
 export function EditSheet({ post, open, onClose }: { post: TodayPost; open: boolean; onClose: () => void }) {
+  const still = post.video?.kind === "image";
+  const carousel = Boolean(post.images && post.images.length > 1);
+  const partLabel = carousel ? "Slides" : still ? "Image" : "Video";
   const { api } = useSession();
   const toast = useToast();
   const refresh = useRefresh();
@@ -71,7 +81,7 @@ export function EditSheet({ post, open, onClose }: { post: TodayPost; open: bool
     setBusy(true);
     try {
       await api.post(api.ws(`/posts/${post.id}/change`), { part, instruction: text.trim(), spoken });
-      toast({ title: "Muse is on it", body: part === "video" ? "Only the scenes it needs to touch change. The new version waits for your OK." : "The new caption is checked against your facts, then waits for your OK." });
+      toast({ title: "Muse is on it", body: part === "video" ? `Only the ${carousel ? "slides" : still ? "parts" : "scenes"} it needs to touch change. The new version waits for your OK.` : "The new caption is checked against your facts, then waits for your OK." });
       onClose();
       await refresh("today", "job");
     } catch (e) {
@@ -90,19 +100,19 @@ export function EditSheet({ post, open, onClose }: { post: TodayPost; open: bool
         <View style={{ gap: 8 }}>
           <Button title="Make this change" onPress={() => void submit()} loading={busy} disabled={!ready} />
           <T v="caption" style={{ textAlign: "center" }}>
-            {[cost.text ?? (est.isLoading ? "Checking the cost…" : null), part === "video" ? "only the scenes it needs change" : "checked against your facts", "you OK it before it posts"].filter(Boolean).join(" · ")}
+            {[cost.text ?? (est.isLoading ? "Checking the cost…" : null), part === "video" ? `only the ${carousel ? "slides" : "scenes"} it needs change` : "checked against your facts", "you OK it before it posts"].filter(Boolean).join(" · ")}
           </T>
         </View>
       }
     >
       {hasVideo ? (
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <Chip label="Video" selected={part === "video"} onPress={() => setPart("video")} />
+          <Chip label={partLabel} selected={part === "video"} onPress={() => setPart("video")} />
           <Chip label="Caption" selected={part === "caption"} onPress={() => setPart("caption")} />
         </View>
       ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        {CHIPS[part].map((c) => (
+        {(part === "video" && still ? STILL_CHIPS : CHIPS[part]).map((c) => (
           <Chip
             key={c.label}
             label={c.label}

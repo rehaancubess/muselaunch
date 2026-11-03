@@ -20,7 +20,7 @@ import { nowIso, type WorkspaceDb } from "@muselaunch/db";
 import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { expireApprovals } from "../approvals";
 import { normText, sha256 } from "../util";
-import { captionFromCopyPack, preflight, requestPostApproval } from "./posts";
+import { captionForPack, preflight, requestPostApproval } from "./posts";
 
 type FactIssue = PostFactCheck["issues"][number];
 type Member = Pick<WorkspaceMember, "role" | "canPublish" | "canManageAccounts" | "status">;
@@ -273,9 +273,9 @@ export async function postFixFactsHandler(ctx: JobContext<"post.fix_facts">): Pr
 
   // The post shows the rewritten copy. A content change resets any approval (it was for other words).
   if (pack.id !== post.copyPackId) {
-    const derived = captionFromCopyPack(pack, post.channel);
-    const changed = (derived.caption ?? post.caption) !== post.caption || (derived.title ?? post.title) !== post.title;
-    post = await ws.collection("scheduledPosts").update(post.id, { copyPackId: pack.id, caption: derived.caption ?? post.caption, title: derived.title ?? post.title, tags: derived.tags.length ? derived.tags : post.tags }, { actor: ctx.actor });
+    const derived = await captionForPack(ws, post, pack);
+    const changed = derived.caption !== post.caption || derived.title !== post.title;
+    post = await ws.collection("scheduledPosts").update(post.id, { copyPackId: pack.id, ...derived }, { actor: ctx.actor });
     if (changed && post.approvalId) {
       await expireApprovals(ws, { entity: "scheduledPosts", id: post.id }, post.appId, ctx.actor, "Post copy rewritten by the fact-check fix");
       post = await ws.collection("scheduledPosts").update(post.id, { status: "draft", approvalId: undefined }, { actor: ctx.actor });

@@ -12,8 +12,8 @@ import * as Clipboard from "expo-clipboard";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { Check, CircleCheck, Copy, Download, Share as ShareIcon } from "lucide-react-native";
-import { useEffect, useState } from "react";
-import { Linking, Platform, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Linking, Platform, Share, StyleSheet, View } from "react-native";
 import { errorMessage } from "../../api/client";
 import { useRefresh } from "../../api/hooks";
 import type { Channel } from "../../api/types";
@@ -55,6 +55,7 @@ export function ShareSheet({ target, open, onClose, askFirst }: { target: ShareT
   const [asking, setAsking] = useState(Boolean(askFirst));
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const copiedOnce = useRef(false);
   const channel = channelLabel(target.channel);
   const pkg = useQuery({ queryKey: ["manual", workspaceId, target.id], queryFn: () => api.get<ManualPackage>(api.ws(`/posts/${target.id}/manual`)), enabled: open, staleTime: 30 * 60_000 });
 
@@ -64,13 +65,65 @@ export function ShareSheet({ target, open, onClose, askFirst }: { target: ShareT
       setAsking(Boolean(askFirst));
       setError(null);
       setPct(null);
+      setSharedSlides([]);
+      copiedOnce.current = false;
     }
   }, [open, askFirst]);
 
   const video = pkg.data?.downloads.find((d) => d.kind === "video") ?? pkg.data?.downloads[0];
   const absolute = (u: string) => (u.startsWith("http") ? u : `${api.base}${u}`);
+  // A carousel (several images, no video): each slide is shared on its own, in order. A text post has no media.
+  const slides = pkg.data && !pkg.data.downloads.some((d) => d.kind === "video") ? pkg.data.downloads.filter((d) => d.kind === "image") : [];
+  const isCarousel = slides.length > 1;
+  const isText = Boolean(pkg.data && pkg.data.downloads.length === 0);
+  const [sharedSlides, setSharedSlides] = useState<number[]>([]);
+
+  /** One slide into the cache, then the share sheet ("Save Image", or straight to an app). */
+  const shareSlide = async (i: number) => {
+    const d = slides[i];
+    if (!pkg.data || !d) return;
+    setError(null);
+    try {
+      if (i === 0 || !copiedOnce.current) {
+        await Clipboard.setStringAsync(shareText(pkg.data.copy));
+        copiedOnce.current = true;
+      }
+      if (Platform.OS === "web") {
+        await Linking.openURL(absolute(d.url));
+      } else {
+        const ext = d.mimeType.includes("png") ? "png" : "jpg";
+        const dest = new File(Paths.cache, videoFileName(`${target.title}-slide-${i + 1}`, target.id, ext));
+        const file = await File.downloadFileAsync(absolute(d.url), dest, { idempotent: true });
+        if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: d.mimeType, UTI: ext === "png" ? "public.png" : "public.jpeg", dialogTitle: `Slide ${i + 1} of ${slides.length}` });
+        else await Linking.openURL(absolute(d.url));
+      }
+      setSharedSlides((x) => [...new Set([...x, i])]);
+      setStep("copied");
+    } catch (e) {
+      setStep("error");
+      setError(errorMessage(e));
+    }
+  };
+
+  /** A text post: the words on the clipboard and in the share sheet. */
+  const shareTextPost = async () => {
+    if (!pkg.data) return;
+    setError(null);
+    try {
+      const text = shareText(pkg.data.copy);
+      await Clipboard.setStringAsync(text);
+      setStep("copied");
+      await Share.share({ message: text });
+      setStep("shared");
+      if (target.mode === "manual") setAsking(true);
+    } catch (e) {
+      setStep("error");
+      setError(errorMessage(e));
+    }
+  };
 
   const share = async () => {
+    if (isText) return shareTextPost();
     if (!pkg.data || !video) return;
     setError(null);
     try {
@@ -141,8 +194,16 @@ export function ShareSheet({ target, open, onClose, askFirst }: { target: ShareT
           </View>
         ) : (
           <View style={{ gap: 8 }}>
-            <Button title={step === "shared" ? "Share again" : shareLabel(target.channel)} icon={ShareIcon} onPress={() => void share()} loading={step === "downloading" || pkg.isLoading} disabled={!video} />
-            {target.mode === "manual" ? <Button title="I already posted it" variant="ghost" onPress={() => setAsking(true)} /> : null}
+            {isCarousel ? (
+              target.mode === "manual" ? (
+                <Button title={sharedSlides.length >= slides.length ? "I posted it" : "I already posted it"} variant={sharedSlides.length >= slides.length ? "primary" : "ghost"} onPress={() => setAsking(true)} />
+              ) : null
+            ) : (
+              <>
+                <Button title={step === "shared" ? "Share again" : isText ? `Copy and share the post` : shareLabel(target.channel)} icon={ShareIcon} onPress={() => void share()} loading={step === "downloading" || pkg.isLoading} disabled={!video && !isText} />
+                {target.mode === "manual" ? <Button title="I already posted it" variant="ghost" onPress={() => setAsking(true)} /> : null}
+              </>
+            )}
           </View>
         )
       }
@@ -178,13 +239,38 @@ export function ShareSheet({ target, open, onClose, askFirst }: { target: ShareT
       ) : (
         <View style={{ gap: 14 }}>
           <T v="body" style={{ color: color.ink2 }}>
-            {target.mode === "manual" ? `${channel} isn’t connected, so you post this one yourself. Three steps, one tap:` : `This post goes out on ${channel} through your connected account at its time. You can still share the video somewhere else:`}
+            {target.mode === "manual"
+              ? isCarousel
+                ? `${channel} isn’t connected, so you post this carousel yourself:`
+                : isText
+                  ? `${channel} isn’t connected, so you post this one yourself. Two steps:`
+                  : `${channel} isn’t connected, so you post this one yourself. Three steps, one tap:`
+              : `This post goes out on ${channel} through your connected account at its time. You can still share it somewhere else:`}
           </T>
-          <StepRow n={1} icon={Download} done={downloaded} title="Save the video to your phone" detail={step === "downloading" ? <ProgressBar value={pct} style={{ marginTop: 6 }} /> : null} />
-          <StepRow n={2} icon={Copy} done={copied} title={copied ? copiedLine(target.channel) : "Copy the caption, with its tracked link"} />
-          <StepRow n={3} icon={ShareIcon} done={step === "shared"} title={`Pick ${channel} in the share sheet and paste the caption`} />
-          {pkg.error ? <Notice tone="warning">{`Couldn’t get the video: ${errorMessage(pkg.error)}`}</Notice> : null}
-          {pkg.data && !video ? <Notice tone="warning">This post has no video to share.</Notice> : null}
+          {isCarousel ? (
+            <>
+              <StepRow n={1} icon={Download} done={sharedSlides.length >= slides.length} title={`Save the ${slides.length} slides, in order (Save Image in the share sheet)`} />
+              <View style={styles.slides}>
+                {slides.map((d, i) => (
+                  <Button key={d.assetId} title={sharedSlides.includes(i) ? `Slide ${i + 1} ✓` : `Slide ${i + 1}`} size="md" variant={sharedSlides.includes(i) ? "outline" : "primary"} onPress={() => void shareSlide(i)} />
+                ))}
+              </View>
+              <StepRow n={2} icon={Copy} done={copied} title={copied ? copiedLine(target.channel) : "The caption, with its tracked link, is copied with the first slide"} />
+              <StepRow n={3} icon={ShareIcon} done={false} title={`In ${channel}, start a post, pick the slides in the same order and paste the caption`} />
+            </>
+          ) : isText ? (
+            <>
+              <StepRow n={1} icon={Copy} done={copied} title="Copy the post, with its tracked link" />
+              <StepRow n={2} icon={ShareIcon} done={step === "shared"} title={`Pick ${channel} in the share sheet, or open it and paste`} />
+            </>
+          ) : (
+            <>
+              <StepRow n={1} icon={Download} done={downloaded} title="Save the video to your phone" detail={step === "downloading" ? <ProgressBar value={pct} style={{ marginTop: 6 }} /> : null} />
+              <StepRow n={2} icon={Copy} done={copied} title={copied ? copiedLine(target.channel) : "Copy the caption, with its tracked link"} />
+              <StepRow n={3} icon={ShareIcon} done={step === "shared"} title={`Pick ${channel} in the share sheet and paste the caption`} />
+            </>
+          )}
+          {pkg.error ? <Notice tone="warning">{`Couldn’t get the post’s media: ${errorMessage(pkg.error)}`}</Notice> : null}
           {error ? <Notice tone="warning">{error}</Notice> : null}
           {pkg.data?.copy.caption ? (
             <View style={styles.caption}>
@@ -223,4 +309,5 @@ const styles = StyleSheet.create({
   step: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   badge: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   caption: { gap: 4, borderRadius: 14, backgroundColor: color.mist, padding: 12 },
+  slides: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingLeft: 44 },
 });

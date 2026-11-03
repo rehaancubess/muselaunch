@@ -6,18 +6,20 @@
  * (lib/plan.ts runView). The phone never takes a run's steps.
  */
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Play } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import { Check, Copy, GalleryHorizontal, Play } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { ApiError, can, errorMessage } from "../../api/client";
 import type { Campaign, CampaignDetailResponse, CreateRunView, Job, MediaAsset, Page } from "../../api/types";
-import { displayFromRecords, displayFromServer, runView, STEP_LABEL, STEPS, stepStateOf, type RunDisplay } from "../../lib/plan";
+import { channelLabel } from "../../lib/home-lines";
+import { displayFromRecords, displayFromServer, runView, stepLabelFor, STEPS, stepStateOf, type RunDisplay } from "../../lib/plan";
 import { useSession } from "../../session";
 import { useAccent } from "../../ui/accent";
 import { Button, Card, ProgressBar, SectionTitle, Spinner, T } from "../../ui/components";
 import { color } from "../../ui/theme";
 import { useToast } from "../../ui/toast";
-import { VideoModal } from "../home/post-video";
+import { SlidesModal, VideoModal } from "../home/post-video";
 
 const FOLLOW_MS = 7 * 86_400_000;
 const MAX_FOLLOWED = 4;
@@ -60,7 +62,10 @@ export function useCreateRuns(): { runs: RunDisplay[]; loading: boolean; refetch
   return { runs, loading: list.isLoading, refetch: () => Promise.all([list.refetch(), jobs.refetch(), finals.refetch()]) };
 }
 
-const LABEL: Record<RunDisplay["status"], string> = { working: "MAKING YOUR VIDEO", waiting: "MAKING YOUR VIDEO", needs_you: "NEEDS YOU", failed: "STOPPED", stopped: "PAUSED", done: "READY" };
+const label = (run: RunDisplay): string => {
+  if (run.status === "working" || run.status === "waiting") return run.noun === "text post" ? "WRITING YOUR POST" : `MAKING YOUR ${run.noun.toUpperCase()}`;
+  return ({ needs_you: "NEEDS YOU", failed: "STOPPED", stopped: "PAUSED", done: "READY" } as Record<string, string>)[run.status] ?? "";
+};
 
 export function RunCard({ run }: { run: RunDisplay }) {
   const ac = useAccent();
@@ -77,7 +82,7 @@ export function RunCard({ run }: { run: RunDisplay }) {
     setBusy(true);
     try {
       await api.post(api.ws(`/create-runs/${run.campaignId}/resolve`), { action: run.action.kind, ...(run.action.stepKey ? { stepKey: run.action.stepKey } : {}) });
-      toast({ title: run.action.kind === "approve_spend" ? "Finishing your video" : "Carrying on", body: "MuseLaunch takes it from here." });
+      toast({ title: run.action.kind === "approve_spend" ? `Finishing your ${run.noun}` : "Carrying on", body: "MuseLaunch takes it from here." });
       await qc.invalidateQueries({ queryKey: ["create-runs"] });
     } catch (e) {
       toast({ title: "Couldn’t do that", body: errorMessage(e), tone: "error" });
@@ -91,7 +96,7 @@ export function RunCard({ run }: { run: RunDisplay }) {
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
         <View style={{ flex: 1, gap: 4 }}>
           <T v="caption" style={{ color: tone, fontWeight: "700", letterSpacing: 0.3 }}>
-            {LABEL[run.status]}
+            {label(run)}
           </T>
           <T v="headline" numberOfLines={2}>
             {run.title}
@@ -109,7 +114,7 @@ export function RunCard({ run }: { run: RunDisplay }) {
                 {st === "done" ? <Check size={11} color={color.white} strokeWidth={3} /> : null}
               </View>
               <T v="footnote" style={{ color: st === "todo" ? color.ink3 : st === "failed" ? color.warning : color.ink, fontWeight: st === "current" ? "600" : "400" }}>
-                {STEP_LABEL[s]}
+                {stepLabelFor(s, run.noun === "video" ? "video" : run.noun === "text post" ? "text_post" : run.noun === "post" || run.noun === "thumbnail" ? "post" : "carousel")}
               </T>
             </View>
           );
@@ -132,6 +137,44 @@ export function RunCard({ run }: { run: RunDisplay }) {
           <VideoModal assetId={run.videoAssetId} open={playing} onClose={() => setPlaying(false)} title={run.title} />
         </>
       ) : null}
+      {done && run.stillAssetIds ? (
+        <>
+          <Pressable onPress={() => setPlaying(true)} accessibilityRole="button" accessibilityLabel={`See ${run.title}`} style={({ pressed }) => [styles.play, pressed && { opacity: 0.8 }]}>
+            <GalleryHorizontal size={16} color={color.white} />
+            <T v="bodySm" style={{ color: color.white, fontWeight: "600" }}>
+              {run.stillAssetIds.length > 1 ? `See the ${run.stillAssetIds.length} slides` : "See it"}
+            </T>
+          </Pressable>
+          <T v="caption">It’s in Your content on the web, ready to post. Nothing is posted without your OK.</T>
+          <SlidesModal assetIds={run.stillAssetIds} open={playing} onClose={() => setPlaying(false)} title={run.title} />
+        </>
+      ) : null}
+      {done && run.text ? (
+        <View style={{ gap: 10 }}>
+          <View style={styles.textPost}>
+            <T v="caption" style={{ color: color.ink3, fontWeight: "700", letterSpacing: 0.3 }}>
+              {channelLabel(run.text.channel).toUpperCase()}
+            </T>
+            <T v="body" selectable>
+              {run.text.text}
+            </T>
+          </View>
+          {!run.text.ok ? <T v="caption" style={{ color: color.warning }}>The fact check wants a look at this post before it goes out. Open it on the web.</T> : null}
+          <Pressable
+            onPress={() => {
+              void Clipboard.setStringAsync(run.text!.text).then(() => toast({ title: "Copied", body: "The post is on your clipboard." }));
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Copy the post"
+            style={({ pressed }) => [styles.play, pressed && { opacity: 0.8 }]}
+          >
+            <Copy size={16} color={color.white} />
+            <T v="bodySm" style={{ color: color.white, fontWeight: "600" }}>
+              Copy the post
+            </T>
+          </Pressable>
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -140,7 +183,7 @@ export function RunsSection({ runs }: { runs: RunDisplay[] }) {
   if (!runs.length) return null;
   return (
     <View style={{ gap: 12 }}>
-      <SectionTitle title="Your videos" />
+      <SectionTitle title="What Muse is making" />
       {runs.map((r) => (
         <RunCard key={r.campaignId} run={r} />
       ))}
@@ -151,5 +194,6 @@ export function RunsSection({ runs }: { runs: RunDisplay[] }) {
 const styles = StyleSheet.create({
   step: { flexDirection: "row", alignItems: "center", gap: 10 },
   stepDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: color.lineStrong, alignItems: "center", justifyContent: "center" },
+  textPost: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: color.line, padding: 14, gap: 6, backgroundColor: color.surface },
   play: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, alignSelf: "flex-start", backgroundColor: color.ink, borderRadius: 999, paddingHorizontal: 16, minHeight: 40 },
 });

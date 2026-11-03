@@ -1,8 +1,58 @@
 {
   "_fixture": "Documented LinkedIn Videos/Posts API shapes; synthetic values",
-  "_source": ["https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api", "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api"],
-  "initialize": { "value": { "uploadUrlsExpireAt": 1793000000000, "video": "urn:li:video:C5505FIXTURE", "uploadInstructions": [{ "uploadUrl": "https://www.linkedin.com/dms-uploads/C5505FIXTURE/uploadedVideo?sau=fixture", "firstByte": 0, "lastByte": 15 }], "uploadToken": "" } },
+  "_source": [
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api",
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api",
+    "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api"
+  ],
+  "initialize": {
+    "value": {
+      "uploadUrlsExpireAt": 1793000000000,
+      "video": "urn:li:video:C5505FIXTURE",
+      "uploadInstructions": [
+        {
+          "uploadUrl": "https://www.linkedin.com/dms-uploads/C5505FIXTURE/uploadedVideo?sau=fixture",
+          "firstByte": 0,
+          "lastByte": 15
+        }
+      ],
+      "uploadToken": ""
+    }
+  },
   "partEtag": "/ambry-videoei/signedId/FIXTUREpart0.bin",
-  "videoAvailable": { "id": "urn:li:video:C5505FIXTURE", "status": "AVAILABLE", "owner": "urn:li:person:FIXTUREsub" },
-  "postUrn": "urn:li:share:7000000000000000001"
+  "videoAvailable": {
+    "id": "urn:li:video:C5505FIXTURE",
+    "status": "AVAILABLE",
+    "owner": "urn:li:person:FIXTUREsub"
+  },
+  "postUrn": "urn:li:share:7000000000000000001",
+  "imageInitialize": [
+    {
+      "value": {
+        "uploadUrlExpiresAt": 1793000000000,
+        "uploadUrl": "https://www.linkedin.com/dms-uploads/C4E10FIXTURE1/uploaded-image/0?ca=vector_feedshare&cn=uploads&sync=1&v=beta&ut=FIXTURE1",
+        "image": "urn:li:image:C4E10FIXTURE1"
+      }
+    },
+    {
+      "value": {
+        "uploadUrlExpiresAt": 1793000000000,
+        "uploadUrl": "https://www.linkedin.com/dms-uploads/C4E10FIXTURE2/uploaded-image/0?ca=vector_feedshare&cn=uploads&sync=1&v=beta&ut=FIXTURE2",
+        "image": "urn:li:image:C4E10FIXTURE2"
+      }
+    },
+    {
+      "value": {
+        "uploadUrlExpiresAt": 1793000000000,
+        "uploadUrl": "https://www.linkedin.com/dms-uploads/C4E10FIXTURE3/uploaded-image/0?ca=vector_feedshare&cn=uploads&sync=1&v=beta&ut=FIXTURE3",
+        "image": "urn:li:image:C4E10FIXTURE3"
+      }
+    }
+  ],
+  "multiImagePostUrn": "urn:li:share:7000000000000000002",
+  "invalidContent": {
+    "status": 422,
+    "message": "ERROR :: /content/multiImage/images :: array is too short: must have at least 2 elements"
+  }
 }

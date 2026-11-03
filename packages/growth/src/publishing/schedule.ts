@@ -81,7 +81,10 @@ export async function calendar(ws: WorkspaceDb, appId: string, q: z.infer<typeof
       scheduledAt: p.scheduledAt,
       at: when(p),
       reminderAt: p.reminderAt,
+      // Text posts have no media: no thumbnail (the calendar shows the text).
       thumbnailAssetId: p.thumbnailAssetId ?? p.assetIds[0],
+      mediaCount: p.assetIds.length,
+      textOnly: p.assetIds.length === 0,
       approvalId: p.approvalId,
       publication: pub ? { id: pub.id, mode: pub.mode, remoteUrl: pub.remoteUrl, publishedAt: pub.publishedAt } : undefined,
       lastError: p.lastError,

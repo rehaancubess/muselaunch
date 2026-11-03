@@ -366,25 +366,60 @@ export interface RunDisplay {
   pct: number;
   line: string;
   videoAssetId?: string;
+  /** What it makes, in plain words ("video", "carousel", "post", "thumbnail", "store screenshots", "text post"). */
+  noun: string;
+  /** Finished stills: slide images in order (first = cover). */
+  stillAssetIds?: string[];
+  /** Finished text post: the text and where it goes. */
+  text?: { text: string; channel: Channel; ok: boolean };
   /** What the phone can do about it (only actions the server offers; Brand-check overrides stay on the web). */
   action: { kind: "retry" | "approve_spend"; label: string; stepKey?: string } | null;
 }
 
+const OUTPUT_NOUN: Record<string, string> = { video: "video", post: "post", carousel: "carousel", thumbnail: "thumbnail", store_screenshots: "store screenshots", text_post: "text post" };
+
+/** "carousel" for a carousel run; "video" for runs started before stills (no `output`). */
+export function outputNoun(output: string | null | undefined): string {
+  return OUTPUT_NOUN[output ?? "video"] ?? "video";
+}
+
+/** Step names for what the run makes ("Planning the slides", "Writing the post"). */
+export function stepLabelFor(step: StepKey, output: string | null | undefined): string {
+  const o = output ?? "video";
+  if (o === "video") return STEP_LABEL[step];
+  if (o === "text_post") return ({ idea: "Writing the idea", plan: "Writing the post", make: "Writing the post", check: "Checking facts", finish: "Finishing" } as Record<StepKey, string>)[step];
+  return ({ idea: "Writing the idea", plan: o === "thumbnail" || o === "post" ? "Planning the image" : "Planning the slides", make: "Making it", check: "Checking facts and brand", finish: "Finishing" } as Record<StepKey, string>)[step];
+}
+
 export function displayFromServer(v: CreateRunView): RunDisplay {
-  const title = v.ideaTitle || firstSentence(v.request, 90) || v.name || "Your video";
+  const noun = outputNoun(v.format.output);
+  const title = v.ideaTitle || firstSentence(v.request, 90) || v.name || `Your ${noun}`;
   const stage = v.stage;
+  const slides = v.stills?.assetIds.length ?? 0;
   let line: string;
-  if (v.status === "done") line = "Your video is ready";
-  else if (v.status === "needs_you") line = v.decision?.message ?? "This video needs a decision.";
+  if (v.status === "done") line = slides > 1 ? `Your ${noun} is ready · ${slides} slides` : noun === "store screenshots" ? "Your store screenshots are ready" : `Your ${noun} is ready`;
+  else if (v.status === "needs_you") line = v.decision?.message ?? `This ${noun} needs a decision.`;
   else if (v.status === "failed") line = v.failure?.message ?? "A step didn’t finish.";
   else if (v.status === "waiting") line = v.wait?.reason ?? "Waiting a moment, then it carries on by itself.";
   else if (v.status === "stopped") line = "Stopped. Continue it whenever you like.";
-  else line = stage === "done" ? "Finishing up" : `${STEP_LABEL[stage]}${v.detail ? ` · ${v.detail}` : ""}`;
+  else line = stage === "done" ? "Finishing up" : `${stepLabelFor(stage, v.format.output)}${v.detail ? ` · ${v.detail}` : ""}`;
   let action: RunDisplay["action"] = null;
   if (v.decision?.kind === "spend" && v.actions.includes("approve_spend")) action = { kind: "approve_spend", label: `Finish it · ${v.decision.credits ?? "?"} credits`, stepKey: v.decision.stepKey };
   else if (v.decision?.kind === "brand") action = null;
   else if ((v.status === "failed" || v.status === "needs_you" || v.status === "stopped") && v.actions.includes("retry")) action = { kind: "retry", label: v.status === "stopped" || v.decision?.kind === "resume" ? "Continue" : "Try again" };
-  return { campaignId: v.campaignId, title, stage, status: v.status, pct: v.pct, line, videoAssetId: v.video?.assetId, action };
+  return {
+    campaignId: v.campaignId,
+    title,
+    stage,
+    status: v.status,
+    pct: v.pct,
+    line,
+    videoAssetId: v.video?.assetId,
+    noun,
+    stillAssetIds: v.stills?.assetIds.length ? v.stills.assetIds : undefined,
+    text: v.text ? { text: v.text.text, channel: v.text.channel, ok: v.text.ok } : undefined,
+    action,
+  };
 }
 
 export function displayFromRecords(campaign: Pick<Campaign, "id" | "request" | "name">, view: RunView): RunDisplay {
@@ -397,6 +432,7 @@ export function displayFromRecords(campaign: Pick<Campaign, "id" | "request" | "
     pct: view.pct,
     line: runLine(view),
     videoAssetId: view.finalAssetId,
+    noun: "video",
     action: null,
   };
 }

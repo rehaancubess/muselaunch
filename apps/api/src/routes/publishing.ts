@@ -1,9 +1,10 @@
 import { brandGate, reviewBrief } from "@muselaunch/agents";
-import { can, ConfirmPostFactRequest, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
+import { Channel, can, ConfirmPostFactRequest, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
 import {
   calendar,
   CalendarQuery,
   cancelPost,
+  channelMediaRules,
   ConnectionReturn,
   confirmPostFacts,
   copyForManual,
@@ -45,6 +46,7 @@ import {
   UpdatePostRequest,
 } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
+import { MANUAL_ONLY_CHANNELS, publishingAdapterForChannel } from "@muselaunch/providers";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, body, query, requireCap, type AppEnv, type Ctx } from "../context";
@@ -164,7 +166,19 @@ publishingRoutes.get("/apps/:appId/posts", async (c) => {
   const page = status
     ? await ws.collection("scheduledPosts").list({ where: [["appId", "==", a.id], ["status", "==", status]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })
     : await ws.collection("scheduledPosts").list({ where: [["appId", "==", a.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
-  return c.json({ items: page.items.filter((x) => !campaignId || x.campaignId === campaignId), nextCursor: null });
+  // Text posts have no media (assetIds []): mediaCount 0, textOnly true.
+  const items = page.items.filter((x) => !campaignId || x.campaignId === campaignId).map((x) => ({ ...x, mediaCount: x.assetIds.length, textOnly: x.assetIds.length === 0 }));
+  return c.json({ items, nextCursor: null });
+});
+
+/**
+ * What each channel takes, for the new-post screen: whether it needs media, its caption limit, how
+ * many images one post holds by hand, and what its API adapter takes (carousel min/max, formats,
+ * cover image) with the plain-words reason when a shape is posted by hand.
+ */
+publishingRoutes.get("/publishing/channel-rules", async (c) => {
+  const items = Channel.options.map((ch) => channelMediaRules(ch, MANUAL_ONLY_CHANNELS.includes(ch) ? null : (publishingAdapterForChannel(ch)?.accepts ?? null)));
+  return c.json({ items });
 });
 
 publishingRoutes.post("/apps/:appId/posts", requireCap("content.write"), async (c) => {
