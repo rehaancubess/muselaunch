@@ -447,7 +447,7 @@ Rules for every format:
 const FORMAT_RULES: Record<Exclude<OutputFormat, "video">, string> = {
   carousel: `Format: an Instagram-style carousel (people swipe through it).
 - Slide 1 is slide-cover: a scroll-stopping hook, at most 8 words (a tension, a sharp question or a bold outcome), with the best real screen or the founder's cut-out.
-- The middle slides tell ONE idea each and read as a sequence (a story, or a numbered list like "1. … 2. …"), never the same tagline again: slide-feature with a short headline, one supporting line and a DIFFERENT real screen each; slide-proof only for a verified claim (with its id).
+- The middle slides tell ONE idea each and read as a sequence (a story, or a numbered list like "1. … 2. …"), never the same tagline again: slide-feature with a short headline, one supporting line and a DIFFERENT real screen each; slide-proof only for a verified claim (with its id): the headline is that claim in its own words, and the body says where it comes from only when the claim itself names it (else leave it empty; never invent a source).
 - The last slide is slide-cta: the call to action (the brief's CTA), the app's name and icon.
 - Headline ≤ 8 words, body ≤ 18 words.`,
   post: `Format: ONE single-image feed post.
