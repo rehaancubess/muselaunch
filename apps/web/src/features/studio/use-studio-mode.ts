@@ -35,13 +35,18 @@ function subscribe(onChange: () => void) {
   };
 }
 
-export function useStudioMode(): { mode: StudioMode; fromUrl: boolean; setMode: (m: StudioMode) => void } {
+/**
+ * `opts.simpleFirst`: open simple whatever was remembered (stills: the detailed editor's timeline is
+ * there one tap away, but it isn't where a post or carousel starts). ?mode= and a choice made on this
+ * page still win.
+ */
+export function useStudioMode(opts: { simpleFirst?: boolean } = {}): { mode: StudioMode; fromUrl: boolean; setMode: (m: StudioMode) => void } {
   const params = useSearchParams();
   const urlMode = valid(params.get("mode"));
   const stored = useSyncExternalStore(subscribe, read, () => null);
   // A choice made on this page wins over the ?mode= it was opened with (until the URL changes again).
   const [picked, setPicked] = useState<{ mode: StudioMode; url: StudioMode | null } | null>(null);
-  const mode = (picked && picked.url === urlMode ? picked.mode : null) ?? urlMode ?? stored ?? "simple";
+  const mode = (picked && picked.url === urlMode ? picked.mode : null) ?? urlMode ?? (opts.simpleFirst ? "simple" : stored) ?? "simple";
 
   const setMode = useCallback(
     (m: StudioMode) => {

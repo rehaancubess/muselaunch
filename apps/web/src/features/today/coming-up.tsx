@@ -28,10 +28,10 @@ import { postTitle, rowState } from "./next-post";
 const DAY = 86_400_000;
 const MAX_ROWS = 5;
 
-type Row = { id: string; title: string; channel: TodayPost["channel"]; at?: string; state: string; scheduled: boolean; poster?: { assetId?: string; posterAssetId?: string } };
+type Row = { id: string; title: string; channel: TodayPost["channel"]; at?: string; state: string; scheduled: boolean; poster?: { assetId?: string; posterAssetId?: string }; slides?: number };
 
-/** A poster for a post's media: an image as is, a video by its poster frame. */
-function Thumb({ assetId, posterAssetId }: { assetId?: string; posterAssetId?: string }) {
+/** A poster for a post's media: an image as is, a video by its poster frame; a carousel shows how many slides; a text post shows an "Aa". */
+function Thumb({ assetId, posterAssetId, slides }: { assetId?: string; posterAssetId?: string; slides?: number }) {
   const { workspaceId } = useWorkspace();
   // Calendar rows only know the media asset; look up its poster frame (videos) once.
   const asset = useApiQuery<{ asset: MediaAsset }>(!posterAssetId && assetId ? wsPath(workspaceId, `/assets/${assetId}`) : null, { staleTime: 10 * 60_000, retry: false });
@@ -43,9 +43,14 @@ function Thumb({ assetId, posterAssetId }: { assetId?: string; posterAssetId?: s
       {url.data?.url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url.data.url} alt="" className="size-full object-cover" loading="lazy" />
+      ) : !assetId && !posterAssetId ? (
+        <span className="text-footnote font-semibold text-accent/70" aria-hidden>
+          Aa
+        </span>
       ) : (
         <ImageIcon className="size-4 text-accent/60" aria-hidden />
       )}
+      {slides && slides > 1 ? <span className="absolute bottom-1 right-1 rounded-full bg-black/55 px-1.5 text-[10px] font-semibold tabular leading-4 text-white">{slides}</span> : null}
     </span>
   );
 }
@@ -68,7 +73,7 @@ export function ComingUp({ appId, posts, hasNext, showCreate }: { appId: string;
     .flat()
     .filter((i) => (i.status === "scheduled" || i.status === "publishing") && !onHome.has(i.id) && (!i.scheduledAt || Date.parse(i.scheduledAt) >= Date.now() - 60 * 60_000));
   const rows: Row[] = [
-    ...posts.map((p) => ({ id: p.id, title: postTitle(p), channel: p.channel, at: p.scheduledAt, state: rowState(p), scheduled: false, poster: { assetId: p.video?.assetId, posterAssetId: p.video?.posterAssetId ?? (p.video?.kind === "image" ? p.video.assetId : undefined) } })),
+    ...posts.map((p) => ({ id: p.id, title: postTitle(p), channel: p.channel, at: p.scheduledAt, state: rowState(p), scheduled: false, poster: { assetId: p.video?.assetId, posterAssetId: p.video?.posterAssetId ?? (p.video?.kind === "image" ? p.video.assetId : undefined) }, slides: p.images?.length })),
     ...scheduled.map((i) => ({ id: i.id, title: i.title?.trim() || `${CHANNEL_LABEL[i.channel] ?? i.channel} post`, channel: i.channel, at: i.scheduledAt ?? i.at, state: i.status === "publishing" ? "Posting now" : "Scheduled", scheduled: true, poster: { assetId: i.thumbnailAssetId } })),
   ].sort((a, b) => (a.at ?? "￿").localeCompare(b.at ?? "￿"));
   const shown = rows.slice(0, MAX_ROWS);
@@ -96,7 +101,7 @@ export function ComingUp({ appId, posts, hasNext, showCreate }: { appId: string;
                 onClick={() => setOpen(row.id)}
                 className="flex min-h-[72px] w-full items-center gap-3.5 px-3.5 py-3 text-left transition-colors hover:bg-mist/60 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--ml-accent)] sm:gap-4 sm:px-4"
               >
-                <Thumb assetId={row.poster?.assetId} posterAssetId={row.poster?.posterAssetId} />
+                <Thumb assetId={row.poster?.assetId} posterAssetId={row.poster?.posterAssetId} slides={row.slides} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-body-sm font-medium text-ink">{row.title}</span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption text-ink-2">

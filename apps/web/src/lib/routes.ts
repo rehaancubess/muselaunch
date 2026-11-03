@@ -22,12 +22,14 @@ export const routes = {
       root: base,
       /** Home: what's ready to review, what's coming up, what needs you (the app opens here). */
       home: `${base}/home`,
-      /** Create: "What would you like to make?" (promote, show a feature, a suggested idea) + your content. `opts` prefill it. */
-      create: (opts: { kind?: "promote" | "feature" | "idea"; prompt?: string; ideaId?: string } = {}) => {
+      /** Create: "What would you like to make?" (promote, show a feature, a suggested idea; Make a video, post, carousel…) + your content. `opts` prefill it. */
+      create: (opts: { kind?: "promote" | "feature" | "idea"; prompt?: string; ideaId?: string; make?: "video" | "post" | "carousel" | "thumbnail" | "store_screenshots" | "text_post"; store?: "ios" | "android" } = {}) => {
         const q = new URLSearchParams();
         if (opts.kind) q.set("kind", opts.kind);
         if (opts.prompt) q.set("prompt", opts.prompt);
         if (opts.ideaId) q.set("idea", opts.ideaId);
+        if (opts.make) q.set("make", opts.make);
+        if (opts.make === "store_screenshots" && opts.store) q.set("store", opts.store);
         const s = q.toString();
         return s ? `${base}/create?${s}` : `${base}/create`;
       },

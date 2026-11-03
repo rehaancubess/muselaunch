@@ -53,9 +53,16 @@ export const PreviewPlayer = forwardRef<
     compact?: boolean;
     /** Extra controls after the time readout. */
     controls?: ReactNode;
+    /**
+     * Stills (posts, carousels, store sets): no playback. The preview parks on the given time (the
+     * selected slide's settled frame) and shows `stillControls` (e.g. "Slide 2 of 6") instead of
+     * play / time.
+     */
+    still?: boolean;
+    stillControls?: ReactNode;
     className?: string;
   }
->(function PreviewPlayer({ html, width, height, durationSec, posterSec = 0, loading, error, onRetry, onTime, overlay, compact, controls, className }, ref) {
+>(function PreviewPlayer({ html, width, height, durationSec, posterSec = 0, loading, error, onRetry, onTime, overlay, compact, controls, still, stillControls, className }, ref) {
   const host = useRef<HTMLDivElement>(null);
   /** The visible player. */
   const el = useRef<HfPlayer | null>(null);
@@ -65,6 +72,8 @@ export const PreviewPlayer = forwardRef<
   const parked = useRef(true);
   const posterRef = useRef(posterSec);
   posterRef.current = posterSec;
+  const stillRef = useRef(Boolean(still));
+  stillRef.current = Boolean(still);
   const sizeRef = useRef({ width, height, durationSec });
   sizeRef.current = { width, height, durationSec };
   const busyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,7 +111,8 @@ export const PreviewPlayer = forwardRef<
     },
     play,
     pause: () => el.current?.pause(),
-    toggle: () => (el.current && !el.current.paused ? el.current.pause() : play()),
+    // Stills don't play: space does nothing.
+    toggle: () => (stillRef.current ? undefined : el.current && !el.current.paused ? el.current.pause() : play()),
   }));
 
   useEffect(() => {
@@ -242,6 +252,9 @@ export const PreviewPlayer = forwardRef<
           ) : null}
         </div>
       </div>
+      {still ? (
+        stillControls ? <div className="flex min-h-9 items-center gap-2">{stillControls}</div> : null
+      ) : (
       <div className={cn("flex items-center gap-2", compact && "gap-1")}>
         <IconButton label={playing ? "Pause" : "Play"} variant="secondary" onClick={() => (playing ? el.current?.pause() : play())} disabled={!ready}>
           {playing ? <Pause className="size-4" aria-hidden /> : <Play className="size-4" aria-hidden />}
@@ -264,6 +277,7 @@ export const PreviewPlayer = forwardRef<
         </span>
         {controls}
       </div>
+      )}
     </div>
   );
 });

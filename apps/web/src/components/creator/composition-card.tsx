@@ -1,14 +1,16 @@
 "use client";
 import type { Composition } from "@muselaunch/contracts";
 import { Badge, Button, StatusPill, cn, humanizeStatus, statusKindOf } from "@muselaunch/ui";
-import { Download, Film, PenSquare, Send } from "lucide-react";
+import { Download, Film, GalleryHorizontalEnd, Image as ImageIcon, PenSquare, Send } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { relativeTime } from "@/lib/labels";
 import { routes } from "@/lib/routes";
 
-const ASPECT_CLASS: Record<string, string> = { "9:16": "aspect-[9/16]", "1:1": "aspect-square", "4:5": "aspect-[4/5]", "16:9": "aspect-video" };
+const ASPECT_CLASS: Record<string, string> = { "9:16": "aspect-[9/16]", "1:1": "aspect-square", "4:5": "aspect-[4/5]", "16:9": "aspect-video", "9:19.5": "aspect-[1290/2796]" };
+/** What a still composition is, on its badge ("Carousel", "Store screenshots"); videos show their frame. */
+const KIND_BADGE = (c: Composition) => (c.kind === "carousel" ? (c.aspectRatio === "9:19.5" || c.aspectRatio === "9:16" ? "Store screenshots" : "Carousel") : c.kind === "static" ? (c.aspectRatio === "16:9" ? "Thumbnail" : "Post") : null);
 
 /** Composition tile with poster, render status and Studio / download actions. */
 /** `badge` is a slot for per-composition status from other modules (e.g. the Brand Guardian review). */
@@ -21,19 +23,24 @@ export function CompositionCard({ composition: c, workspaceId, onPost, badge }: 
     <article className="group flex flex-col gap-3">
       <Link href={r.studio(c.id)} className={cn("relative block overflow-hidden rounded-xl bg-mist shadow-raised focus-visible:outline-none focus-visible:shadow-focus", c.aspectRatio === "16:9" ? "aspect-video" : "aspect-[4/5]")}>
         <span className="absolute inset-0 flex items-center justify-center p-4">
-          <span className={cn("relative h-full max-h-full overflow-hidden rounded-lg bg-ink/5", ASPECT_CLASS[c.aspectRatio] ?? "aspect-[9/16]", c.aspectRatio === "16:9" && "h-auto w-full")}>
+          <span className={cn("relative h-full max-h-full overflow-hidden rounded-lg bg-ink/5", ASPECT_CLASS[c.aspectRatio] ?? "aspect-[9/16]", (c.aspectRatio === "16:9" || c.aspectRatio === "4:5" || c.aspectRatio === "1:1") && "h-auto max-w-full", c.aspectRatio === "16:9" && "w-full")}>
             {thumb.data?.url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={thumb.data.url} alt="" className="size-full object-cover" />
             ) : (
               <span className="flex size-full flex-col items-center justify-center gap-1.5 text-ink-3">
-                <Film className="size-5" aria-hidden />
+                {c.kind === "carousel" ? <GalleryHorizontalEnd className="size-5" aria-hidden /> : c.kind === "static" ? <ImageIcon className="size-5" aria-hidden /> : <Film className="size-5" aria-hidden />}
                 <span className="text-caption">{c.status === "rendering" ? "Rendering…" : "No preview yet"}</span>
               </span>
             )}
           </span>
         </span>
         <span className="absolute left-3 top-3 flex gap-1">
+          {KIND_BADGE(c) ? (
+            <Badge tone="neutral" className="bg-white/90 backdrop-blur" icon={c.kind === "carousel" ? <GalleryHorizontalEnd aria-hidden /> : undefined}>
+              {KIND_BADGE(c)}
+            </Badge>
+          ) : null}
           <Badge tone="neutral" className="bg-white/90 backdrop-blur">
             {c.aspectRatio}
           </Badge>
@@ -60,7 +67,7 @@ export function CompositionCard({ composition: c, workspaceId, onPost, badge }: 
           <Button size="sm" variant="ghost" asChild>
             <a href={download.data.url} download>
               <Download className="size-3.5" aria-hidden />
-              {c.kind === "video" ? "MP4" : "PNG"}
+              {c.kind === "video" ? "MP4" : c.kind === "carousel" ? "Slide 1 (PNG)" : "PNG"}
             </a>
           </Button>
         ) : null}
