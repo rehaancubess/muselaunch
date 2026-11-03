@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale } from "./common";
+import { CreateRunState } from "./create-run";
 
 export const CampaignGoal = z.enum([
   "awareness",
@@ -79,6 +80,8 @@ export const Campaign = BaseEntity.extend({
    * Absent: a campaign planned by hand (Make), from Discover or by Autopilot.
    */
   origin: CampaignOrigin.optional(),
+  /** origin "create": what only the server's Create runner knows (its decision, waits, approvals). See create-run.ts. */
+  createRun: CreateRunState.optional(),
 });
 export type Campaign = z.infer<typeof Campaign>;
 

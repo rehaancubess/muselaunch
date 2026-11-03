@@ -6,13 +6,14 @@
  * (About your app) and fixing a video the Brand check blocked. Data: GET /needs-you (+ ?appId=).
  * Approvals name their existing decision route, which keeps its permission and snapshot checks;
  * this UI only calls it. About-your-app and Brand-check items link to the page where that decision
- * is made.
+ * is made. Create videos that stopped for the person ("Your video needs a look…") answer through
+ * their resolve route; finishing past the Brand check asks for a reason right in the card.
  *
  * Entry points: the app's Home (its count is the badge on the Home tab), the run's progress screen
  * and the page /w/:workspaceId/needs-you (NeedsYouPage; old links, nothing in the nav points to it).
  */
 import type { App, Channel, NeedsYouItem, NeedsYouResponse } from "@muselaunch/contracts";
-import { Badge, Button, EmptyState, ErrorState, PageHeader, SegmentedControl, Skeleton, cn, useToast } from "@muselaunch/ui";
+import { Badge, Button, EmptyState, ErrorState, Input, PageHeader, SegmentedControl, Skeleton, cn, useToast } from "@muselaunch/ui";
 import { useQueries } from "@tanstack/react-query";
 import { ArrowRight, ArrowUpRight, Check, Coins, Hand, Info, Mail, Send, ShieldAlert, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -87,12 +88,13 @@ export function useNeedsYouDecision(item: NeedsYouItem, said: { approved?: { tit
   const toast = useToast();
   const invalidate = useInvalidate();
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-  const decide = async (which: "approve" | "reject") => {
+  /** `extra`: what the person typed (e.g. the reason an item's `approveReason` asks for). */
+  const decide = async (which: "approve" | "reject", extra: Record<string, unknown> = {}) => {
     const route = which === "approve" ? item.approve : item.reject;
     if (!route) return;
     setBusy(which);
     try {
-      await api.post(wsPath(workspaceId, route.path), route.body ?? {});
+      await api.post(wsPath(workspaceId, route.path), { ...(route.body ?? {}), ...extra });
       if (which === "approve" && said.approved) toast.success(said.approved.title, said.approved.text);
       else toast.success(
         which === "approve" ? (item.kind === "post" ? "Post approved" : item.kind === "spend" ? "Spend approved" : "Approved") : "Got it",
@@ -106,6 +108,7 @@ export function useNeedsYouDecision(item: NeedsYouItem, said: { approved?: { tit
             ? "Autopilot is paused. Resume it whenever you like."
             : "Nothing was sent."),
       );
+      // "/apps" also covers each app's Today and Create runs.
       await invalidate(wsPath(workspaceId, "/needs-you"), wsPath(workspaceId, "/autopilots"), wsPath(workspaceId, "/apps"), wsPath(workspaceId, "/approvals"), wsPath(workspaceId, "/posts"));
     } catch (e) {
       toast.error("Couldn’t record that", errorMessage(e));
@@ -139,6 +142,9 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
   // Long explanations (e.g. a loop's checkpoint) stay three lines until asked for.
   const long = !showCaption && summary.length > 240;
   const [expanded, setExpanded] = useState(false);
+  // Approving needs a short reason typed here (e.g. finishing a video past the Brand check).
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
   return (
     <article className={cn("space-y-3 rounded-xl bg-surface shadow-raised", compact ? "p-4" : "p-5")} aria-label={item.title}>
       <div className="flex items-start gap-3">
@@ -201,20 +207,44 @@ export function NeedsYouCard({ item, appName, compact }: { item: NeedsYouItem; a
             </Link>
           </Button>
         ) : null}
-        {!opensPage && item.canDecide && item.approve && !item.stale ? (
+        {!opensPage && item.canDecide && item.approve && !item.stale && item.approveReason && asking ? (
+          <form
+            className="flex w-full flex-col gap-2 sm:flex-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (reason.trim().length >= 3) void decide("approve", { reason: reason.trim() });
+            }}
+          >
+            <label htmlFor={`ny-reason-${item.id}`} className="sr-only">
+              {item.approveReason.label}
+            </label>
+            <Input id={`ny-reason-${item.id}`} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={item.approveReason.placeholder ?? item.approveReason.label} maxLength={500} className="h-10 min-w-0 flex-1" autoFocus />
+            <Button size="sm" type="submit" icon={<Check className="size-3.5" aria-hidden />} disabled={reason.trim().length < 3 || Boolean(busy)} loading={busy === "approve"}>
+              {item.labels?.approve ?? PRIMARY_LABEL[item.kind]}
+            </Button>
+          </form>
+        ) : !opensPage && item.canDecide && item.approve && !item.stale ? (
           // Waiting for footage: Continue is the obvious next step once a recording is in (before that, the upload is).
-          <Button size="sm" variant={media && !footageIn ? "secondary" : "primary"} icon={<Check className="size-3.5" aria-hidden />} loading={busy === "approve"} disabled={Boolean(busy)} onClick={() => void decide("approve")}>
+          <Button
+            size="sm"
+            variant={media && !footageIn ? "secondary" : "primary"}
+            icon={<Check className="size-3.5" aria-hidden />}
+            loading={busy === "approve"}
+            disabled={Boolean(busy)}
+            onClick={() => (item.approveReason ? setAsking(true) : void decide("approve"))}
+          >
             {item.labels?.approve ?? PRIMARY_LABEL[item.kind]}
+            {item.approveReason ? "…" : null}
           </Button>
         ) : null}
-        {!opensPage && item.canDecide && item.reject ? (
+        {!opensPage && item.canDecide && item.reject && !asking ? (
           <Button size="sm" variant="ghost" loading={busy === "reject"} disabled={Boolean(busy)} onClick={() => void decide("reject")}>
             {item.labels?.reject ?? SECONDARY_LABEL[item.kind]}
           </Button>
         ) : null}
         {review && !(opensPage && item.canDecide) ? (
           <Link href={review} className="ml-auto inline-flex items-center gap-0.5 rounded-sm text-footnote font-medium text-accent hover:underline focus-visible:outline-none focus-visible:shadow-focus">
-            {opensPage ? "Open" : "Review"}
+            {item.labels?.review ?? (opensPage ? "Open" : "Review")}
             <ArrowUpRight className="size-3" aria-hidden />
           </Link>
         ) : null}

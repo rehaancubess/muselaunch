@@ -1,10 +1,12 @@
 "use client";
 /**
  * One Create run, in plain words: the five steps (Writing the idea → Planning the video → Making it →
- * Checking facts and brand → Finishing) with real progress from the jobs, and, when a step needs the
- * person, the decision right here (credits, a plan limit, the brand check, a fix, a longer video).
- * Finished: the video with Open it and Post it.
+ * Checking facts and brand → Finishing) with real progress from the jobs, and, when the server
+ * stopped for the person, its decision right here (credits, a plan limit, the facts or brand check, a
+ * longer video, a day without progress, a failed step). Finished: the video with Open it and Post it.
+ * Everything shown comes from the server's read model; the buttons answer its decision.
  */
+import type { CreateRunDecision } from "@muselaunch/contracts";
 import { Button, Input, ProgressBar, Spinner, cn } from "@muselaunch/ui";
 import { ArrowUpRight, Check, Play, RotateCcw, Send, X } from "lucide-react";
 import Link from "next/link";
@@ -12,7 +14,7 @@ import { useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { STEP_LABEL, STEPS, clock, isWait, stepState, type ActionProblem, type FinishedVideo, type StepKey } from "./plan";
+import { STEP_LABEL, STEPS, clock, isMoving, needsPerson, stepState, type FinishedVideo, type StepKey } from "./plan";
 import type { CreateRun, CreateRunsState } from "./runs";
 
 function StepIcon({ state }: { state: ReturnType<typeof stepState> | "attention" }) {
@@ -44,66 +46,60 @@ function StepIcon({ state }: { state: ReturnType<typeof stepState> | "attention"
 }
 
 function headline(run: CreateRun): string {
-  const v = run.view;
-  if (v.step === "done") return "Your video is ready";
-  if (v.failure) return "Your video stopped";
-  if (run.problem && !isWait(run.problem)) return "Your video needs you";
-  if (v.stale) return "Your video is waiting";
+  if (run.status === "done") return "Your video is ready";
+  if (run.status === "failed") return "Your video stopped";
+  if (run.status === "stopped" || run.decision?.kind === "resume") return "Your video is waiting";
+  if (run.status === "needs_you") return "Your video needs you";
   return "Making your video";
 }
 
 export function RunPanel({ run, finished, actions, appId, onPost }: { run: CreateRun; finished?: FinishedVideo; actions: CreateRunsState; appId: string; onPost: (v: FinishedVideo) => void }) {
   const { workspaceId, can } = useWorkspace();
   const r = routes.app(workspaceId, appId);
-  const v = run.view;
   const canWrite = can("content.write");
-  const needsYou = Boolean(run.problem && !isWait(run.problem));
-  // Something is happening: a job runs, Create is taking a step, a short wait, or the next step is about to start.
-  const working = v.working || Boolean(run.busy) || (run.problem ? isWait(run.problem) : false) || (run.mine && Boolean(v.next) && !v.stale && !run.problem);
-  // While the final render request runs, the route checks facts and the brand first; its answers belong to that step.
-  const atCheck = run.busy === "final" || (run.problem && ["brand", "fix", "spend"].includes(run.problem.kind) && v.step !== "done");
-  const shown = atCheck ? { ...v, step: "check" as const, detail: undefined } : v;
+  const busy = actions.busy[run.campaignId];
+  const can_ = (a: Parameters<CreateRunsState["resolve"]>[1]) => canWrite && run.actions.includes(a);
 
   return (
-    <section aria-labelledby={`run-${run.campaign.id}`} aria-live="polite" className="space-y-5 rounded-2xl bg-surface p-5 shadow-raised sm:p-6">
+    <section aria-labelledby={`run-${run.campaignId}`} aria-live="polite" className="space-y-5 rounded-2xl bg-surface p-5 shadow-raised sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        {v.step === "done" && finished ? <DonePoster video={finished} href={r.studio(finished.compositionId)} /> : null}
+        {run.status === "done" && finished ? <DonePoster video={finished} href={r.studio(finished.compositionId)} /> : null}
         <div className="min-w-0 flex-1 space-y-1.5">
-          <h2 id={`run-${run.campaign.id}`} className="text-title-3 font-semibold text-ink">
+          <h2 id={`run-${run.campaignId}`} className="text-title-3 font-semibold text-ink">
             {headline(run)}
           </h2>
           <p className="text-body-sm text-ink-2 text-pretty">
-            {v.ideaTitle ? (
+            {run.ideaTitle ? (
               <>
-                <span className="font-medium text-ink">“{v.ideaTitle}”</span>
-                {v.ideaCount > 1 ? (v.step === "done" ? ` · The best fit of the ${v.ideaCount} ideas Muse wrote.` : ` · Muse wrote ${v.ideaCount} ideas and is making the one that fits best.`) : null}
+                <span className="font-medium text-ink">“{run.ideaTitle}”</span>
+                {run.ideaCount > 1 ? (run.status === "done" ? ` · The best fit of the ${run.ideaCount} ideas Muse wrote.` : ` · Muse wrote ${run.ideaCount} ideas and is making the one that fits best.`) : null}
               </>
             ) : (
-              <>“{run.campaign.request ?? run.campaign.name}”</>
+              <>“{run.request}”</>
             )}
           </p>
-          {v.ideaCount > 1 || v.compositionId ? (
-            <Link href={r.campaign(run.campaign.id)} className="inline-flex min-h-11 items-center gap-1 text-footnote font-medium text-accent hover:underline sm:min-h-0">
-              {v.ideaCount > 1 ? "See every idea" : "Details"}
+          {run.ideaCount > 1 || run.compositionId ? (
+            <Link href={r.campaign(run.campaignId)} className="inline-flex min-h-11 items-center gap-1 text-footnote font-medium text-accent hover:underline sm:min-h-0">
+              {run.ideaCount > 1 ? "See every idea" : "Details"}
               <ArrowUpRight className="size-3.5" aria-hidden />
             </Link>
           ) : null}
         </div>
       </div>
 
-      {v.step !== "done" ? (
+      {run.status !== "done" ? (
         <>
-          <ProgressBar value={v.pct} label="Progress" tone={v.failure ? "danger" : "accent"} />
+          <ProgressBar value={run.pct} label="Progress" tone={run.status === "failed" ? "danger" : "accent"} />
           <ol className="grid gap-2.5 sm:grid-cols-5 sm:gap-3">
             {STEPS.map((s) => {
-              const state = stepState(shown, s);
+              const state = stepState(run, s);
               const current = state === "current" || state === "failed";
               return (
                 <li key={s} className="flex items-start gap-2.5 sm:flex-col sm:gap-2">
-                  <StepIcon state={state === "current" ? (needsYou || v.stale ? "attention" : working ? "current" : "todo") : state} />
+                  <StepIcon state={state === "current" ? (needsPerson(run) ? "attention" : isMoving(run) ? "current" : "todo") : state} />
                   <div className="min-w-0">
                     <p className={cn("text-body-sm", current ? "font-semibold text-ink" : state === "done" ? "text-ink" : "text-ink-3")}>{STEP_LABEL[s]}</p>
-                    {current && shown.detail ? <p className="text-caption text-ink-3 first-letter:uppercase">{shown.detail}</p> : null}
+                    {current && run.detail ? <p className="text-caption text-ink-3 first-letter:uppercase">{run.detail}</p> : null}
                   </div>
                 </li>
               );
@@ -112,42 +108,36 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
         </>
       ) : null}
 
-      {v.failure ? (
-        <Decision tone="danger" text={v.failure.message}>
-          {v.failure.retry && v.failure.jobId && canWrite ? (
-            <Button size="lg" variant="outline" icon={<RotateCcw className="size-4" aria-hidden />} onClick={() => void actions.retry(run, v.failure!.jobId!)}>
+      {run.status === "failed" && run.failure ? (
+        <Decision tone="danger" text={run.failure.message}>
+          {can_("retry") ? (
+            <Button size="lg" variant="outline" icon={<RotateCcw className="size-4" aria-hidden />} loading={busy === "retry"} onClick={() => void actions.resolve(run, "retry")}>
               Try again
             </Button>
           ) : (
             <Button size="lg" variant="outline" asChild>
-              <Link href={r.campaign(run.campaign.id)}>Open the details</Link>
+              <Link href={r.campaign(run.campaignId)}>Open the details</Link>
             </Button>
           )}
         </Decision>
-      ) : run.problem ? (
-        <ProblemBox run={run} problem={run.problem} actions={actions} appId={appId} canWrite={canWrite} />
-      ) : v.stale && v.next ? (
-        <Decision text={`This video stopped at “${STEP_LABEL[v.step as StepKey]}”. Muse doesn’t carry on with an older video by itself.`}>
-          {canWrite ? (
-            <Button size="lg" onClick={() => void actions.continueRun(run)} loading={run.busy !== null}>
-              Continue
-            </Button>
-          ) : null}
-        </Decision>
-      ) : !run.mine && v.next && v.step !== "done" ? (
-        <Decision text="A teammate started this video. It carries on on their screen, or continue it here.">
-          {canWrite ? (
-            <Button size="lg" variant="outline" onClick={() => void actions.continueRun(run)} loading={run.busy !== null}>
+      ) : run.status === "waiting" && run.wait ? (
+        <Decision tone="wait" text={`One moment: ${run.wait.reason} Muse tries again by itself.`} />
+      ) : run.status === "needs_you" && run.decision ? (
+        <DecisionBox run={run} decision={run.decision} actions={actions} appId={appId} allowed={can_} />
+      ) : run.status === "stopped" ? (
+        <Decision text={`You left this video at “${STEP_LABEL[run.stage as StepKey] ?? "a step"}”. It stays in the editor; Muse carries on only if you continue it.`}>
+          {can_("retry") ? (
+            <Button size="lg" onClick={() => void actions.resolve(run, "retry")} loading={busy === "retry"}>
               Continue
             </Button>
           ) : null}
         </Decision>
       ) : null}
 
-      {v.step === "done" && v.compositionId ? (
+      {run.status === "done" && run.compositionId ? (
         <div className="flex flex-wrap gap-2">
           <Button size="lg" asChild>
-            <Link href={r.studio(v.compositionId)}>
+            <Link href={r.studio(run.compositionId)}>
               <Play className="size-4" aria-hidden />
               Open it
             </Link>
@@ -161,7 +151,7 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
       ) : null}
 
       <p className="text-caption text-ink-3">
-        {v.step === "done" ? "Change anything by telling Muse in the editor. Nothing is posted without your OK." : "It keeps going while MuseLaunch is open. Nothing is posted without your OK."}
+        {run.status === "done" ? "Change anything by telling Muse in the editor. Nothing is posted without your OK." : "It keeps going even when MuseLaunch is closed. Nothing is posted without your OK."}
         <span className="mx-1.5" aria-hidden>
           ·
         </span>
@@ -181,66 +171,61 @@ function Decision({ text, tone = "attention", children }: { text: string; tone?:
   );
 }
 
-function ProblemBox({ run, problem, actions, appId, canWrite }: { run: CreateRun; problem: ActionProblem; actions: CreateRunsState; appId: string; canWrite: boolean }) {
+function DecisionBox({ run, decision, actions, appId, allowed }: { run: CreateRun; decision: CreateRunDecision; actions: CreateRunsState; appId: string; allowed: (a: Parameters<CreateRunsState["resolve"]>[1]) => boolean }) {
   const { workspaceId } = useWorkspace();
   const r = routes.app(workspaceId, appId);
   const [reason, setReason] = useState("");
   const [asking, setAsking] = useState(false);
-  const studio = run.view.compositionId ? r.studio(run.view.compositionId) : null;
-  const again = canWrite ? (
-    <Button size="lg" variant="outline" icon={<RotateCcw className="size-4" aria-hidden />} onClick={() => actions.clear(run.campaign.id)}>
-      Try again
-    </Button>
-  ) : null;
-  const open = studio ? (
-    <Button size="lg" variant="outline" asChild>
-      <Link href={studio}>Open it to fix</Link>
-    </Button>
-  ) : null;
+  const busy = actions.busy[run.campaignId];
+  const studio = run.compositionId ? r.studio(run.compositionId) : null;
+  const again = (label = "Try again", primary = false) =>
+    allowed("retry") ? (
+      <Button size="lg" variant={primary ? "primary" : "outline"} icon={primary ? undefined : <RotateCcw className="size-4" aria-hidden />} loading={busy === "retry"} onClick={() => void actions.resolve(run, "retry")}>
+        {label}
+      </Button>
+    ) : null;
+  const open = (label = "Open it to fix") =>
+    studio ? (
+      <Button size="lg" variant="outline" asChild>
+        <Link href={studio}>{label}</Link>
+      </Button>
+    ) : null;
 
-  switch (problem.kind) {
-    case "busy":
-      return <Decision tone="wait" text={`One moment: ${problem.message}`} />;
+  switch (decision.kind) {
     case "limit":
-      return problem.wait ? (
-        <Decision tone="wait" text={`Waiting for another task to finish. ${problem.message}`} />
-      ) : (
-        <Decision text={problem.message}>
+      return (
+        <Decision text={decision.message}>
           <Button size="lg" variant="outline" asChild>
             <Link href={routes.settings.credits(workspaceId)}>See your plan</Link>
           </Button>
-          {again}
+          {again()}
         </Decision>
       );
     case "credits":
       return (
-        <Decision text={`Not enough credits for the next step. ${problem.message}`}>
+        <Decision text={`Not enough credits for the next step. ${decision.message}`}>
           <Button size="lg" variant="outline" asChild>
             <Link href={routes.settings.credits(workspaceId)}>Credits</Link>
           </Button>
-          {again}
+          {again()}
         </Decision>
       );
     case "spend":
       return (
-        <Decision text={`The video came out longer than you chose, so finishing it costs ${problem.credits} credits (you saw ${problem.shown}).`}>
-          {canWrite ? (
-            <Button size="lg" onClick={() => void actions.continueRun(run, { approveSpend: true })} loading={run.busy !== null}>
-              Finish it · {problem.credits} credits
+        <Decision text={decision.message}>
+          {allowed("approve_spend") ? (
+            <Button size="lg" onClick={() => void actions.resolve(run, "approve_spend")} loading={busy === "approve_spend"}>
+              Finish it · {decision.credits} credits
             </Button>
           ) : null}
-          {studio ? (
-            <Button size="lg" variant="outline" asChild>
-              <Link href={studio}>Open it</Link>
-            </Button>
-          ) : null}
+          {open("Open it")}
         </Decision>
       );
     case "fix":
       return (
-        <Decision text={problem.message}>
-          {open}
-          {again}
+        <Decision text={decision.message}>
+          {open()}
+          {again()}
         </Decision>
       );
     case "brand":
@@ -248,41 +233,44 @@ function ProblemBox({ run, problem, actions, appId, canWrite }: { run: CreateRun
         <div className="space-y-3 rounded-xl bg-warning-soft px-4 py-3.5">
           <p className="text-body-sm text-ink text-pretty">
             <span className="font-medium">The brand check found something: </span>
-            {problem.message}
+            {decision.message}
           </p>
           {asking ? (
             <form
               className="flex flex-col gap-2 sm:flex-row"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (reason.trim().length >= 3) void actions.continueRun(run, { overrideReason: reason.trim() });
+                if (reason.trim().length >= 3) void actions.resolve(run, "override", { reason: reason.trim() });
               }}
             >
-              <label htmlFor={`why-${run.campaign.id}`} className="sr-only">
+              <label htmlFor={`why-${run.campaignId}`} className="sr-only">
                 Why it’s fine to finish it
               </label>
-              <Input id={`why-${run.campaign.id}`} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why it’s fine (kept with the brand check)" maxLength={500} className="h-11 min-w-0 flex-1" autoFocus />
-              <Button size="lg" type="submit" disabled={reason.trim().length < 3} loading={run.busy !== null}>
+              <Input id={`why-${run.campaignId}`} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why it’s fine (kept with the brand check)" maxLength={500} className="h-11 min-w-0 flex-1" autoFocus />
+              <Button size="lg" type="submit" disabled={reason.trim().length < 3} loading={busy === "override"}>
                 Finish it
               </Button>
             </form>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {open}
-              {problem.canOverride && canWrite ? (
+              {open()}
+              {allowed("override") ? (
                 <Button size="lg" variant="ghost" onClick={() => setAsking(true)}>
                   Finish it anyway…
                 </Button>
               ) : null}
-              {again}
+              {again()}
             </div>
           )}
         </div>
       );
+    case "resume":
+    case "permission":
+      return <Decision text={decision.message}>{again("Continue", true)}</Decision>;
     default:
       return (
-        <Decision tone="danger" text={problem.message}>
-          {again}
+        <Decision tone="danger" text={decision.message}>
+          {again()}
         </Decision>
       );
   }
