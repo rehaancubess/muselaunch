@@ -337,3 +337,13 @@ describe("still lint", () => {
     expect(lintDoc(carousel(), { assets: assetsById }).some((i) => /Instagram/.test(i.message))).toBe(false);
   });
 });
+
+describe("brandName: stills print the brand, not the store title", () => {
+  it("drops a store subtitle", async () => {
+    const { brandName } = await import("./build");
+    expect(brandName("Tidy Timer: Focus & Pomodoro")).toBe("Tidy Timer");
+    expect(brandName("Focusly – Plan your day")).toBe("Focusly");
+    expect(brandName("Focusly")).toBe("Focusly");
+    expect(brandName("X: Y")).toBe("X: Y");
+  });
+});

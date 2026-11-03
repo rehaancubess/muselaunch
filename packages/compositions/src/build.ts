@@ -157,6 +157,16 @@ function frameFor(ar: AspectRatio): Frame {
 }
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/**
+ * The name a still prints: a store title without its subtitle ("Tidy Timer: Focus & Pomodoro" →
+ * "Tidy Timer"), so slide headers and end slides carry the brand, not the listing's keywords.
+ */
+export function brandName(name: string): string {
+  const full = name.replace(/\s+/g, " ").trim();
+  const head = full.split(/\s*:\s+|\s+[-–—|]\s+/)[0]?.trim() ?? "";
+  return head.length >= 2 ? head : full;
+}
 const box = (x: number, y: number, w: number, h: number, z = 1) => ({ x: r4(x), y: r4(y), w: r4(w), h: r4(h), rotation: 0, opacity: 1, z });
 
 /** Fit a headline in `maxLines` within width fraction `w`; returns size + box height fraction. */
@@ -1427,7 +1437,7 @@ function pageHeader(ctx: SceneCtx, tone: Tone, opts: { name?: boolean } = {}): {
   const h = (size * 1.5) / f.H;
   const layers: Layer[] = [];
   if (opts.name !== false) {
-    layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, m.top, m.w * 0.7, h, 4), { role: "label", size, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.1, uppercase: true }));
+    layers.push(stillText(ctx, "eyebrow", brandName(ctx.app.name).slice(0, 40), box(m.x, m.top, m.w * 0.7, h, 4), { role: "label", size, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.1, uppercase: true }));
   }
   if (still?.paged) {
     layers.push(stillText(ctx, "counter", `${ctx.index + 1} / ${ctx.count}`, box(1 - m.x - m.w * 0.25, m.top, m.w * 0.25, h, 4), { role: "label", size, weight: 600, font: "body", color: tone.muted, align: "right", letterSpacing: 0.02 }));
@@ -1573,7 +1583,7 @@ function slideCover(ctx: SceneCtx, value: string): Built {
     const blockH = eyeH + 0.025 + fit.h + (bf ? bf.h + 0.025 : 0);
     let y = Math.max(m.top, 0.5 - blockH / 2);
     layers.push(stillGlow(ctx, true, { x: 0.78, y: 0.4 }, 1.1));
-    layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
+    layers.push(stillText(ctx, "eyebrow", brandName(ctx.app.name).slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
     y += eyeH + 0.025;
     layers.push(stillText(ctx, "headline", head, box(m.x, y, tw, fit.h, 5), { size: fit.size, weight: 790, color: tone.text, align: "left", lineHeight: 1.02, letterSpacing: -0.035, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
     y += fit.h + 0.025;
@@ -1600,7 +1610,7 @@ function slideCover(ctx: SceneCtx, value: string): Built {
     y = Math.max(m.top, 0.46 - blockH / 2);
   }
   layers.push(stillGlow(ctx, true, { x: 0.82, y: media ? 0.7 : 0.3 }, 1.05));
-  layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
+  layers.push(stillText(ctx, "eyebrow", brandName(ctx.app.name).slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
   y += eyeH + (tall ? 0.018 : 0.025);
   layers.push(stillText(ctx, "headline", head, box(m.x, y, tw, fit.h, 5), { size: fit.size, weight: 790, color: tone.text, align: "left", lineHeight: 1.02, letterSpacing: -0.035, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
   y += fit.h + (tall ? 0.015 : 0.022);
@@ -1703,7 +1713,7 @@ function slideCta(ctx: SceneCtx, value: string): Built {
   const tall = f.H / f.W > 1.5;
   const icon = Math.round((tall ? 300 : f.portrait ? 250 : 220) * f.u);
   const nameSize = Math.round((tall ? 92 : f.portrait ? 80 : 72) * f.u);
-  const nameFit = fitText(f, app.name, nameSize, mg.w, { maxLines: 2, lineHeight: 1.08 });
+  const nameFit = fitText(f, brandName(app.name), nameSize, mg.w, { maxLines: 2, lineHeight: 1.08 });
   const subFit = sub ? fitText(f, sub, (tall ? 42 : 36) * f.u, mg.w * 0.86, { maxLines: 2, lineHeight: 1.3 }) : null;
   const ctaSize = Math.round((tall ? 46 : 40) * f.u);
   const ctaFit = fitText(f, cta, ctaSize, 0.7, { maxLines: 1, lineHeight: 1.1, min: ctaSize * 0.75 });
@@ -1744,7 +1754,7 @@ function slideCta(ctx: SceneCtx, value: string): Built {
     } as Layer);
     y += icon / f.H + gap;
   }
-  layers.push(stillText(ctx, "name", app.name, box(mg.x, y, mg.w, nameFit.h, 5), { size: nameFit.size, weight: 780, color: tone.text, lineHeight: 1.08, letterSpacing: -0.03 }));
+  layers.push(stillText(ctx, "name", brandName(app.name), box(mg.x, y, mg.w, nameFit.h, 5), { size: nameFit.size, weight: 780, color: tone.text, lineHeight: 1.08, letterSpacing: -0.03 }));
   y += nameFit.h;
   if (subFit) {
     y += 0.01;
