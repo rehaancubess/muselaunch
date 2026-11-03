@@ -51,6 +51,10 @@ export const Deliverable = z.object({
 });
 export type Deliverable = z.infer<typeof Deliverable>;
 
+/** Where a campaign was started when that changes how it's made (see `Campaign.origin`). */
+export const CampaignOrigin = z.enum(["create"]);
+export type CampaignOrigin = z.infer<typeof CampaignOrigin>;
+
 export const Campaign = BaseEntity.extend({
   appId: Id,
   name: z.string().min(1).max(160),
@@ -68,6 +72,13 @@ export const Campaign = BaseEntity.extend({
   creditCap: z.number().int().positive().optional(),
   strategyRunId: Id.optional(),
   coverAssetId: Id.optional(),
+  /**
+   * `create`: started from Create ("Generate video"): ONE video in the format and length stored in
+   * `deliverables[0]`. Create moves it along the same steps a person would (the best-fitting idea →
+   * plan → editable video → brand check → final render) and asks the person when a step needs them.
+   * Absent: a campaign planned by hand (Make), from Discover or by Autopilot.
+   */
+  origin: CampaignOrigin.optional(),
 });
 export type Campaign = z.infer<typeof Campaign>;
 
