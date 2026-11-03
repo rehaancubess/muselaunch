@@ -177,6 +177,9 @@ describe("Create runs: stills and text posts", () => {
     // The render finished before the records caught up: done with the job's own slide refs.
     const rendered = job("f", "render.final", "succeeded", { compositionId: "cmp_c" }, { output: { refs: [{ entity: "mediaAssets", id: "ast_r_n" }, { entity: "mediaAssets", id: "ast_r_n_2" }] } });
     expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [rendered], finals: [] })).toMatchObject({ stage: "done", finalAssetIds: ["ast_r_n", "ast_r_n_2"] });
+    // The render worker's own list of slides (also on cache hits) wins over its refs.
+    const listed = job("f", "render.final", "succeeded", { compositionId: "cmp_c" }, { output: { refs: [{ entity: "mediaAssets", id: "ast_r_m" }], data: { assetId: "ast_r_m", posterAssetId: "ast_r_m", assetIds: ["ast_r_m", "ast_r_m_2", "ast_r_m_3"], slides: 3, still: true } } });
+    expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [listed], finals: [] })).toMatchObject({ stage: "done", finalAssetId: "ast_r_m", finalAssetIds: ["ast_r_m", "ast_r_m_2", "ast_r_m_3"] });
     const broken = job("f", "render.final", "failed", { compositionId: "cmp_c" }, { error: { code: "X", message: "x" } });
     expect(deriveRun({ campaign: camp({ kind: "store_screenshots", store: "ios" }), variants: chosen, compositions: [comp], jobs: [broken], finals: [] }).failure?.message).toBe("x");
     const stopped = { ...(broken as object), status: "cancelled" } as never;

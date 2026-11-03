@@ -77,8 +77,10 @@ const isStill = (doc: Pick<CompositionDoc, "kind">) => doc.kind !== "video";
 
 /** "Slide 3" / "the third slide" / "the cover" / "the last slide" → scene ids (stills only; slides are counted from 1). */
 const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
+/** Instructions that change the set of slides itself ("add a slide after slide 3", "swap slides 2 and 3"): not scoped to the slides they name. */
+const RESTRUCTURE = /\b(?:add|insert|remove|delete|drop|move|reorder|swap|duplicate|another|extra|new)\b[^.!?]*\b(?:slides?|images?|screenshots?|pages?)\b|\b(?:slides?|images?|screenshots?|pages?)\b[^.!?]*\b(?:order|places|around)\b/i;
 export function slideRefs(instruction: string, doc: Pick<CompositionDoc, "kind" | "scenes">): string[] {
-  if (!isStill(doc) || !doc.scenes.length) return [];
+  if (!isStill(doc) || !doc.scenes.length || RESTRUCTURE.test(instruction)) return [];
   const n = doc.scenes.length;
   const picks = new Set<number>();
   const text = instruction.toLowerCase();

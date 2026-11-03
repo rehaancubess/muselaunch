@@ -297,8 +297,10 @@ export function deriveRun(input: RunInput): Derived {
     // The render finished (the records may be a moment behind the job).
     const lastFinal = comp.lastRender?.quality === "final" ? comp.lastRender.assetId : undefined;
     if (still) {
-      // Slide images only (a video render's poster is `ast_t_…`).
-      const ids = (finalJob.output?.refs ?? []).filter((r) => r.entity === "mediaAssets" && !r.id.startsWith("ast_t_")).map((r) => r.id);
+      // The render's slides in order (`output.data.assetIds`), else its image refs (a video render's poster is `ast_t_…`).
+      const data = finalJob.output?.data as { assetIds?: unknown } | undefined;
+      const listed = Array.isArray(data?.assetIds) ? data.assetIds.filter((x): x is string => typeof x === "string") : [];
+      const ids = listed.length ? listed : (finalJob.output?.refs ?? []).filter((r) => r.entity === "mediaAssets" && !r.id.startsWith("ast_t_")).map((r) => r.id);
       const cover = ids[0] ?? lastFinal;
       return result("done", { ...made, finalAssetId: cover, finalAssetIds: ids.length ? ids : cover ? [cover] : undefined });
     }

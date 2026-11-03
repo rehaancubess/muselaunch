@@ -60,13 +60,18 @@ describe("Ask Muse on stills: which slide", () => {
   const doc = carouselDoc("ast_a", "ast_b");
   it("reads slide numbers, ordinals, ranges, the cover and the last slide as scenes", () => {
     expect(slideRefs("Make slide 3 punchier", doc)).toEqual(["sc_s3"]);
-    expect(slideRefs("Swap the screens on slides 2 and 3", doc)).toEqual(["sc_s2", "sc_s3"]);
+    expect(slideRefs("Use the report screen on slides 2 and 3", doc)).toEqual(["sc_s2", "sc_s3"]);
     expect(slideRefs("Tighten slides 2-4", doc)).toEqual(["sc_s2", "sc_s3", "sc_s4"]);
     expect(slideRefs("The third slide needs a shorter headline", doc)).toEqual(["sc_s3"]);
     expect(slideRefs("A bolder cover", doc)).toEqual(["sc_s1"]);
     expect(slideRefs("Change the last slide's call to action", doc)).toEqual(["sc_s4"]);
     expect(slideRefs("Slide 9 is wrong", doc)).toEqual([]); // no such slide: nothing is scoped by guess
     expect(slideRefs("Make it calmer", doc)).toEqual([]);
+    // Changing the set of slides itself isn't scoped to the slides it names (it adds, removes or moves scenes).
+    expect(slideRefs("Add a slide after slide 3 about weekly reports", doc)).toEqual([]);
+    expect(slideRefs("Remove slide 2", doc)).toEqual([]);
+    expect(slideRefs("Swap slides 2 and 3", doc)).toEqual([]);
+    expect(slideRefs("Put slide 4 and slide 2 in the other order", doc)).toEqual([]);
     // Videos keep their own scene ids (no slide numbers).
     expect(slideRefs("slide 2", { ...doc, kind: "video" })).toEqual([]);
   });
