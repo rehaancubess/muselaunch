@@ -40,6 +40,12 @@ export const TodayPost = z.object({
       height: z.number().int().positive().optional(),
     })
     .nullable(),
+  /**
+   * Every image of a multi-image post (a carousel's slides, or a store set), in posting order; the
+   * first is `video` (kind "image"). Absent for a single video or image and for text-only posts
+   * (`video` null, the post is its caption).
+   */
+  images: z.array(z.object({ assetId: Id, width: z.number().int().positive().optional(), height: z.number().int().positive().optional() })).max(20).optional(),
   compositionId: Id.optional(),
   compositionTitle: z.string().max(200).optional(),
   compositionVersion: z.number().int().optional(),
