@@ -188,7 +188,7 @@ const ICON_BTN =
 
 /**
  * The app frame (Create. Review. Grow.): a calm translucent top bar with the app switcher on the
- * left, EXACTLY three tabs in the middle (Home · Create · Results; the selected one a soft violet
+ * left, EXACTLY three tabs in the middle (Home · Create · Results; the selected one a soft accent
  * pill, Home with a count when something waits on you), and on the right Ask Muse (⌘K, kept small),
  * the jobs icon (only while something runs), Settings and the account menu. On phones the tabs move
  * to a bottom tab bar. Everything that waits on you is on Home; /needs-you still works for old links.

@@ -40,8 +40,8 @@ export function WorkspaceProvider({ workspaceId, children }: { workspaceId: stri
   const ws = useApiQuery<WorkspaceResponse>(workspaceId ? wsPath(workspaceId) : null, { staleTime: 30_000 });
   const apps = useApiQuery<Page<App>>(workspaceId ? wsPath(workspaceId, "/apps") : null, {
     staleTime: 15_000,
-    // Keep importing apps fresh so names/icons appear when the import finishes.
-    refetchInterval: (q) => (q.state.data?.items.some((a) => a.status === "importing") ? 4000 : false),
+    // Keep importing apps fresh so names/icons (and the app's colour, once App DNA picks it) appear.
+    refetchInterval: (q) => (q.state.data?.items.some((a) => a.status === "importing" || a.dnaStatus === "drafting") ? 4000 : false),
   });
 
   const value = useMemo<WorkspaceContextValue>(() => {

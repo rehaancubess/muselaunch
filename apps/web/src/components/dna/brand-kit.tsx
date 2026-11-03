@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useInvalidate } from "@/lib/query";
+import { AppColourPicker } from "./app-colour";
 
 type Palette = BrandProfile["visual"]["palette"];
 const ROLES = ["primary", "secondary", "accent", "background", "text", "other"] as const;
@@ -71,6 +72,10 @@ export function BrandKitEditor({ profile, workspaceId, appId, canEdit }: { profi
 
   return (
     <div className="rounded-xl bg-surface p-5 shadow-raised sm:p-6">
+      <GroupCard title="App colour" description="MuseLaunch takes this colour while you work on this app. It starts as your icon’s colour; shades are adjusted so text stays easy to read.">
+        <AppColourPicker palette={profile.visual.palette} canEdit={canEdit} />
+      </GroupCard>
+
       <GroupCard title="Voice" description="How your brand sounds. Muse writes scripts and captions in this voice.">
         <Field label="Tone">{(f) => <TagInput id={f.id} label="Tone words" value={s.voice} onChange={(v) => set("voice", v)} placeholder="e.g. calm, precise, warm" disabled={!canEdit} max={12} />}</Field>
         <div className="grid gap-4 sm:grid-cols-2">

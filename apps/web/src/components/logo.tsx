@@ -4,14 +4,14 @@ import { cn } from "@muselaunch/ui";
 export const SPARKLE_PATH = "M16 6C17.2 12 20 14.8 26 16 20 17.2 17.2 20 16 26 14.8 20 12 17.2 6 16 12 14.8 14.8 12 16 6Z";
 
 /**
- * MuseLaunch mark: a rounded square in the violet brand gradient with a white four-point sparkle.
+ * MuseLaunch mark: a rounded square in the brand gradient (monochrome, or the current app's colour) with a white four-point sparkle.
  * The gradient is a CSS background (no SVG ids, so any number of marks can share a page).
  */
 export function LogoMark({ size = 24, className }: { size?: number; className?: string }) {
   return (
     <span
       aria-hidden
-      className={cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.18),0_1px_2px_rgb(76_29_149/0.25)]", className)}
+      className={cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.18),0_1px_2px_rgb(0_0_0/0.2)]", className)}
       style={{ width: size, height: size, borderRadius: size * 0.28, backgroundImage: "var(--ml-brand-gradient)" }}
     >
       <svg width={size} height={size} viewBox="0 0 32 32" className="block">

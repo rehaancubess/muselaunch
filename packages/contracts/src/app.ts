@@ -13,6 +13,7 @@ import {
   SourceRef,
 } from "./common";
 import { AppAlwaysOn } from "./always-on";
+import { AppTheme } from "./theme";
 
 // ---------------------------------------------------------------------------
 // App
@@ -85,6 +86,8 @@ export const App = BaseEntity.extend({
   postTo: AppPostTo.optional(),
   /** The first-run quick setup was finished or dismissed (absent = it may still be offered). */
   quickSetup: AppQuickSetup.optional(),
+  /** Interface colour for this app (absent = not picked yet; see theme.ts). */
+  theme: AppTheme.optional(),
 });
 export type App = z.infer<typeof App>;
 
