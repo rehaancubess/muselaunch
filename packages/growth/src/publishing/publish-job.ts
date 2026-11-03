@@ -1,4 +1,4 @@
-import { fillAppLink, type ScheduledPost } from "@muselaunch/contracts";
+import { fillAppLink, type MediaAsset, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso } from "@muselaunch/db";
 import { AppError, assertKeyInWorkspace, notifyPostLive, toAppError, trackedLinkUrl, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { HttpClient, publishingAdapterForChannel, type PublishMedia } from "@muselaunch/providers";
@@ -6,6 +6,7 @@ import { assertApproved, consumeApproval, postSnapshot } from "../approvals";
 import { freshTokens } from "../connections";
 import { growthDeps } from "../deps";
 import { manualInstructions } from "./manual";
+import { inOrder, shapeOfAssets, slideNumber } from "./media";
 import { preflight, publicationIdFor } from "./posts";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,22 @@ export async function sealPublishState(p: Platform, wid: string, postId: string,
   if (Object.keys(sealed).length) await p.secrets.put(wid, publishStateSecretId(postId), "publish_state", sealed);
   else if (Object.values(previous ?? {}).includes(SEALED_STATE_VALUE)) await p.secrets.delete(wid, publishStateSecretId(postId));
   return visible;
+}
+
+/** A stored asset as adapter media: bytes on demand, and a short-lived signed URL for pull-based APIs (Instagram, Facebook photos). */
+function publishMediaOf(p: Platform, wid: string, a: MediaAsset, name: string): PublishMedia {
+  assertKeyInWorkspace(wid, a.storagePath);
+  const ext = (a.mimeType.split("/")[1] ?? "bin").replace("jpeg", "jpg").replace("quicktime", "mov");
+  return {
+    kind: a.kind === "video" ? "video" : "image",
+    mimeType: a.mimeType,
+    bytes: a.bytes,
+    filename: `${name}.${ext}`,
+    width: a.width,
+    height: a.height,
+    read: async () => p.storage.get(a.storagePath),
+    publicUrl: async () => (await p.storage.signedDownloadUrl(a.storagePath, { expiresSec: 3600 })).url,
+  };
 }
 
 /**
@@ -98,7 +115,10 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
               : undefined;
   if (unavailable) {
     // Same approved content, posted by the user: the approval stays valid for "Mark as posted".
-    await ws.collection("scheduledPosts").update(post.id, { status: "manual_post_needed", manualInstructions: manualInstructions(post.channel, unavailable), lastError: unavailable }, { actor: ctx.actor });
+    const held = inOrder(post.assetIds, await ws.collection("mediaAssets").getMany(post.assetIds));
+    const shape = shapeOfAssets(held);
+    const media = { shape, count: held.length, slideNumbers: shape === "carousel" ? held.map(slideNumber) : undefined };
+    await ws.collection("scheduledPosts").update(post.id, { status: "manual_post_needed", manualInstructions: manualInstructions(post.channel, unavailable, media), lastError: unavailable }, { actor: ctx.actor });
     await ctx.log_event(`Not published via API: ${unavailable} Moved to manual posting.`, ref);
     return { refs: [ref], data: { mode: "manual", reason: unavailable } };
   }
@@ -116,20 +136,16 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
     return fail(err);
   }
 
-  const assets = await ws.collection("mediaAssets").getMany(post.assetIds);
-  const primary = assets[0];
-  let media: PublishMedia | undefined;
-  if (primary) {
-    assertKeyInWorkspace(ctx.workspaceId, primary.storagePath);
-    const ext = primary.mimeType.split("/")[1] ?? "bin";
-    media = {
-      kind: primary.kind === "video" ? "video" : "image",
-      mimeType: primary.mimeType,
-      bytes: primary.bytes,
-      filename: `${post.id}.${ext}`,
-      read: async () => p.storage.get(primary.storagePath),
-      publicUrl: async () => (await p.storage.signedDownloadUrl(primary.storagePath, { expiresSec: 3600 })).url,
-    };
+  // The media in posting order: one video or image as `media`, a carousel's slides as `items`.
+  const assets = inOrder(post.assetIds, await ws.collection("mediaAssets").getMany(post.assetIds));
+  const all = assets.map((a, i) => publishMediaOf(p, ctx.workspaceId, a, assets.length > 1 ? `${post.id}-${i + 1}` : post.id));
+  const media: PublishMedia | undefined = all.length === 1 ? all[0] : undefined;
+  const items: PublishMedia[] | undefined = all.length > 1 ? all : undefined;
+  // A custom cover for a video post, where the channel's API sets one (YouTube thumbnails.set).
+  let thumbnail: PublishMedia | undefined;
+  if (post.thumbnailAssetId && adapter!.accepts.thumbnail && media?.kind === "video") {
+    const t = await ws.collection("mediaAssets").get(post.thumbnailAssetId);
+    if (t && t.kind === "image" && ["ready", "uploaded"].includes(t.status)) thumbnail = publishMediaOf(p, ctx.workspaceId, t, `${post.id}-thumbnail`);
   }
 
   // [APP_LINK] in generated copy becomes this post's tracked link (preflight blocks API posts without one).
@@ -151,7 +167,7 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
   let result;
   try {
     result = await adapter!.publish!(
-      { media, title: post.title && fillAppLink(post.title, trackingUrl), caption: fillAppLink(post.caption, trackingUrl), tags: post.tags, visibility: post.visibility, containsSyntheticMedia: post.containsSyntheticMedia, scheduledAt: post.scheduledAt },
+      { media, items, thumbnail, title: post.title && fillAppLink(post.title, trackingUrl), caption: fillAppLink(post.caption, trackingUrl), tags: post.tags, visibility: post.visibility, containsSyntheticMedia: post.containsSyntheticMedia, scheduledAt: post.scheduledAt },
       {
         http: new HttpClient(deps.fetch, adapter!.label),
         tokens,
