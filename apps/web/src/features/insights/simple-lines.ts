@@ -3,7 +3,7 @@
  * numbers to show, where each one comes from, what's working (only from a test with enough data,
  * never as a cause) and the one next step. No React here (unit-tested in simple-lines.test.ts).
  */
-import type { Experiment, ExperimentResult, InsightMetric, MetricName, MissingMetric } from "@muselaunch/contracts";
+import type { Experiment, ExperimentResult, InsightMetric, MetricName, MetricSourceValue, MissingMetric } from "@muselaunch/contracts";
 
 /** Big numbers in the order people care about: did they see it, click it, install it, pay. */
 export const BIG_NUMBER_ORDER: MetricName[] = ["views", "clicks", "installs", "trials_started", "new_subscriptions", "revenue", "active_subscriptions"];
@@ -31,7 +31,7 @@ export function bigNumbers<M extends Pick<InsightMetric, "metric" | "value" | "b
 const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
 
 /** Where a number comes from, in a few words ("From YouTube", "From a file you imported"). */
-export function plainSource(m: Pick<InsightMetric, "sources">): string | null {
+export function plainSource(m: { sources: Pick<MetricSourceValue, "source" | "label" | "imported" | "observationCount">[] }): string | null {
   const s = m.sources.find((x) => x.observationCount > 0) ?? m.sources[0];
   if (!s) return null;
   if (s.source === "tracked_link") return "From your MuseLaunch links";
