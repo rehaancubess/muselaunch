@@ -1,5 +1,5 @@
 import { autoCampaignName, decideStrategy, syncCampaignProduction } from "@muselaunch/agents";
-import { AgentBudget, Channel, CreateCampaignRequest, Id, ProduceVariantRequest, ResearchKind } from "@muselaunch/contracts";
+import { AgentBudget, Channel, CreateCampaignRequest, Id, ProduceVariantRequest, ResearchKind, type DeliverableKind, type Job } from "@muselaunch/contracts";
 import { APPROVER_CAP } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
 import { Hono } from "hono";
@@ -44,6 +44,9 @@ async function requireDna(c: Ctx, appId: string) {
   }
 }
 
+/** Deliverable kinds that are a video (Create's one deliverable must be one). */
+const CREATE_VIDEO_KINDS = new Set<DeliverableKind>(["short_video", "app_demo", "feature_promo", "launch_announcement", "app_trailer"]);
+
 const List = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(512).optional() });
 
 // ---------------------------------------------------------------------------
@@ -64,18 +67,34 @@ campaignRoutes.post("/apps/:appId/campaigns", requireCap("content.write"), async
   const app = await appOf(c);
   const input = await body(c, CreateCampaignRequest);
   await requireDna(c, app.id);
-  if (input.opportunityIds.length) {
-    const opps = await ws(c).collection("opportunities").getMany(input.opportunityIds);
-    if (opps.length !== input.opportunityIds.length || opps.some((o) => o.appId !== app.id)) throw new AppError("BAD_REQUEST", "opportunityIds must belong to this app");
+  if (input.origin === "create") {
+    // Create makes ONE video: its format and length travel with the campaign (deliverables[0]).
+    const d = input.deliverables ?? [];
+    if (d.length !== 1 || d[0]!.count !== 1 || !CREATE_VIDEO_KINDS.has(d[0]!.kind)) throw new AppError("BAD_REQUEST", "Create makes exactly one video: pass one video deliverable with count 1");
   }
+  const opps = input.opportunityIds.length ? await ws(c).collection("opportunities").getMany(input.opportunityIds) : [];
+  if (opps.length !== input.opportunityIds.length || opps.some((o) => o.appId !== app.id)) throw new AppError("BAD_REQUEST", "opportunityIds must belong to this app");
   const actor = actorOf(c);
   // Provisional name cut at a word boundary; Muse Spark replaces it with a short name with the concepts. The full request stays in `request`.
   const name = autoCampaignName(input.request);
   const campaign = await ws(c).collection("campaigns").create(
-    { appId: app.id, name, goal: input.goal, request: input.request, channels: input.channels, deliverables: input.deliverables ?? [], opportunityIds: input.opportunityIds, creditCap: input.creditCap, status: "planning" },
+    { appId: app.id, name, goal: input.goal, request: input.request, channels: input.channels, deliverables: input.deliverables ?? [], opportunityIds: input.opportunityIds, creditCap: input.creditCap, status: "planning", ...(input.origin ? { origin: input.origin } : {}) },
     { actor },
   );
-  const job = await p.jobs.create(c.get("workspaceId"), "campaign.generate_concepts", { appId: app.id, campaignId: campaign.id, count: input.conceptCount }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `concepts:${campaign.id}`), credits: { operation: "campaign.generate_concepts" } });
+  let job: Job;
+  try {
+    job = await p.jobs.create(c.get("workspaceId"), "campaign.generate_concepts", { appId: app.id, campaignId: campaign.id, count: input.conceptCount }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `concepts:${campaign.id}`), credits: { operation: "campaign.generate_concepts" } });
+  } catch (err) {
+    // Not enough credits, a plan limit…: no campaign is left behind waiting for ideas that never come
+    // (the same as Discover's "Make a video").
+    await ws(c).collection("campaigns").delete(campaign.id);
+    throw err;
+  }
+  // Create's "Use a suggested idea": the idea now has a video on the way, like Discover's "Make a
+  // video" (an idea that already has one keeps its first campaign; a waved-away idea stays hidden).
+  if (input.origin === "create") {
+    for (const o of opps) if (o.status === "new" || o.status === "saved") await ws(c).collection("opportunities").update(o.id, { status: "used", campaignId: campaign.id }, { actor });
+  }
   return c.json({ campaign, job }, 202);
 });
 

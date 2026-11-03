@@ -2,7 +2,7 @@ import { z } from "zod";
 import { App } from "./app";
 import { AutopilotAutoStart } from "./autopilot";
 import { CreditBalance, CreditLedgerEntry, Plan } from "./billing";
-import { CampaignGoal, Deliverable } from "./campaign";
+import { CampaignGoal, CampaignOrigin, Deliverable } from "./campaign";
 import { AspectRatio, Channel, ErrorInfo, HttpUrl, Id } from "./common";
 import { PatchOp } from "./composition";
 import { GuardianOverride } from "./guardian";
@@ -85,6 +85,11 @@ export const CreateCampaignRequest = z.object({
   opportunityIds: z.array(Id).max(10).default([]),
   conceptCount: z.number().int().min(3).max(6).default(3),
   creditCap: z.number().int().positive().optional(),
+  /**
+   * `create`: Create's "Generate video" (one video; the opportunities given are the idea it uses and
+   * are linked to the campaign like Discover's "Make a video"). Needs exactly one video deliverable.
+   */
+  origin: CampaignOrigin.optional(),
 });
 export type CreateCampaignRequest = z.infer<typeof CreateCampaignRequest>;
 

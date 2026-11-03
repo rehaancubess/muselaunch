@@ -28,7 +28,24 @@ function finalLabel(a: MediaAsset): string {
   return v && !new RegExp(`\\bv${v}\\b`).test(a.title) ? `${a.title} v${v}` : a.title;
 }
 
-export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCampaignId, initialAssetId }: { appId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (postId: string) => void; initialCampaignId?: string; initialAssetId?: string }) {
+export function NewPostDialog({
+  appId,
+  open,
+  onOpenChange,
+  onCreated,
+  initialCampaignId,
+  initialAssetId,
+  initialChannel,
+}: {
+  appId: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: (postId: string) => void;
+  initialCampaignId?: string;
+  initialAssetId?: string;
+  /** Where it was made for (Create's format), else YouTube. */
+  initialChannel?: Channel;
+}) {
   const { workspaceId, app } = useWorkspace();
   const linkDests = destinationsFor(app);
   const [withLink, setWithLink] = useState(true);
@@ -38,11 +55,17 @@ export function NewPostDialog({ appId, open, onOpenChange, onCreated, initialCam
   const detail = useApiQuery<CampaignDetailResponse>(open && campaignId ? wsPath(workspaceId, `/campaigns/${campaignId}`) : null, { retry: false });
   const assets = useApiQuery<Page<MediaAsset>>(open ? wsPath(workspaceId, "/assets") : null, { query: { appId, limit: 200 } });
   const conns = useApiQuery<ConnectionsResponse>(open ? wsPath(workspaceId, "/connections") : null);
-  const [channel, setChannel] = useState<Channel>("youtube");
+  const [channel, setChannel] = useState<Channel>(initialChannel ?? "youtube");
   const [assetId, setAssetId] = useState(initialAssetId ?? "");
   useEffect(() => {
     if (open && initialAssetId) setAssetId(initialAssetId);
   }, [open, initialAssetId]);
+  useEffect(() => {
+    if (open && initialChannel) setChannel(initialChannel);
+  }, [open, initialChannel]);
+  useEffect(() => {
+    if (open && initialCampaignId) setCampaignId(initialCampaignId);
+  }, [open, initialCampaignId]);
   const [accountId, setAccountId] = useState("");
   const [copyPackId, setCopyPackId] = useState("");
   const [title, setTitle] = useState("");
