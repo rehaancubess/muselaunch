@@ -149,8 +149,8 @@ function NewCampaignInner() {
 
   return (
     <PageContainer width="wide">
-      <Link href={r.creator} className="mb-6 inline-flex items-center gap-1.5 text-footnote font-medium text-ink-2 hover:text-ink">
-        <ArrowLeft className="size-3.5" aria-hidden /> Creator
+      <Link href={r.create()} className="mb-6 inline-flex items-center gap-1.5 text-footnote font-medium text-ink-2 hover:text-ink">
+        <ArrowLeft className="size-3.5" aria-hidden /> Create
       </Link>
       <PageHeader title="New campaign" description={`Tell Muse what you want for ${app?.name ?? "your app"}. It researches, writes different ideas for you to pick from, then makes the ones you choose.`} />
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -214,7 +214,7 @@ function NewCampaignInner() {
               </div>
             </div>
           ) : null}
-          {opportunityIds.length ? <Notice tone="info">Building on {opportunityIds.length} opportunit{opportunityIds.length === 1 ? "y" : "ies"} from Discover.</Notice> : null}
+          {opportunityIds.length ? <Notice tone="info">Building on {opportunityIds.length} opportunit{opportunityIds.length === 1 ? "y" : "ies"} from what Muse found.</Notice> : null}
         </form>
 
         <aside>

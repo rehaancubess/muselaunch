@@ -474,8 +474,8 @@ export function RunProgress({
               {ap.audience ? <p className="text-footnote text-ink-2 text-pretty">Who it’s for: {ap.audience.description}</p> : null}
               <p className="pt-1 text-footnote text-ink-3 text-pretty">
                 Results come from your real analytics once posts are live.{" "}
-                <Link href={r.insights} className="font-medium text-accent hover:underline">
-                  Insights
+                <Link href={r.results} className="font-medium text-accent hover:underline">
+                  Results
                 </Link>
               </p>
             </section>

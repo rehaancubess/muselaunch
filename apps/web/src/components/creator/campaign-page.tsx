@@ -226,8 +226,8 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
 
   return (
     <PageContainer width="wide">
-      <Link href={r.creator} className="mb-6 inline-flex items-center gap-1.5 text-footnote font-medium text-ink-2 hover:text-ink">
-        <ArrowLeft className="size-3.5" aria-hidden /> Creator
+      <Link href={r.create()} className="mb-6 inline-flex items-center gap-1.5 text-footnote font-medium text-ink-2 hover:text-ink">
+        <ArrowLeft className="size-3.5" aria-hidden /> Create
       </Link>
       <QueryState
         query={detail}
@@ -377,7 +377,7 @@ export function CampaignPage({ workspaceId, appId, campaignId }: { workspaceId: 
                 </Section>
               ) : null}
 
-              <Section title="Tracked links" description="Measure clicks from each post. Insights attributes them to this campaign.">
+              <Section title="Tracked links" description="Measure clicks from each post. Results attributes them to this campaign.">
                 <TrackedLinks workspaceId={workspaceId} campaignId={campaignId} campaignName={campaign.name} app={app} channels={campaign.channels} canEdit={can("analytics.write")} />
               </Section>
 

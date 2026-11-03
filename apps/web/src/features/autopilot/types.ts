@@ -126,10 +126,10 @@ export function entityHref(workspaceId: string, appId: string, ap: Pick<Autopilo
     case "agentRuns":
       return { href: app.run(ref.id), label: "AI run" };
     case "researchRuns":
-      return { href: app.discover, label: "Research" };
+      return { href: app.discoverAll, label: "Research" };
     case "experiments":
     case "recommendations":
-      return { href: app.insights, label: ref.entity === "experiments" ? "Test" : "Recommendations" };
+      return { href: app.insightsDetails(ref.entity === "experiments" ? "experiments" : "next"), label: ref.entity === "experiments" ? "Test" : "Recommendations" };
     case "scheduledPosts":
       return { href: app.scheduled, label: "Scheduled" };
     case "brandProfiles":

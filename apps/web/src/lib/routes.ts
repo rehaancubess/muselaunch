@@ -18,6 +18,7 @@ export const routes = {
   app: (wid: string, appId: string) => {
     const base = `/w/${wid}/a/${appId}`;
     return {
+      /** The app itself: redirects to Home. */
       root: base,
       /** Home: what's ready to review, what's coming up, what needs you (the app opens here). */
       home: `${base}/home`,
@@ -32,11 +33,11 @@ export const routes = {
       },
       /** Results: "See what is working": measured numbers, a chart, the best post and one tip. */
       results: `${base}/results`,
-      /** Discover: "What Muse found", the few best ideas for this app. */
+      /** Old Discover page: redirects to Create (`?kind=idea`). Deep pages (discoverAll) stay. */
       discover: `${base}/discover`,
       /** Discover → See everything: every finding, filters, saved ideas, creators. */
       discoverAll: `${base}/discover/all`,
-      /** Creator → Today (the Creator tab opens here): the next post, what needs you, how it's going. */
+      /** Old Creator → Today: redirects to Home. Deep pages (make, videos, scheduled, studio…) stay. */
       creator: `${base}/creator`,
       /** Creator → Make: plan a campaign yourself, Autopilot runs, campaigns (power users). */
       make: `${base}/creator/make`,
@@ -47,7 +48,7 @@ export const routes = {
       newCampaign: `${base}/creator/new`,
       campaign: (campaignId: string) => `${base}/creator/campaigns/${campaignId}`,
       studio: (compositionId: string) => `${base}/creator/studio/${compositionId}`,
-      /** Insights: "How it's going", up to three measured numbers and the next step. */
+      /** Old Insights page: redirects to Results. insightsDetails stays. */
       insights: `${base}/insights`,
       /** Insights → Details: filters, tests, what to try next, YouTube, data sources. `tab` / `focus` open one. */
       insightsDetails: (tab?: "overview" | "experiments" | "next" | "youtube" | "sources", opts: { focus?: "revenuecat" | "csv" | "manual" | "links"; open?: string } = {}) => {
@@ -84,7 +85,8 @@ export function withQuery(path: string, searchParams: Record<string, string | st
   return s ? `${path}?${s}` : path;
 }
 
-export type PrimaryTab = "discover" | "creator" | "insights";
+/** The three tabs: Home, Create, Results. */
+export type PrimaryTab = "home" | "create" | "results";
 
 /** Creator's pages behind Today (power users). */
 export type CreatorView = "make" | "videos" | "scheduled";

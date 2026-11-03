@@ -230,7 +230,7 @@ function AnalysisBody({ a, canRun, onReanalyze }: { a: YouTubeChannelAnalysis; c
                   <li key={f.key}>{f.statement}</li>
                 ))}
               </ul>
-              <p className="text-footnote text-ink-3">Saved as sourced findings: they show up in Discover and Autopilot can use them.</p>
+              <p className="text-footnote text-ink-3">Saved as sourced findings: they show up in what Muse found (Create) and Autopilot can use them.</p>
             </Card>
           ) : null}
         </>

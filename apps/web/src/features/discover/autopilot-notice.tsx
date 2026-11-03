@@ -15,7 +15,7 @@ export function AutopilotResearchNotice({ workspaceId, appId, stages = ["underst
   return (
     <Notice tone="info" icon={<Spinner className="size-4" />} className={className} title={active.stage === "understand" ? "Autopilot is learning about your app" : "Autopilot is researching your market"}>
       New findings appear here as they’re found, each linked to its sources.{" "}
-      <Link href={routes.app(workspaceId, appId).creator} className="font-medium underline underline-offset-2">
+      <Link href={`${routes.app(workspaceId, appId).autopilot}?loop=${encodeURIComponent(active.id)}`} className="font-medium underline underline-offset-2">
         See the run
       </Link>
     </Notice>

@@ -14,7 +14,7 @@ export default function DiscoverEverythingPage() {
   return (
     <PageContainer width="wide">
       <PageHeader
-        leading={<BackLink href={routes.app(workspaceId, appId).discover}>What Muse found</BackLink>}
+        leading={<BackLink href={routes.app(workspaceId, appId).create({ kind: "idea" })}>Create</BackLink>}
         title="Everything Muse found"
         description={`Competitors, creators and trends, connected to ${app?.name ?? "your app"}. Every finding links to its source.`}
         actions={<ResearchLauncher appId={appId} />}

@@ -45,11 +45,15 @@ export interface CreatedApp {
   workspaceId: string;
 }
 
-/** Where to go after Go: the run's progress screen, the Autopilot start (it didn't start: says why), or null (Autopilot off). */
+/**
+ * Where to go after Go: Home (it shows the first run's progress screen until the first posts are
+ * drafted, then "Your content is ready"), the Autopilot start (it didn't start: says why), or null
+ * (Autopilot off).
+ */
 export function afterAdd(c: CreatedApp): string | null {
-  const ap = routes.app(c.workspaceId, c.app.id).autopilot;
-  if (c.autopilot?.started && c.autopilot.autopilotId) return `${ap}?loop=${encodeURIComponent(c.autopilot.autopilotId)}`;
-  if (c.autopilot) return ap;
+  const r = routes.app(c.workspaceId, c.app.id);
+  if (c.autopilot?.started && c.autopilot.autopilotId) return r.home;
+  if (c.autopilot) return r.autopilot;
   return null;
 }
 
@@ -292,7 +296,7 @@ export function ImportProgress({ workspaceId, app, job, onContinue, onReview }: 
           Check what we learned
         </Button>
         <Button size="lg" variant="secondary" className="flex-1" onClick={onContinue}>
-          {done || failed ? "Go to Creator" : "Continue in background"}
+          {done || failed ? "Go to Home" : "Continue in background"}
         </Button>
       </div>
     </div>
