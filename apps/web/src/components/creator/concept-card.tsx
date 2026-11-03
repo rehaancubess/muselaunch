@@ -72,7 +72,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
     <article
       className={cn(
         "flex flex-col rounded-2xl bg-surface p-5 shadow-raised transition-shadow",
-        selected && "shadow-[0_0_0_1.5px_var(--ml-accent),0_8px_24px_-12px_rgb(51_85_255/0.35)]",
+        selected && "shadow-[0_0_0_1.5px_var(--ml-accent),0_8px_24px_-12px_color-mix(in_srgb,var(--ml-accent)_35%,transparent)]",
         v.status === "rejected" && "opacity-60",
       )}
       aria-labelledby={`concept-${v.id}`}

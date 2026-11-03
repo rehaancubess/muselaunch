@@ -58,8 +58,9 @@ function CountryLine({ country, onChange, workspaceName }: { country: string; on
 /**
  * The first run: paste a link (or describe the app) → Go. That's the only step: the workspace is
  * created from your name, the app is imported and Autopilot starts with sensible defaults, and you
- * land on the run's progress screen (plain steps → your first video). Nothing else is asked here;
- * the hands-on tools stay on the Creator page.
+ * land on Home, which shows the run's progress (plain steps → your first video) until the first posts
+ * are ready to review. Nothing else is asked here;
+ * the hands-on tools are under Create.
  */
 function OnboardingInner() {
   const me = useMe();
@@ -130,7 +131,7 @@ function OnboardingInner() {
           workspaceId={created.workspaceId}
           app={created.app}
           job={created.job}
-          onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).creator)}
+          onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).home)}
           onReview={() => void finish(routes.app(created.workspaceId, created.app.id).brand)}
         />
         <WalkthroughPrompt workspaceId={created.workspaceId} appId={created.app.id} variant="inline" />

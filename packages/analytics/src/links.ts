@@ -296,7 +296,7 @@ export async function resolveAndCount(p: Platform, slug: string, opts: { method:
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
 const INTERSTITIAL_STYLE =
-  "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f7;color:#1d1d1f;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}main{max-width:28rem;margin:1.5rem;padding:2rem;background:#fff;border-radius:1rem;box-shadow:0 1px 3px rgba(0,0,0,.08)}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:#424245;word-break:break-all}a.c{display:inline-block;padding:.6rem 1.2rem;border-radius:999px;background:#0071e3;color:#fff;text-decoration:none;font-weight:600}small{display:block;margin-top:1rem;color:#6e6e73}";
+  "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f7;color:#1d1d1f;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}main{max-width:28rem;margin:1.5rem;padding:2rem;background:#fff;border-radius:1rem;box-shadow:0 1px 3px rgba(0,0,0,.08)}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:#424245;word-break:break-all}a.c{display:inline-block;padding:.6rem 1.2rem;border-radius:999px;background:#7c3aed;color:#fff;text-decoration:none;font-weight:600}small{display:block;margin-top:1rem;color:#6e6e73}";
 const INTERSTITIAL_STYLE_HASH = `sha256-${createHash("sha256").update(INTERSTITIAL_STYLE).digest("base64")}`;
 
 /** Strict CSP for the interstitial: no scripts, no external loads, no framing, no forms. */

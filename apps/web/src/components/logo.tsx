@@ -1,22 +1,34 @@
 import { cn } from "@muselaunch/ui";
 
-/** MuseLaunch mark: a rising trajectory leaving a point, set in the accent. */
+/** The four-point sparkle in the mark (32×32 box), shared with the favicon (app/icon.svg). */
+export const SPARKLE_PATH = "M16 6C17.2 12 20 14.8 26 16 20 17.2 17.2 20 16 26 14.8 20 12 17.2 6 16 12 14.8 14.8 12 16 6Z";
+
+/**
+ * MuseLaunch mark: a rounded square in the violet brand gradient with a white four-point sparkle.
+ * The gradient is a CSS background (no SVG ids, so any number of marks can share a page).
+ */
 export function LogoMark({ size = 24, className }: { size?: number; className?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className={cn("shrink-0", className)}>
-      <rect width="32" height="32" rx="9" fill="var(--ml-accent)" />
-      <path d="M8.5 22.5c3.2-.4 6.7-2.3 9.4-5.6 1.8-2.2 3-4.6 3.6-7" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" />
-      <circle cx="22.6" cy="8.6" r="2.4" fill="#fff" />
-      <circle cx="9" cy="22.4" r="1.5" fill="#fff" fillOpacity=".55" />
-    </svg>
+    <span
+      aria-hidden
+      className={cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.18),0_1px_2px_rgb(76_29_149/0.25)]", className)}
+      style={{ width: size, height: size, borderRadius: size * 0.28, backgroundImage: "var(--ml-brand-gradient)" }}
+    >
+      <svg width={size} height={size} viewBox="0 0 32 32" className="block">
+        <path d={SPARKLE_PATH} fill="#fff" />
+      </svg>
+    </span>
   );
 }
 
-export function Logo({ className, size = 24 }: { className?: string; size?: number }) {
+export function Logo({ className, size = 24, tagline }: { className?: string; size?: number; tagline?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <LogoMark size={size} />
-      <span className="text-[17px] font-semibold tracking-[-0.02em] text-ink">MuseLaunch</span>
+      <span className="flex flex-col">
+        <span className="text-[17px] font-semibold tracking-[-0.02em] text-ink">MuseLaunch</span>
+        {tagline ? <span className="text-caption text-ink-2">Create. Review. Grow.</span> : null}
+      </span>
     </span>
   );
 }

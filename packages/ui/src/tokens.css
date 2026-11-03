@@ -15,11 +15,16 @@
   --ml-line: #e8e8ed;
   --ml-line-strong: #d2d2d7;
 
-  /* One restrained accent (cobalt). */
-  --ml-accent: #3355ff;
-  --ml-accent-hover: #2445ee;
-  --ml-accent-soft: #eef1ff;
-  --ml-accent-ink: #1f3bd6;
+  /*
+   * One restrained accent (violet). Contrast on white: accent 5.7:1, hover 7.1:1, ink 9.0:1; accent
+   * on accent-soft 5.0:1 (selected tabs), so text, links and buttons all pass WCAG AA.
+   */
+  --ml-accent: #7c3aed;
+  --ml-accent-hover: #6d28d9;
+  --ml-accent-soft: #f3eeff;
+  --ml-accent-ink: #5b21b6;
+  /* The brand gradient (logo mark, app icon): lighter violet top-left to deep violet bottom-right. */
+  --ml-brand-gradient: linear-gradient(145deg, #a274ff 0%, #7c3aed 52%, #5f22d0 100%);
 
   /* Status (used only to communicate state). */
   --ml-success: #138a48;
@@ -40,7 +45,7 @@
   /* Elevation: hairline-first, shadows only where things float. */
   --ml-shadow-raised: 0 1px 2px rgb(16 24 40 / 0.04), 0 0 0 1px rgb(16 24 40 / 0.05);
   --ml-shadow-float: 0 18px 48px -12px rgb(16 24 40 / 0.18), 0 0 0 1px rgb(16 24 40 / 0.06);
-  --ml-shadow-focus: 0 0 0 3px rgb(51 85 255 / 0.28);
+  --ml-shadow-focus: 0 0 0 3px rgb(124 58 237 / 0.28);
 
   /* Motion */
   --ml-ease: cubic-bezier(0.2, 0.8, 0.2, 1);

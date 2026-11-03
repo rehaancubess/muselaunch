@@ -29,7 +29,16 @@ export async function expectFixtureMode(request: { get: (url: string) => Promise
   expect(health.fixtureMode, "API must run in fixture mode (pnpm dev:fixture)").toBe(true);
 }
 
-export const nav = (page: Page, tab: "Discover" | "Creator" | "Insights") => page.getByRole("navigation", { name: "Primary" }).first().getByRole("link", { name: tab }).click();
+/** The three tabs (Home's accessible name carries its count: "Home, 2 waiting for you"). */
+export const nav = (page: Page, tab: "Home" | "Create" | "Results") =>
+  page
+    .getByRole("navigation", { name: "Primary" })
+    .first()
+    .getByRole("link", { name: tab === "Home" ? /^Home\b/ : tab, exact: tab !== "Home" })
+    .click();
+
+/** `/w/:wid/a/:appId` of the app the page is on. */
+export const appBase = (page: Page) => page.url().replace(/(\/w\/[^/]+\/a\/[^/]+)\/.*$/, "$1");
 
 /**
  * Landing (paste the sample listing) → dev sign-in → one-step onboarding. Falls back to signing in with
@@ -59,15 +68,16 @@ export async function signUp(page: Page, shot: (page: Page, name: string, fullPa
 }
 
 /**
- * One-step onboarding: paste → Go (no other choice) → the run's progress screen, Autopilot working.
- * The progress screen also offers the quick setup ("Where do you post?", "How often…?"); it never
- * blocks the run, so the journey leaves it unanswered.
+ * One-step onboarding: paste → Go (no other choice) → Home, which shows the first run's progress
+ * screen (Autopilot working) until the first posts are drafted. The progress screen also offers the
+ * quick setup ("Where do you post?", "How often…?"); it never blocks the run, so the journey leaves
+ * it unanswered.
  */
 export async function onboardWithAutopilot(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { shots?: boolean } = {}) {
-  await test.step("onboarding: paste → Go → the run's progress screen", async () => {
+  await test.step("onboarding: paste → Go → Home with the run's progress screen", async () => {
     if (opts.shots !== false) await shot(page, "onboarding");
     await page.getByRole("button", { name: "Go" }).click();
-    await page.waitForURL(/\/autopilot\?loop=/);
+    await page.waitForURL(/\/home$/);
     await expect(page.getByRole("list", { name: "What Autopilot is doing" })).toBeVisible();
   });
 }

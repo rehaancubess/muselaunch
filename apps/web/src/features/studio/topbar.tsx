@@ -504,11 +504,11 @@ export function StudioTopbar({
   onSimple?: () => void;
 }) {
   const c = data.composition;
-  const back = c.campaignId ? routes.app(workspaceId, appId).campaign(c.campaignId) : routes.app(workspaceId, appId).creator;
+  const back = c.campaignId ? routes.app(workspaceId, appId).campaign(c.campaignId) : routes.app(workspaceId, appId).create();
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface px-3 py-2">
       <Link href={back} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-footnote text-ink-2 hover:bg-mist hover:text-ink">
-        <ChevronLeft className="size-4" aria-hidden /> {c.campaignId ? "Campaign" : "Creator"}
+        <ChevronLeft className="size-4" aria-hidden /> {c.campaignId ? "Campaign" : "Create"}
       </Link>
       {onSimple ? (
         <Button size="sm" variant="secondary" icon={<Minimize2 className="size-4" aria-hidden />} onClick={onSimple}>

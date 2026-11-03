@@ -1,16 +1,8 @@
-"use client";
-import { PageHeader } from "@muselaunch/ui";
-import { PageContainer } from "@/components/page-container";
-import SimpleInsights from "@/features/insights/simple";
-import { useCurrentApp } from "@/lib/workspace";
+import { redirect } from "next/navigation";
+import { routes, withQuery } from "@/lib/routes";
 
-/** Insights: "How it's going", up to three measured numbers and the next step. Everything else is behind Details (./details). */
-export default function InsightsPage() {
-  const { appId } = useCurrentApp();
-  return (
-    <PageContainer width="narrow">
-      <PageHeader title="How it’s going" description="What happened after your videos went out. Only real numbers from the accounts and files you connect, never estimates." />
-      <SimpleInsights appId={appId} />
-    </PageContainer>
-  );
+/** "How it's going" became Results. Old links keep working; Insights → Details (./details) stays, under the Results tab. */
+export default async function InsightsRedirect({ params, searchParams }: { params: Promise<{ workspaceId: string; appId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { workspaceId, appId } = await params;
+  redirect(withQuery(routes.app(workspaceId, appId).results, await searchParams));
 }

@@ -1,9 +1,10 @@
 "use client";
 /**
- * Today's smaller sections, each a summary of a page that already exists, with "See more":
+ * Smaller sections, each a summary of a page that already exists. Home uses Always on and the
+ * recording offer; the others summarise Results and Create and are kept for reuse there:
  *  - How it's going: one plain line and up to 3 measured numbers (insights simple-lines), or one line
- *    when nothing is measured yet. Never estimated.
- *  - Muse found: the top 1–2 ideas (discover picks), each with Make a video.
+ *    when nothing is measured yet. Never estimated. → Results
+ *  - Muse found: the top 1–2 ideas (discover picks), each with Make a video. → Create
  *  - Your videos: the newest finished videos in a row → the Studio; "All videos" and "Scheduled".
  *  - Always on: the status line with "Change" (the pace, in place), or one gentle "Keep it going".
  */
@@ -69,7 +70,7 @@ export function HowItsGoing({ appId }: { appId: string }) {
   const r = routes.app(workspaceId, appId);
   return (
     <section aria-labelledby="today-how" className="space-y-3">
-      <SectionHead id="today-how" title="How it’s going" href={r.insights} />
+      <SectionHead id="today-how" title="How it’s going" href={r.results} />
       {overview.isLoading ? (
         <Skeleton className="h-20 w-full" rounded="xl" />
       ) : shown.length ? (
@@ -104,7 +105,7 @@ export function MuseFound({ appId }: { appId: string }) {
   if (feed.isLoading) return <Skeleton className="h-40 w-full" rounded="xl" />;
   return (
     <section aria-labelledby="today-found" className="space-y-3">
-      <SectionHead id="today-found" title="Muse found" href={r.discover} />
+      <SectionHead id="today-found" title="Muse found" href={r.create({ kind: "idea" })} />
       {picks.length ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
           {picks.map((item) => (
@@ -202,12 +203,30 @@ export function AlwaysOnLine({ appId }: { appId: string }) {
   );
 }
 
-/** Always on is off: one gentle offer. */
-export function KeepItGoing({ appId }: { appId: string }) {
+/** Always on is off: one gentle offer (`line`: as a status line, like Always on's own, for Home's footer). */
+export function KeepItGoing({ appId, line }: { appId: string; line?: boolean }) {
   const { workspaceId, can } = useWorkspace();
   const q = useAlwaysOn(workspaceId, appId);
   const [open, setOpen] = useState(false);
   if (!q.data || q.data.settings.enabled || !can("content.write")) return null;
+  if (line) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-footnote text-ink-2">
+        <span className="inline-flex items-center gap-1 font-medium text-ink">
+          <span className="size-1.5 rounded-full bg-ink-3" aria-hidden />
+          Always on is off
+        </span>
+        <span aria-hidden className="hidden sm:inline">
+          ·
+        </span>
+        <span className="text-pretty">Muse can research every week and keep a week of posts ready. You still OK every one.</span>
+        <button type="button" onClick={() => setOpen(true)} className="min-h-11 font-medium text-accent hover:underline sm:min-h-0">
+          Keep it going
+        </button>
+        <PaceDialog appId={appId} open={open} onOpenChange={setOpen} title="Keep it going" />
+      </div>
+    );
+  }
   return (
     <section aria-labelledby="today-keep" className="flex flex-col gap-3 rounded-2xl bg-mist/70 p-4 sm:flex-row sm:items-center sm:p-5">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface text-accent shadow-raised">
@@ -239,9 +258,9 @@ export function AllClear({ appId, working }: { appId: string; working?: string |
       </div>
       {can("content.write") ? (
         <Button size="lg" variant="secondary" asChild className="sm:shrink-0">
-          <Link href={r.make}>
+          <Link href={r.create()}>
             <Clapperboard className="size-4" aria-hidden />
-            Make something new
+            Create something new
           </Link>
         </Button>
       ) : null}

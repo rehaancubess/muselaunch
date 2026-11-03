@@ -64,7 +64,7 @@ function PaceRow({ app }: { app: App }) {
     try {
       const patch = v === "off" ? { enabled: false } : { enabled: true, postsPerWeek: Number(v) as AlwaysOnPace };
       const r = await api.put<{ start: { started: boolean; reason?: string } | null }>(wsPath(workspaceId, `/apps/${app.id}/always-on`), patch);
-      toast.success(v === "off" ? "Always on is off" : `Always on: ${s.options.find((o) => String(o.postsPerWeek) === v)?.label.toLowerCase()}`, v === "off" ? "The current run finishes; nothing new starts on its own." : (r.start?.reason ?? "You approve every post in Needs you."));
+      toast.success(v === "off" ? "Always on is off" : `Always on: ${s.options.find((o) => String(o.postsPerWeek) === v)?.label.toLowerCase()}`, v === "off" ? "The current run finishes; nothing new starts on its own." : (r.start?.reason ?? "You approve every post on Home."));
       await invalidate(wsPath(workspaceId, `/apps/${app.id}/always-on`), wsPath(workspaceId, `/apps/${app.id}/autopilots`), wsPath(workspaceId, "/needs-you"));
     } catch (e) {
       toast.error("Couldn’t change the pace", errorMessage(e));

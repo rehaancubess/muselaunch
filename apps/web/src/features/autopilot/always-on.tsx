@@ -222,7 +222,7 @@ export function AlwaysOnSettings({ appId, showApp, className }: { appId: string;
                   <Link href={routes.settings.integrations(workspaceId)} className="font-medium text-accent hover:underline">
                     connect it in Integrations
                   </Link>
-                  . The summary is always on the Creator page too.
+                  . The summary is always in Create → Make too.
                 </>
               )}
             </span>
@@ -298,7 +298,7 @@ export function AlwaysOnWeek({ appId, show, className }: { appId: string; show: 
     { label: "Posted", value: w.posted.length, hint: "last 7 days" },
     { label: "Ready", value: s.queue.upcoming, hint: `of ${s.queue.target} for the week` },
     { label: "Research", value: w.research.findings, hint: "sourced findings" },
-    { label: "Needs you", value: w.needsYou, hint: w.needsYou ? "decisions" : "all clear", warn: w.needsYou > 0 },
+    { label: "Waiting on you", value: w.needsYou, hint: w.needsYou ? "decisions" : "all clear", warn: w.needsYou > 0 },
   ];
   return (
     <section className={cn("space-y-4", className)} aria-labelledby="always-on-week">

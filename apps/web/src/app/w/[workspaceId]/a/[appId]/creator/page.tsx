@@ -1,15 +1,11 @@
-"use client";
-import { PageContainer } from "@/components/page-container";
-import { TodayPage } from "@/features/today/today";
+import { redirect } from "next/navigation";
+import { routes, withQuery } from "@/lib/routes";
 
 /**
- * Creator → Today: the one page the Creator tab opens on (the next post, what needs you, how it's
- * going, what Muse found, your videos). Make, Videos and Scheduled stay one tap away from it.
+ * Creator → Today became Home. Old links (notifications, bookmarks) keep working; Creator's deep pages
+ * (make, videos, scheduled, studio, campaigns, new) stay where they are, under the Create tab.
  */
-export default function CreatorTodayPage() {
-  return (
-    <PageContainer width="wide" className="pt-5 md:pt-8">
-      <TodayPage />
-    </PageContainer>
-  );
+export default async function CreatorRedirect({ params, searchParams }: { params: Promise<{ workspaceId: string; appId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { workspaceId, appId } = await params;
+  redirect(withQuery(routes.app(workspaceId, appId).home, await searchParams));
 }

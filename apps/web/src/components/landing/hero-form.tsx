@@ -44,7 +44,7 @@ export function HeroLinkForm({ id = "hero-link" }: { id?: string }) {
       <label htmlFor={id} className="sr-only">
         Your App Store, Google Play or website link
       </label>
-      <div className="flex w-full items-center gap-2 rounded-full bg-surface p-1.5 pl-5 shadow-[0_0_0_1px_rgb(0_0_0/0.1),0_1px_2px_rgb(0_0_0/0.05),0_12px_32px_-12px_rgb(0_0_0/0.16)] transition-shadow focus-within:shadow-[0_0_0_1.5px_var(--ml-accent),0_0_0_5px_rgb(51_85_255/0.14),0_12px_32px_-12px_rgb(0_0_0/0.16)]">
+      <div className="flex w-full items-center gap-2 rounded-full bg-surface p-1.5 pl-5 shadow-[0_0_0_1px_rgb(0_0_0/0.1),0_1px_2px_rgb(0_0_0/0.05),0_12px_32px_-12px_rgb(0_0_0/0.16)] transition-shadow focus-within:shadow-[0_0_0_1.5px_var(--ml-accent),0_0_0_5px_color-mix(in_srgb,var(--ml-accent)_14%,transparent),0_12px_32px_-12px_rgb(0_0_0/0.16)]">
         <Link2 className="hidden size-[18px] shrink-0 text-ink-3 sm:block" aria-hidden />
         <input
           id={id}

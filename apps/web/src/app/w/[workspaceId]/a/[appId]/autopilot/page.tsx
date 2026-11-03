@@ -1,7 +1,7 @@
 "use client";
 /**
- * Autopilot route (module B owns the body: features/autopilot). Onboarding lands here after Go
- * (`?loop=<id>`: the run's calm progress screen). `?goal=` (from the Creator and the ⌘K palette)
+ * Autopilot route (module B owns the body: features/autopilot). Its run pages
+ * (`?loop=<id>`: the run's calm progress screen; Home shows it for the first run). `?goal=` (from ⌘K)
  * pre-fills a new run; `?loop=<id>` opens a specific run; `?details=1` opens its details.
  */
 import { useSearchParams } from "next/navigation";

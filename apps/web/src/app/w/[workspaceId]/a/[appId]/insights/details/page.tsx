@@ -35,7 +35,7 @@ export default function InsightsDetailsPage() {
   return (
     <PageContainer width="wide">
       <PageHeader
-        leading={<BackLink href={routes.app(workspaceId, appId).insights}>How it’s going</BackLink>}
+        leading={<BackLink href={routes.app(workspaceId, appId).results}>Results</BackLink>}
         title="Insights details"
         description="Every measured number with its source, your tests, what to try next, YouTube and your data sources."
       />

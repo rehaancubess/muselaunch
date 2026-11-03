@@ -576,7 +576,7 @@ function TrackedLinksSection({ workspaceId, appId, highlight }: { workspaceId: s
             </Button>
           </Card>
         ) : (
-          <Notice>Tracked links belong to a campaign. Create a campaign in Creator first.</Notice>
+          <Notice>Tracked links belong to a campaign. Make a campaign in Create first.</Notice>
         )
       ) : null}
       {links.data?.items.length ? (

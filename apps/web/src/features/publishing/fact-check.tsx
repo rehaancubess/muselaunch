@@ -57,7 +57,7 @@ export function FactCheckFix({ view, className, showExcerpt = false }: { view: P
       const out = (j.output?.data ?? {}) as FixOutcome;
       setStarted(null);
       if (j.status !== "succeeded") toast.error("That didn’t work", j.error?.userMessage ?? j.error?.message ?? "Try again in a moment.");
-      else if (out.ok && out.approvalId) toast.success("Fixed", "The post passes the fact check and is waiting for your OK in Needs you.");
+      else if (out.ok && out.approvalId) toast.success("Fixed", "The post passes the fact check and is waiting for your OK on Home.");
       else if (out.ok) toast.success("Fixed", "The post passes the fact check. You can ask for approval now.");
       else toast.toast({ title: "Still not clear", description: "The fact check still holds this post back. Have a look at what it says now." });
       void refresh();

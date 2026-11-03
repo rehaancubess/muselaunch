@@ -197,7 +197,7 @@ function ManualChecklist({ postId, canPost, approved, onDone }: { postId: string
     setBusy("mark");
     try {
       await api.post(wsPath(workspaceId, `/posts/${postId}/mark-posted`), { url });
-      toast.success("Marked as posted", "Insights will attribute this post’s results.");
+      toast.success("Marked as posted", "Results will attribute this post’s numbers to it.");
       await onDone();
     } catch (e) {
       toast.error("Couldn’t mark as posted", errorMessage(e));

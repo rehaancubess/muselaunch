@@ -146,7 +146,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
         <section className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-footnote font-medium text-ink-2">Test</p>
-            <SideLink href={app.insights}>Insights</SideLink>
+            <SideLink href={app.results}>Results</SideLink>
           </div>
           {ap.hypothesis ? <p className="text-body-sm text-ink text-pretty">{ap.hypothesis.statement}</p> : null}
           <ul className="space-y-0.5">
@@ -201,7 +201,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
               </li>
             ))}
           </ul>
-          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post in Needs you or in Scheduled. Autopilot never posts on its own.</p> : null}
+          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post on Home or in Scheduled. Autopilot never posts on its own.</p> : null}
         </section>
       ) : null}
     </Card>

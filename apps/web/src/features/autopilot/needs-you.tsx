@@ -8,11 +8,11 @@
  * this UI only calls it. About-your-app and Brand-check items link to the page where that decision
  * is made.
  *
- * Entry points: the top-bar button (desktop, opens the sheet), the phone tab bar (NeedsYouTab) and
- * the page /w/:workspaceId/needs-you (NeedsYouPage).
+ * Entry points: the app's Home (its count is the badge on the Home tab), the run's progress screen
+ * and the page /w/:workspaceId/needs-you (NeedsYouPage; old links, nothing in the nav points to it).
  */
 import type { App, Channel, NeedsYouItem, NeedsYouResponse } from "@muselaunch/contracts";
-import { Badge, Button, EmptyState, ErrorState, PageHeader, SegmentedControl, Sheet, Skeleton, cn, useToast } from "@muselaunch/ui";
+import { Badge, Button, EmptyState, ErrorState, PageHeader, SegmentedControl, Skeleton, cn, useToast } from "@muselaunch/ui";
 import { useQueries } from "@tanstack/react-query";
 import { ArrowRight, ArrowUpRight, Check, Coins, Hand, Info, Mail, Send, ShieldAlert, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -79,10 +79,10 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /**
  * Make a Needs-you decision: calls the item's own route (which keeps its permission and snapshot
- * checks), says what happened, and refreshes everything that shows decisions. Also used by Creator →
- * Today's next post ("Looks good" / "Skip").
+ * checks), says what happened, and refreshes everything that shows decisions. Also used by Home's
+ * next post ("Schedule post" / "Skip"), which brings its own words for what happened (`said`).
  */
-export function useNeedsYouDecision(item: NeedsYouItem) {
+export function useNeedsYouDecision(item: NeedsYouItem, said: { approved?: { title: string; text: string } } = {}) {
   const { workspaceId } = useWorkspace();
   const toast = useToast();
   const invalidate = useInvalidate();
@@ -93,7 +93,8 @@ export function useNeedsYouDecision(item: NeedsYouItem) {
     setBusy(which);
     try {
       await api.post(wsPath(workspaceId, route.path), route.body ?? {});
-      toast.success(
+      if (which === "approve" && said.approved) toast.success(said.approved.title, said.approved.text);
+      else toast.success(
         which === "approve" ? (item.kind === "post" ? "Post approved" : item.kind === "spend" ? "Spend approved" : "Approved") : "Got it",
         // Items can bring their own words (Always on's suggestions and pace decision).
         (which === "approve" ? item.labels?.approved : item.labels?.rejected) ??
@@ -340,102 +341,12 @@ export function NothingNeedsYou({ appId, compact }: { appId?: string | null; com
             </Button>
           ) : !working.length && first && !compact ? (
             <Button size="sm" variant="secondary" asChild>
-              <Link href={routes.app(workspaceId, first.id).creator}>Go to Creator</Link>
+              <Link href={routes.app(workspaceId, first.id).home}>Go to Home</Link>
             </Button>
           ) : null
         }
       />
     </div>
-  );
-}
-
-const countLabel = (count: number) => (count ? `Needs you: ${count} decision${count === 1 ? "" : "s"}` : "Needs you: nothing waiting");
-
-/**
- * Top-bar entry (desktop): always there, with a count badge when something is waiting; opens the
- * list in a sheet. On the Needs you page itself it's just the current-page marker.
- */
-export function NeedsYouButton({ workspaceId, current }: { workspaceId: string; current?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const q = useNeedsYou(workspaceId);
-  const count = q.data?.count ?? 0;
-  const pill = cn(
-    "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-footnote font-medium transition-colors focus-visible:outline-none focus-visible:shadow-focus",
-    count ? "border-warning/40 bg-warning-soft text-ink hover:border-warning/70" : "border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink",
-    current && "border-ink/20 bg-mist text-ink",
-  );
-  const inner = (
-    <>
-      <Hand className={cn("size-3.5", count ? "text-warning" : "text-ink-3")} aria-hidden />
-      <span className="hidden lg:inline">Needs you</span>
-      {count ? <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-warning px-1 text-[11px] font-semibold tabular text-white">{count}</span> : null}
-    </>
-  );
-  if (current) {
-    return (
-      <Link href={routes.needsYou(workspaceId)} prefetch={false} aria-current="page" aria-label={countLabel(count)} className={pill}>
-        {inner}
-      </Link>
-    );
-  }
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={setOpen}
-      title="Needs you"
-      description="MuseLaunch never posts, sends or spends past a budget without you. Everything else runs on its own."
-      trigger={
-        <button type="button" aria-label={countLabel(count)} className={pill}>
-          {inner}
-        </button>
-      }
-      footer={
-        <Button size="sm" variant="ghost" asChild>
-          <Link href={routes.needsYou(workspaceId)} onClick={() => setOpen(false)}>
-            Open as a page
-            <ArrowRight className="size-3.5" aria-hidden />
-          </Link>
-        </Button>
-      }
-    >
-      <div className="space-y-4 p-4">
-        {q.isLoading ? (
-          <Skeleton className="h-28" rounded="xl" />
-        ) : count ? (
-          <>
-            <NeedsYouList items={q.data?.items ?? []} showApp group />
-            {count > (q.data?.items.length ?? 0) ? <p className="text-footnote text-ink-3">Showing the newest {q.data?.items.length}.</p> : null}
-          </>
-        ) : (
-          <NothingNeedsYou compact />
-        )}
-      </div>
-    </Sheet>
-  );
-}
-
-/** Phone tab bar entry: a fourth tab with the count badge on its icon. */
-export function NeedsYouTab({ workspaceId, active }: { workspaceId: string; active?: boolean }) {
-  const q = useNeedsYou(workspaceId);
-  const count = q.data?.count ?? 0;
-  return (
-    <Link
-      href={routes.needsYou(workspaceId)}
-      prefetch={false}
-      aria-current={active ? "page" : undefined}
-      aria-label={count ? `Needs you, ${count} waiting` : "Needs you"}
-      className={cn("flex h-full flex-col items-center justify-center gap-0.5 text-[11px] font-medium [&_svg]:size-[22px]", active ? "text-accent" : "text-ink-3")}
-    >
-      <span className="relative">
-        <Hand aria-hidden />
-        {count ? (
-          <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-semibold leading-none tabular text-white" aria-hidden>
-            {count > 99 ? "99+" : count}
-          </span>
-        ) : null}
-      </span>
-      Needs you
-    </Link>
   );
 }
 

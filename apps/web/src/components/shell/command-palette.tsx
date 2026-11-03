@@ -1,7 +1,7 @@
 "use client";
 import { Kbd, cn } from "@muselaunch/ui";
 import { Command } from "cmdk";
-import { BarChart3, CalendarDays, Clapperboard, Compass, CreditCard, FolderOpen, Hand, Info, Plug, Plus, Rocket, Settings, Sparkles, Users, Wand2 } from "lucide-react";
+import { BarChart3, CalendarDays, Clapperboard, Compass, CreditCard, FolderOpen, House, Info, Plug, Plus, Rocket, Settings, Sparkles, Users, Wand2 } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -102,14 +102,20 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
               {r ? (
                 <Command.Group heading={app?.name ?? "App"}>
-                  <Item value="creator campaigns create" icon={<Clapperboard aria-hidden />} onSelect={() => go(r.creator)}>
-                    Creator
+                  <Item value="home today review posts approve needs you decisions coming up" icon={<House aria-hidden />} onSelect={() => go(r.home)}>
+                    Home
                   </Item>
-                  <Item value="discover trends competitors research" icon={<Compass aria-hidden />} onSelect={() => go(r.discover)}>
-                    Discover
+                  <Item value="create make video promote feature idea campaigns creator" icon={<Sparkles aria-hidden />} onSelect={() => go(r.create())}>
+                    Create
                   </Item>
-                  <Item value="insights analytics metrics tests experiments" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insights)}>
-                    Insights
+                  <Item value="results insights analytics metrics views clicks what is working" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.results)}>
+                    Results
+                  </Item>
+                  <Item value="ideas discover trends competitors research findings sources" icon={<Compass aria-hidden />} onSelect={() => go(r.discoverAll)} hint="Create">
+                    Everything Muse found
+                  </Item>
+                  <Item value="insights details tests experiments data sources csv revenuecat" icon={<BarChart3 aria-hidden />} onSelect={() => go(r.insightsDetails())} hint="Results">
+                    Results in detail
                   </Item>
                   <Item value="autopilot growth autonomous loop goal" icon={<Rocket aria-hidden />} onSelect={() => go(r.autopilot)}>
                     Autopilot
@@ -117,10 +123,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <Item value="new campaign" icon={<Plus aria-hidden />} onSelect={() => go(r.newCampaign)}>
                     New campaign
                   </Item>
-                  <Item value="videos files library assets uploads media screenshots renders" icon={<FolderOpen aria-hidden />} onSelect={() => go(r.videos)} hint="Creator">
+                  <Item value="videos files library assets uploads media screenshots renders" icon={<FolderOpen aria-hidden />} onSelect={() => go(r.videos)} hint="Create">
                     Videos and files
                   </Item>
-                  <Item value="scheduled posts calendar publishing schedule" icon={<CalendarDays aria-hidden />} onSelect={() => go(r.scheduled)} hint="Creator">
+                  <Item value="scheduled posts calendar publishing schedule" icon={<CalendarDays aria-hidden />} onSelect={() => go(r.scheduled)} hint="Create">
                     Scheduled posts
                   </Item>
                   <Item value="about your app dna brand kit facts claims audiences features" icon={<Info aria-hidden />} onSelect={() => go(r.about)}>
@@ -130,9 +136,6 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               ) : null}
 
               <Command.Group heading="Workspace">
-                <Item value="needs you decisions approvals inbox" icon={<Hand aria-hidden />} onSelect={() => go(routes.needsYou(workspaceId))}>
-                  Needs you
-                </Item>
                 <Item value="settings workspace autopilot sound profile" icon={<Settings aria-hidden />} onSelect={() => go(routes.settings.workspace(workspaceId))}>
                   Settings
                 </Item>
@@ -152,7 +155,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   {apps
                     .filter((a) => a.id !== app?.id)
                     .map((a) => (
-                      <Item key={a.id} value={`switch ${a.name}`} icon={<AppIcon app={a} workspaceId={workspaceId} size={18} />} onSelect={() => go(routes.app(workspaceId, a.id).creator)}>
+                      <Item key={a.id} value={`switch ${a.name}`} icon={<AppIcon app={a} workspaceId={workspaceId} size={18} />} onSelect={() => go(routes.app(workspaceId, a.id).home)}>
                         {a.name}
                       </Item>
                     ))}

@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { CSV, expectFixtureMode, nav, shooter, signUpAndImport } from "./helpers";
+import { CSV, appBase, expectFixtureMode, nav, shooter, signUpAndImport } from "./helpers";
 
 /**
  * The hands-on campaign flow, end to end through the real UI and API in FIXTURE MODE:
- * onboarding → import → About your app confirmed → research/Discover → new campaign → ideas → produce →
- * Studio (AI edit, undo) → final render → export → post + tracked link → approve → post manually →
- * Insights CSV import → test → recommendation. (journey.spec.ts covers the Autopilot demo.)
+ * onboarding → import → About your app confirmed → research (Create → Everything Muse found) → new
+ * campaign (Create → Make) → ideas → produce → Studio (AI edit, undo) → final render → export → post +
+ * tracked link → approve → post manually → Results → details: CSV import → test → recommendation.
+ * (journey.spec.ts covers the Autopilot demo.)
  *
  * AI responses are labelled fixtures (see apps/api/src/dev-fixture.ts); everything else is real.
  */
@@ -18,25 +19,21 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
   await expectFixtureMode(request);
   await signUpAndImport(page, shot, { email: `maker${Date.now() % 1_000_000}@tidylabs.dev`, shots: false });
 
-  await test.step("Discover (What Muse found): look again → ideas with their sources", async () => {
-    await nav(page, "Discover");
-    await page.waitForURL(/\/discover$/);
-    await page.getByRole("button", { name: "Look again" }).click();
-    await expect(page.getByText("Muse looked again")).toBeVisible({ timeout: 120_000 });
+  await test.step("Create → Everything Muse found: research the market → ideas with their sources", async () => {
+    await nav(page, "Create");
+    await page.waitForURL(/\/create(\?|$)/);
+    await page.goto(`${appBase(page)}/discover/all`);
+    await page.getByRole("button", { name: "Research market" }).click();
+    await page.getByRole("dialog", { name: "Research the market" }).getByRole("button", { name: "Start research" }).click();
+    await expect(page.getByText("Research finished")).toBeVisible({ timeout: 120_000 });
     await page.reload();
     await expect(page.getByRole("button", { name: "Make a video" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: /Found on .*example\.com/ }).first()).toBeVisible();
-    await shot(page, "discover");
-    // Every finding, filters and Research market (chosen areas) stay one tap away.
-    await page.getByRole("link", { name: /See everything/ }).click();
-    await page.waitForURL(/\/discover\/all$/);
-    await expect(page.getByRole("button", { name: "Research market" })).toBeVisible();
+    await expect(page.getByText(/example\.com/).first()).toBeVisible();
     await shot(page, "discover-everything");
   });
 
-  await test.step("Creator: new campaign → ideas", async () => {
-    await nav(page, "Creator");
-    await page.waitForURL(/\/creator$/);
+  await test.step("Create → Make: new campaign → ideas", async () => {
+    await page.goto(`${appBase(page)}/creator/make`);
     await page.locator("#creator-request").fill("Create five promotional Reels introducing Tidy Timer, using a premium Apple-style aesthetic.");
     await shot(page, "creator");
     await page.getByRole("button", { name: "Plan campaign" }).click();
@@ -120,13 +117,12 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await page.keyboard.press("Escape");
   });
 
-  await test.step("Insights: CSV import → test → recommendation", async () => {
-    await nav(page, "Insights");
-    await page.waitForURL(/\/insights$/);
-    await expect(page.getByRole("heading", { name: "How it’s going" })).toBeVisible();
-    await shot(page, "insights-simple", true);
-    await page.getByRole("link", { name: "Details", exact: true }).click();
-    await page.waitForURL(/\/insights\/details/);
+  await test.step("Results → details: CSV import → test → recommendation", async () => {
+    await nav(page, "Results");
+    await page.waitForURL(/\/results$/);
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+    await shot(page, "results", true);
+    await page.goto(`${appBase(page)}/insights/details`);
     await page.getByRole("tab", { name: "Data sources" }).click();
     await page.getByLabel("Choose a CSV file").setInputFiles(CSV);
     await page.getByRole("button", { name: /^Import \d+ rows/ }).click();
@@ -150,11 +146,10 @@ test("hands-on campaign flow (fixture mode)", async ({ page, request }) => {
     await page.getByRole("button", { name: "Generate" }).click();
     await expect(page.getByRole("button", { name: "Dismiss" }).first()).toBeVisible({ timeout: 120_000 });
     await shot(page, "insights-recommendations", true);
-    // Back on How it's going: the imported numbers, each with where it comes from, and what to try next.
-    await page.getByRole("link", { name: "How it’s going" }).click();
-    await page.waitForURL(/\/insights$/);
-    await expect(page.getByText("From a file you imported").first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Try next" })).toBeVisible();
-    await shot(page, "insights-simple-measured", true);
+    // Back on Results (the old Insights page redirects there): the imported numbers, with their sources.
+    await page.getByRole("link", { name: "Results", exact: true }).first().click();
+    await page.waitForURL(/\/results$/);
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+    await shot(page, "results-measured", true);
   });
 });

@@ -360,7 +360,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
               ))}
             </ul>
           ) : (
-            <p className="rounded-xl bg-mist/60 px-4 py-6 text-center text-body-sm text-ink-2">No features found yet. Upload screenshots in Creator → Videos and analyse again.</p>
+            <p className="rounded-xl bg-mist/60 px-4 py-6 text-center text-body-sm text-ink-2">No features found yet. Upload screenshots in Create → Videos and analyse again.</p>
           )}
         </DnaSection>
 
@@ -396,7 +396,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
             </ul>
           ) : (
             <div className="rounded-xl bg-mist/60">
-              <EmptyState size="sm" icon={<Users aria-hidden />} title="No audiences yet" description="Audiences come from your listing and, later, from research in Discover." />
+              <EmptyState size="sm" icon={<Users aria-hidden />} title="No audiences yet" description="Audiences come from your listing and, later, from Muse’s research." />
             </div>
           )}
         </DnaSection>

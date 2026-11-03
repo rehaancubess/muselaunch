@@ -147,7 +147,7 @@ function NothingMeasured({ step, range, canWiden, onWiden, appId, youtube }: { s
   const action =
     step === "post_video" ? (
       <Button asChild size="lg">
-        <Link href={r.creator}>Post your first video</Link>
+        <Link href={r.home}>Post your first video</Link>
       </Button>
     ) : step === "connect_youtube" ? (
       <Button size="lg" icon={<SquarePlay className="size-4" aria-hidden />} onClick={() => void youtube.connectYouTube()} loading={youtube.connecting} disabled={!youtube.canManage}>

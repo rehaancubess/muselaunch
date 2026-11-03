@@ -41,7 +41,7 @@ function AutopilotLink() {
 }
 
 /**
- * The pages behind Creator → Today (Make, Videos, Scheduled): a way back to Today, the three as one
+ * Create's deeper pages (Make, Videos, Scheduled): a way back to Create, the three as one
  * control, and the way into Autopilot. The control sits centred on tablets and up so it doesn't
  * move between them.
  */
@@ -51,9 +51,9 @@ export function CreatorTabs({ current, className }: { current: CreatorView; clas
   const href: Record<CreatorView, string> = { make: r.make, videos: r.videos, scheduled: r.scheduled };
   return (
     <div className={cn("mb-8 flex flex-wrap items-center justify-between gap-3 md:mb-10 md:grid md:grid-cols-[1fr_auto_1fr]", className)}>
-      <Link href={r.creator} prefetch={false} className="inline-flex min-h-11 items-center gap-1 rounded-full pr-2 text-body-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:shadow-focus md:min-h-8">
+      <Link href={r.create()} prefetch={false} className="inline-flex min-h-11 items-center gap-1 rounded-full pr-2 text-body-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:shadow-focus md:min-h-8">
         <ChevronLeft className="size-4" aria-hidden />
-        Today
+        Create
       </Link>
       <nav aria-label="Creator">
         <SegmentedControl

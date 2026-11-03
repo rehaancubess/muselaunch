@@ -36,7 +36,7 @@ export default function NewAppPage() {
             workspaceId={workspaceId}
             app={created.app}
             job={created.job}
-            onContinue={() => router.push(routes.app(workspaceId, created.app.id).creator)}
+            onContinue={() => router.push(routes.app(workspaceId, created.app.id).home)}
             onReview={() => router.push(routes.app(workspaceId, created.app.id).brand)}
           />
         ) : (
