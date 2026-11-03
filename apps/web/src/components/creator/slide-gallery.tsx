@@ -8,7 +8,7 @@
  */
 import { Skeleton, cn } from "@muselaunch/ui";
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -26,10 +26,11 @@ export function frameClass(width?: number, height?: number, fallback = "aspect-[
 }
 
 /** One slide's real image (or a quiet placeholder while it loads / if it's gone). */
-export function SlideImage({ assetId, alt, className, eager }: { assetId: string; alt: string; className?: string; eager?: boolean }) {
+export function SlideImage({ assetId, alt, className, eager, fallback }: { assetId: string; alt: string; className?: string; eager?: boolean; fallback?: ReactNode }) {
   const { workspaceId } = useWorkspace();
   const url = useAssetUrl(workspaceId, assetId);
   if (url.isLoading) return <Skeleton className={cn("size-full rounded-none", className)} />;
+  if (!url.data?.url && fallback) return <>{fallback}</>;
   if (!url.data?.url)
     return (
       <span className={cn("flex size-full items-center justify-center bg-mist text-ink-3", className)} role="img" aria-label={`${alt} (not available)`}>
@@ -134,7 +135,7 @@ export function SlideGallery({
           ))}
         </ol>
         {n > 1 && compact ? (
-          <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm" aria-live="polite">
+          <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-semibold tabular text-white backdrop-blur-sm" aria-live="polite">
             {index + 1}/{n}
           </span>
         ) : null}

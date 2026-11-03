@@ -183,7 +183,7 @@ export function SceneStrip({
                 >
                   {images[s.id] ? (
                     <span className="absolute inset-0">
-                      <SlideImage assetId={images[s.id]!} alt="" />
+                      <SlideImage assetId={images[s.id]!} alt="" fallback={<SceneSketch scene={s} doc={doc} width={w} />} />
                     </span>
                   ) : frame ? (
                     <img src={frame} alt="" className="absolute inset-0 size-full object-cover" loading="lazy" />

@@ -139,6 +139,8 @@ export function SimpleStudio(props: SimpleStudioProps) {
     return out;
   }, [still, last, c.currentVersion, doc.scenes]);
   const sceneIndex = sceneId ? doc.scenes.findIndex((x) => x.id === sceneId) : -1;
+  // With no slide picked, the preview shows slide 1.
+  const shownIndex = Math.max(0, sceneIndex);
   const selectSlide = (i: number) => {
     const sc = doc.scenes[Math.max(0, Math.min(doc.scenes.length - 1, i))];
     if (!sc) return;
@@ -176,13 +178,13 @@ export function SimpleStudio(props: SimpleStudioProps) {
               stillControls={
                 still && doc.scenes.length > 1 ? (
                   <>
-                    <IconButton label="Previous slide" variant="secondary" disabled={sceneIndex <= 0} onClick={() => selectSlide(sceneIndex - 1)}>
+                    <IconButton label="Previous slide" variant="secondary" disabled={shownIndex <= 0} onClick={() => selectSlide(shownIndex - 1)}>
                       <ChevronLeft className="size-4" aria-hidden />
                     </IconButton>
                     <span className="min-w-24 text-center text-footnote font-medium tabular text-ink-2" aria-live="polite">
-                      {sceneIndex >= 0 ? `Slide ${sceneIndex + 1} of ${doc.scenes.length}` : `${doc.scenes.length} slides`}
+                      Slide {shownIndex + 1} of {doc.scenes.length}
                     </span>
-                    <IconButton label="Next slide" variant="secondary" disabled={sceneIndex >= doc.scenes.length - 1} onClick={() => selectSlide(sceneIndex + 1)}>
+                    <IconButton label="Next slide" variant="secondary" disabled={shownIndex >= doc.scenes.length - 1} onClick={() => selectSlide(shownIndex + 1)}>
                       <ChevronRight className="size-4" aria-hidden />
                     </IconButton>
                   </>

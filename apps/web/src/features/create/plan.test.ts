@@ -317,5 +317,8 @@ describe("Create: your content (stills and text posts)", () => {
     expect(textCount("x".repeat(281), "x").over).toBe(true);
     expect(textCount("Post", "linkedin").limit).toBe(3000);
     expect(textCount("Post", "instagram").limit).toBeNull();
+    // The app's link (filled in when it's scheduled) counts as a link.
+    expect(textCount("Try it: [APP_LINK]", "x").used).toBe(8 + 23);
+    expect(textCount("Try it: [APP_LINK]", "threads").used).toBe(8 + 30);
   });
 });

@@ -39,10 +39,6 @@ function StillsTile({ stills, href, onPost, canPost }: { stills: FinishedStills;
   return (
     <li className="min-w-0 space-y-2">
       <Link href={href} className={cn(TILE, "group flex items-center justify-center bg-mist p-2.5 focus-visible:outline-none focus-visible:shadow-focus")} aria-label={`Open ${stills.title} (${badge})`}>
-        {n > 1 ? (
-          // A hint of the next slides behind the cover: it reads as a set at a glance.
-          <span className={cn("absolute rounded-lg bg-surface/80 shadow-raised", frameClass(stills.width, stills.height), wide ? "w-[78%] translate-x-2 translate-y-2" : "h-[72%] translate-x-3 rotate-[3deg]")} aria-hidden />
-        ) : null}
         <span className={cn("relative block overflow-hidden rounded-lg shadow-raised transition-transform duration-300 group-hover:scale-[1.03]", frameClass(stills.width, stills.height), wide ? "w-full" : "max-h-full w-full")}>
           <SlideImage assetId={stills.assetIds[0]!} alt="" />
         </span>

@@ -192,7 +192,8 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
   });
   const running = isPostChangeRunning(post.change);
   const state = postState(post);
-  const title = postTitle(post);
+  // A text post with no title of its own: its words are shown in full below, so the heading says what it is.
+  const title = isTextOnly(post) && !post.title?.trim() ? `Your post for ${channel}` : postTitle(post);
   // With no title of its own, the caption's first line is the title: show the rest here.
   const caption = post.title?.trim() || post.compositionTitle?.trim() ? post.caption : post.caption.split("\n").slice(1).join("\n").trim();
   const longCaption = caption.length > 110 || caption.includes("\n");

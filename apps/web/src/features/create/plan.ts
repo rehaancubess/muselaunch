@@ -163,10 +163,10 @@ export function readMake(raw: string | null | undefined): { make: MakeFormat | n
 /** The three big choices; everything else is under More. */
 export const MAIN_MAKES = ["video", "post", "carousel"] as const satisfies readonly MakeFormat[];
 export const MORE_MAKES: { make: MakeFormat; store?: StoreTarget; label: string; hint: string }[] = [
-  { make: "thumbnail", label: "Thumbnail", hint: "YouTube, 16:9" },
-  { make: "store_screenshots", store: "ios", label: "App Store screenshots", hint: "1290 × 2796" },
-  { make: "store_screenshots", store: "android", label: "Google Play screenshots", hint: "1080 × 1920" },
-  { make: "text_post", label: "Text post", hint: "X, Threads, LinkedIn, Reddit" },
+  { make: "thumbnail", label: "Thumbnail", hint: "YouTube" },
+  { make: "store_screenshots", store: "ios", label: "App Store screenshots", hint: "iPhone" },
+  { make: "store_screenshots", store: "android", label: "Google Play screenshots", hint: "Android" },
+  { make: "text_post", label: "Text post", hint: "No images" },
 ];
 
 /** "Carousel", "App Store screenshots": what the chosen thing is called on the page. */
@@ -568,12 +568,12 @@ export interface FinishedStills {
   renderedAt: string;
 }
 
-/** Slide number of a still render (label `slide:<n>`; slide 1 has no suffix on its id). */
+/** Slide number of a still render (label `slide:<n>`; else the `_<n>` suffix of `ast_r_<key>_<n>`; slide 1 has none). */
 function slideNo(a: { id: string; labels?: string[] }): number {
   const l = (a.labels ?? []).find((x) => x.startsWith("slide:"));
   const n = l ? Number(l.slice(6)) : NaN;
   if (Number.isFinite(n) && n >= 1) return n;
-  const m = /_(\d{1,2})$/.exec(a.id);
+  const m = /^ast_r_[0-9a-f]+_(\d{1,2})$/.exec(a.id);
   return m ? Number(m[1]) : 1;
 }
 
@@ -581,25 +581,28 @@ type StillAsset = RenderAsset & { labels?: string[] };
 
 /**
  * Newest finished stills per composition, newest first: a final render of a still doc is one image
- * per slide (ids `ast_r_<key>` for slide 1, `ast_r_<key>_<n>` for slide n). A newer render of the
- * same composition replaces the older; a set whose slide 1 is missing is skipped.
+ * per slide (render worker: `ast_r_<key>` for slide 1, `ast_r_<key>_<n>` for slide n, label
+ * `slide:<n>`). Slides are grouped by composition and version (the newest image per slide number);
+ * a newer version replaces the older; a set without its slide 1 is skipped.
  */
 export function finishedStills(assets: StillAsset[], titles: Map<string, string> | Record<string, string> = {}, max = 12): FinishedStills[] {
   const name = (id: string) => (titles instanceof Map ? titles.get(id) : titles[id]);
-  const sets = new Map<string, { first?: StillAsset; slides: Map<number, StillAsset> }>();
-  for (const a of assets) {
+  const sets = new Map<string, Map<number, StillAsset>>();
+  for (const a of [...assets].sort((x, y) => y.createdAt.localeCompare(x.createdAt))) {
     if (a.kind !== "image" || a.role !== "render" || a.render?.quality !== "final" || a.status !== "ready" || !a.render.compositionId) continue;
+    const key = `${a.render.compositionId}\u0000${a.render.version}`;
+    const set = sets.get(key) ?? new Map<number, StillAsset>();
     const n = slideNo(a);
-    const base = n > 1 ? a.id.replace(new RegExp(`_${n}$`), "") : a.id;
-    const set: { first?: StillAsset; slides: Map<number, StillAsset> } = sets.get(base) ?? { slides: new Map() };
-    set.slides.set(n, a);
-    if (n === 1) set.first = a;
-    sets.set(base, set);
+    if (!set.has(n)) set.set(n, a);
+    sets.set(key, set);
   }
+  const ordered = [...sets.values()]
+    .filter((x) => x.has(1))
+    .sort((x, y) => (y.get(1)!.render!.version - x.get(1)!.render!.version) || y.get(1)!.createdAt.localeCompare(x.get(1)!.createdAt));
   const seen = new Set<string>();
   const out: FinishedStills[] = [];
-  const ordered = [...sets.values()].filter((x): x is { first: StillAsset; slides: Map<number, StillAsset> } => Boolean(x.first)).sort((x, y) => y.first.createdAt.localeCompare(x.first.createdAt) || (y.first.render?.version ?? 0) - (x.first.render?.version ?? 0));
-  for (const { first, slides } of ordered) {
+  for (const slides of ordered) {
+    const first = slides.get(1)!;
     const cid = first.render!.compositionId;
     if (seen.has(cid)) continue;
     seen.add(cid);
@@ -615,9 +618,8 @@ export function finishedStills(assets: StillAsset[], titles: Map<string, string>
       version: first.render?.version,
       renderedAt: first.createdAt,
     });
-    if (out.length >= max) break;
   }
-  return out;
+  return out.sort((a, b) => b.renderedAt.localeCompare(a.renderedAt)).slice(0, max);
 }
 
 /** A finished text post (from its Create run: nothing is rendered). */
@@ -685,10 +687,18 @@ export function aspectOf(width?: number, height?: number): AspectRatio | null {
   return null;
 }
 
-/** Characters a text post uses vs its channel's limit (X counts links as 23, like the server). */
+/** Where Muse's copy puts the app's link until the post's tracked link fills it (contracts APP_LINK_TOKEN). */
+export const LINK_TOKEN = "[APP_LINK]";
+/** Characters a tracked link takes outside X (https://<host>/r/<slug>, about 30). */
+const LINK_CHARS = 30;
+
+/** Characters a text post uses vs its channel's limit (X counts links as 23, like the server; the link token counts as a link). */
 export function textCount(text: string, channel: Channel): { used: number; limit: number | null; over: boolean } {
   const limit = (TEXT_POST_LIMITS as Partial<Record<Channel, number>>)[channel] ?? null;
   let used = 0;
+  const links = text.split(LINK_TOKEN).length - 1;
+  text = text.split(LINK_TOKEN).join("");
+  used += links * (channel === "x" ? 23 : LINK_CHARS);
   if (channel === "x") {
     const rest = text.replace(/https?:\/\/\S+/g, () => {
       used += 23;
@@ -698,7 +708,7 @@ export function textCount(text: string, channel: Channel): { used: number; limit
       const cp = ch.codePointAt(0)!;
       used += cp <= 4351 || (cp >= 8192 && cp <= 8205) || (cp >= 8208 && cp <= 8223) || (cp >= 8242 && cp <= 8247) ? 1 : 2;
     }
-  } else used = [...text].length;
+  } else used += [...text].length;
   return { used, limit, over: limit !== null && used > limit };
 }
 

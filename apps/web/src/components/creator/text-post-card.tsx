@@ -11,7 +11,26 @@ import { AppIcon } from "@/components/app-icon";
 import { ChannelMark } from "@/components/channel-mark";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useWorkspace } from "@/lib/workspace";
-import { textCount } from "@/features/create/plan";
+import { LINK_TOKEN, textCount } from "@/features/create/plan";
+
+/** The post's words, with the app's link (filled in when it's scheduled) shown as a link. */
+function PostText({ text }: { text: string }) {
+  const parts = text.split(LINK_TOKEN);
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {part}
+          {i < parts.length - 1 ? (
+            <span className="font-medium text-accent" title="Your app’s tracked link goes here when you schedule it">
+              your app link
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </>
+  );
+}
 
 /** What each channel calls the author line under the name. */
 const HANDLE_HINT: Partial<Record<Channel, string>> = { x: "Post on X", threads: "Thread", linkedin: "Post", reddit: "Text post", facebook: "Post" };
@@ -34,7 +53,9 @@ export function TextPostCard({ text, channel, ok, className, clamp }: { text: st
           {CHANNEL_LABEL[channel] ?? channel}
         </span>
       </figcaption>
-      <blockquote className={cn("mt-3 whitespace-pre-line break-words text-body text-ink", clamp && "line-clamp-6")}>{text}</blockquote>
+      <blockquote className={cn("mt-3 whitespace-pre-line break-words text-body text-ink", clamp && "line-clamp-6")}>
+        <PostText text={text} />
+      </blockquote>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line pt-3">
         {ok === undefined || ok === null ? (
           <span />
