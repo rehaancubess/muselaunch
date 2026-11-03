@@ -17,8 +17,8 @@ import { useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
 import { SlideGallery } from "@/components/creator/slide-gallery";
 import { TextPostCard } from "@/components/creator/text-post-card";
-import { api, errorMessage, wsPath } from "@/lib/api";
-import type { SignedUrl } from "@/lib/api-types";
+import { errorMessage } from "@/lib/api";
+import { downloadSlides } from "@/lib/slides";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 import { clock, isMoving, isSlideSet, makeNoun, needsPerson, runMake, stageLabel, stepState, stepsFor, type FinishedStills, type FinishedVideo, type MakeFormat } from "./plan";
@@ -331,22 +331,6 @@ function DonePoster({ video, href }: { video: FinishedVideo; href: string }) {
   );
 }
 
-/** Download each slide (the API has no per-run zip; the campaign export packages every final render). */
-async function downloadSlides(workspaceId: string, ids: string[]) {
-  for (const [i, id] of ids.entries()) {
-    const { url } = await api.get<SignedUrl>(wsPath(workspaceId, `/assets/${id}/url`), { query: { download: 1 } });
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `slide-${i + 1}`;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Browsers drop rapid back-to-back downloads: a short pause between slides.
-    if (i < ids.length - 1) await new Promise((res) => setTimeout(res, 350));
-  }
-}
-
 function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stills: FinishedStills; make: MakeFormat; studioHref: string | null; canWrite: boolean; onSchedule: () => void }) {
   const { workspaceId } = useWorkspace();
   const toast = useToast();
@@ -377,7 +361,8 @@ function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stil
           onClick={async () => {
             setBusy(true);
             try {
-              await downloadSlides(workspaceId, stills.assetIds);
+              const how = await downloadSlides(workspaceId, { assetIds: stills.assetIds, campaignId: stills.campaignId, compositionId: stills.compositionId || undefined });
+              if (how === "zip") toast.success("Downloaded", `All ${n} slides in one ZIP, with the captions Muse wrote.`);
             } catch (e) {
               toast.error("Download failed", errorMessage(e));
             } finally {

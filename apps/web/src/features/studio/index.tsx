@@ -28,6 +28,8 @@ import { ClipPanel } from "./clip-panel";
 import { clipObjects, docAnalysisIds, pickDemo, useClips } from "./clips";
 import { Inspector } from "./inspector";
 import { sceneAt, sceneStarts, splitSceneOps } from "./ops";
+import { settledAt } from "./scene-strip";
+import { isStillDoc } from "./stills";
 import { PreviewPlayer, type PlayerHandle } from "./preview";
 import { SimpleStudio } from "./simple-view";
 import { Timeline } from "./timeline";
@@ -46,11 +48,13 @@ const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isCon
 
 export default function StudioRoot({ compositionId }: StudioRootProps) {
   const { workspaceId, appId } = useCurrentApp();
-  const { mode, setMode } = useStudioMode();
-  const simple = mode === "simple";
   const studio = useStudio(workspaceId, compositionId);
   const data = studio.data;
   const doc = data?.version.doc;
+  // Stills (posts, carousels, store sets) open simple: a slide strip and a parked preview, no timeline.
+  const still = doc ? isStillDoc(doc) : false;
+  const { mode, setMode } = useStudioMode({ simpleFirst: still });
+  const simple = mode === "simple";
   const preview = usePreview(studio.base, data?.composition.currentVersion);
   const player = useRef<PlayerHandle>(null);
   const [time, setTime] = useState(0);
@@ -93,8 +97,13 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
     (id: string) => {
       setSceneId(id);
       setLayerId(null);
+      // Stills: the preview parks on the picked slide, as it looks once everything is on it.
+      if (still && doc) {
+        const i = doc.scenes.findIndex((s) => s.id === id);
+        if (i >= 0) seek((sceneStarts(doc)[i] ?? 0) + settledAt(doc.scenes[i]!));
+      }
     },
-    [],
+    [still, doc, seek],
   );
   const selectLayer = useCallback(
     (sid: string, lid: string | null, opts?: { keepTab?: boolean }) => {
@@ -176,7 +185,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
       } else if (simple) {
         // The simple view has no timeline or layers: only undo/redo and play/pause.
         return;
-      } else if (e.key.toLowerCase() === "s" && !mod) {
+      } else if (e.key.toLowerCase() === "s" && !mod && !still) {
         const at = sceneAt(doc, time);
         const ops = at ? splitSceneOps(at.scene, time - at.start) : null;
         if (ops && at) onPatch(ops, `Split ${at.scene.name}`);
@@ -190,7 +199,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc, time, scene, layer, studio, onPatch, simple]);
+  }, [doc, time, scene, layer, studio, onPatch, simple, still]);
 
   if (studio.query.isLoading && simple) {
     return (
@@ -304,6 +313,7 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             error={preview.error?.userMessage}
             onRetry={() => preview.refetch()}
             onTime={setTime}
+            still={still}
             overlay={showTracks && objects.length ? <TrackOverlay doc={doc} time={time} objects={objects} tracks={clips.data?.tracks ?? {}} /> : null}
             controls={
               <>
@@ -324,8 +334,8 @@ export default function StudioRoot({ compositionId }: StudioRootProps) {
             <TabsList label="Edit panel" className="gap-4 overflow-x-auto px-3 [scrollbar-width:none] [&>*]:shrink-0 [&>*]:whitespace-nowrap">
               <TabsTrigger value="edit">Inspector</TabsTrigger>
               <TabsTrigger value="ai">Ask Muse</TabsTrigger>
-              <TabsTrigger value="clip">Clip</TabsTrigger>
-              <TabsTrigger value="sound">Sound</TabsTrigger>
+              {still ? null : <TabsTrigger value="clip">Clip</TabsTrigger>}
+              {still ? null : <TabsTrigger value="sound">Sound</TabsTrigger>}
               <TabsTrigger value="brand" count={brandOpen.length || undefined}>
                 Brand
               </TabsTrigger>

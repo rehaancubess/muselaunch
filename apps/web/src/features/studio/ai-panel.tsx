@@ -11,6 +11,7 @@ import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
 import { hooksAskedFor, requestHooks } from "./hooks-dialog";
 import { describeOp } from "./ops";
+import { isStillDoc, stillChips, wholeLabel } from "./stills";
 import type { AiEditResponse, CommitResponse, CompositionDoc, CompositionPatch, PatchDetailResponse } from "./types";
 
 const SUGGESTIONS = ["Make the opening more engaging", "Make this scene punchier", "Tighten the whole video to about 10 seconds", "Use a calmer, more premium tone in the headlines"];
@@ -74,7 +75,11 @@ export function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: {
   const [busy, setBusy] = useState<"apply" | "reject" | null>(null);
   const p = detail.data?.patch;
   if (!p) return null;
-  const sceneName = (id: string) => doc.scenes.find((s) => s.id === id)?.name ?? id;
+  // Stills: "Slide 3" (one scene = one slide); videos: the scene's name.
+  const sceneName = (id: string) => {
+    const i = doc.scenes.findIndex((s) => s.id === id);
+    return i < 0 ? id : isStillDoc(doc) ? `Slide ${i + 1}` : doc.scenes[i]!.name;
+  };
   const act = async (kind: "apply" | "reject") => {
     setBusy(kind);
     try {
@@ -106,7 +111,7 @@ export function PatchCard({ base, patchId, doc, onApplied, onUndo, disabled }: {
               {sceneName(id)}
             </Badge>
           ))}
-          <span className="text-caption text-ink-3">· other scenes stay exactly as they are</span>
+          <span className="text-caption text-ink-3">· other {isStillDoc(doc) ? "slides" : "scenes"} stay exactly as they are</span>
         </div>
       ) : null}
       <ul className="space-y-1 border-l-2 border-accent-soft pl-2.5">
@@ -166,7 +171,7 @@ export function TurnView({ turn, workspaceId, base, doc, onApplied, onUndo, onPa
           </span>
         ) : null}
         {turn.instruction}
-        {turn.scope.length ? <span className="mt-0.5 block text-caption text-white/80">Only: {turn.scope.map((id) => doc.scenes.find((s) => s.id === id)?.name ?? id).join(", ")}</span> : null}
+        {turn.scope.length ? <span className="mt-0.5 block text-caption text-white/80">Only: {turn.scope.map((id) => { const i = doc.scenes.findIndex((s) => s.id === id); return i < 0 ? id : isStillDoc(doc) ? `slide ${i + 1}` : doc.scenes[i]!.name; }).join(", ")}</span> : null}
       </div>
       {turn.error ? <Notice tone="danger">{turn.error}</Notice> : null}
       {job && job.status !== "succeeded" ? (
@@ -247,7 +252,10 @@ export function AiPanel({
     setText("");
     void send(v, scope === "scene" && selectedSceneId ? [selectedSceneId] : []);
   };
-  const sceneName = doc.scenes.find((s) => s.id === selectedSceneId)?.name;
+  const still = isStillDoc(doc);
+  const slideNo = doc.scenes.findIndex((s) => s.id === selectedSceneId) + 1;
+  const sceneName = still ? (slideNo > 0 ? `slide ${slideNo}` : undefined) : doc.scenes.find((s) => s.id === selectedSceneId)?.name;
+  const suggestions = still ? stillChips(doc, selectedSceneId).map((c) => c.label) : [...(trackedLabels.length ? OBJECT_SUGGESTIONS : []), ...SUGGESTIONS];
   const earlier = (recent.data?.items ?? []).filter((p) => p.source === "ai" && !turns.some((t) => t.patchId === p.id)).slice(0, 5);
 
   return (
@@ -256,7 +264,7 @@ export function AiPanel({
         {!turns.length ? (
           <li className="space-y-3">
             <div className="flex items-center gap-2 text-body-sm font-medium text-ink">
-              <Sparkles className="size-4 text-accent" aria-hidden /> Ask Muse to edit this video
+              <Sparkles className="size-4 text-accent" aria-hidden /> Ask Muse to edit this {still ? (doc.scenes.length > 1 ? "carousel" : "image") : "video"}
             </div>
             <p className="text-footnote text-ink-2">Edits change only what you ask for. Each one is a reviewable change you can apply, reject or undo.</p>
             {trackedLabels.length ? (
@@ -268,7 +276,7 @@ export function AiPanel({
               </p>
             ) : null}
             <div className="flex flex-wrap gap-1.5">
-              {[...(trackedLabels.length ? OBJECT_SUGGESTIONS : []), ...SUGGESTIONS].map((s) => (
+              {suggestions.map((s) => (
                 <button key={s} type="button" className="rounded-full border border-line px-2.5 py-1 text-footnote text-ink-2 hover:border-line-strong hover:text-ink" onClick={() => setText(s)}>
                   {s}
                 </button>
@@ -313,14 +321,14 @@ export function AiPanel({
           value={scope}
           onChange={setScope}
           items={[
-            { value: "all", label: "Whole video" },
-            { value: "scene", label: sceneName ? `Only ${sceneName}` : "Selected scene", disabled: !selectedSceneId },
+            { value: "all", label: wholeLabel(doc) },
+            { value: "scene", label: sceneName ? `Only ${sceneName}` : still ? "Selected slide" : "Selected scene", disabled: !selectedSceneId },
           ]}
         />
         <Textarea
           rows={3}
           value={text}
-          placeholder="e.g. Show the app recording on an animated iPhone in scene 2"
+          placeholder={still ? "e.g. Make the headline on slide 2 shorter" : "e.g. Show the app recording on an animated iPhone in scene 2"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

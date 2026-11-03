@@ -5,13 +5,20 @@
  * Render / Download / Post. Every change goes through the same APIs as the full editor (scene-scoped
  * AI edits reviewed before they apply, validated Brand check fixes, versions with undo); everything
  * else stays one tap away behind "Edit in detail".
+ *
+ * Stills (posts, carousels, thumbnails, store sets; one scene = one slide): the preview parks on the
+ * selected slide (no playback), the strip is a slide strip ("Change slide 3 only"), the suggestions
+ * are about headlines, screens and backgrounds, there is no sound, hooks or length, and Finish renders
+ * one image per slide (Download all, Schedule post).
  */
 import type { CompositionDoc, Job, VideoReview, VideoReviewFinding } from "@muselaunch/contracts";
 import { Button, IconButton, JobProgress, Notice, Spinner, Tooltip, cn, useToast } from "@muselaunch/ui";
-import { ChevronLeft, Clapperboard, Download, Redo2, Send, SlidersHorizontal, Undo2, X } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Clapperboard, Download, Redo2, Send, SlidersHorizontal, Undo2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { SlideImage } from "@/components/creator/slide-gallery";
+import { SchedulePostDialog } from "@/features/create/schedule";
 import type { ApplyFindingResponse } from "@/features/guardian/use-guardian";
 import { TellMuse } from "@/features/change/tell-muse";
 import { NewPostDialog } from "@/features/publishing/new-post";
@@ -20,13 +27,16 @@ import { useAiEditCommand } from "@/lib/commands";
 import { useTextEngine } from "@/lib/engines";
 import { fetchEstimate } from "@/lib/estimate";
 import { useJob } from "@/lib/jobs";
-import { useInvalidate } from "@/lib/query";
+import type { AppDnaResponse } from "@/lib/api-types";
+import { useApiQuery, useInvalidate } from "@/lib/query";
+import { downloadSlides } from "@/lib/slides";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
 import { OBJECT_SUGGESTIONS, TurnView, useAiEdits } from "./ai-panel";
 import type { SoundState } from "./audio-panel";
 import type { ClipObject } from "./clips";
 import { HooksDialog } from "./hooks-dialog";
+import { isStillDoc, slideAssetIds, stillChips, stillNoun, wholeLabel } from "./stills";
 import { sceneStarts, totalDuration } from "./ops";
 import { PreviewPlayer, type PlayerHandle } from "./preview";
 import { SceneStrip, settledAt } from "./scene-strip";
@@ -118,6 +128,23 @@ export function SimpleStudio(props: SimpleStudioProps) {
     return out;
   }, [review, props.videoReviews.data?.frameUrls, c.currentVersion, doc]);
   const portrait = doc.height >= doc.width;
+  const still = isStillDoc(doc);
+  // Stills: real images of the last still render of this exact version, per slide (preview or final).
+  const last = data.lastRender;
+  const slideImages = useMemo(() => {
+    const out: Record<string, string> = {};
+    if (!still || !last?.assetId || last.version !== c.currentVersion) return out;
+    const ids = slideAssetIds(last.assetId, doc.scenes.length);
+    doc.scenes.forEach((sc, i) => (out[sc.id] = ids[i]!));
+    return out;
+  }, [still, last, c.currentVersion, doc.scenes]);
+  const sceneIndex = sceneId ? doc.scenes.findIndex((x) => x.id === sceneId) : -1;
+  const selectSlide = (i: number) => {
+    const sc = doc.scenes[Math.max(0, Math.min(doc.scenes.length - 1, i))];
+    if (!sc) return;
+    onSceneId(sc.id);
+    seek((sceneStarts(doc)[doc.scenes.indexOf(sc)] ?? 0) + settledAt(sc));
+  };
   const brandReviewer = props.brand.latest && props.brand.latest.status !== "queued" && props.brand.latest.status !== "running" && props.brand.latest.status !== "failed" ? props.brand.latest.reviewer : null;
 
   return (
@@ -139,11 +166,28 @@ export function SimpleStudio(props: SimpleStudioProps) {
               width={doc.width}
               height={doc.height}
               durationSec={data.durationSec}
-              posterSec={preview.data?.posterSec}
+              // Stills park on the first slide's settled frame until one is picked.
+              posterSec={still ? settledAt(doc.scenes[0]!) : preview.data?.posterSec}
               loading={preview.isLoading}
               error={preview.error?.userMessage}
               onRetry={() => void preview.refetch()}
               onTime={onTime}
+              still={still}
+              stillControls={
+                still && doc.scenes.length > 1 ? (
+                  <>
+                    <IconButton label="Previous slide" variant="secondary" disabled={sceneIndex <= 0} onClick={() => selectSlide(sceneIndex - 1)}>
+                      <ChevronLeft className="size-4" aria-hidden />
+                    </IconButton>
+                    <span className="min-w-24 text-center text-footnote font-medium tabular text-ink-2" aria-live="polite">
+                      {sceneIndex >= 0 ? `Slide ${sceneIndex + 1} of ${doc.scenes.length}` : `${doc.scenes.length} slides`}
+                    </span>
+                    <IconButton label="Next slide" variant="secondary" disabled={sceneIndex >= doc.scenes.length - 1} onClick={() => selectSlide(sceneIndex + 1)}>
+                      <ChevronRight className="size-4" aria-hidden />
+                    </IconButton>
+                  </>
+                ) : null
+              }
             />
           </div>
           <SceneStrip
@@ -151,10 +195,12 @@ export function SimpleStudio(props: SimpleStudioProps) {
             time={time}
             selectedId={sceneId}
             issues={props.issueScenes}
-            frames={frames}
+            frames={still ? {} : frames}
+            images={slideImages}
             onSelect={(id, at) => {
               onSceneId(id);
               if (id) seek(at);
+              else if (still) seek(settledAt(doc.scenes[0]!));
             }}
           />
         </main>
@@ -171,7 +217,7 @@ export function SimpleStudio(props: SimpleStudioProps) {
                 onDetails={() => onDetail("brand")}
                 disabled={props.saving}
               />
-              <SoundLine workspaceId={workspaceId} base={base} version={c.currentVersion} onCommitted={props.onApplied} onRefresh={props.onRefresh} onDetails={() => onDetail("sound")} disabled={props.saving} />
+              {still ? null : <SoundLine workspaceId={workspaceId} base={base} version={c.currentVersion} onCommitted={props.onApplied} onRefresh={props.onRefresh} onDetails={() => onDetail("sound")} disabled={props.saving} />}
             </div>
           </div>
           <div className="space-y-3 border-t border-line px-4 pb-5 pt-4 lg:px-5">
@@ -204,7 +250,9 @@ function SimpleHeader({ workspaceId, appId, base, data, saving, onUndo, onRedo, 
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-body-sm font-semibold text-ink sm:text-headline">{c.title}</h1>
         <p className="flex items-center gap-1.5 text-caption tabular text-ink-3">
-          v{c.currentVersion} · {data.version.doc.aspectRatio} · {Math.round(data.durationSec * 10) / 10}s{saving ? <Spinner size={12} label="Saving" /> : null}
+          v{c.currentVersion} · {data.version.doc.aspectRatio} ·{" "}
+          {isStillDoc(data.version.doc) ? `${data.version.doc.scenes.length} ${data.version.doc.scenes.length === 1 ? "image" : "slides"}` : `${Math.round(data.durationSec * 10) / 10}s`}
+          {saving ? <Spinner size={12} label="Saving" /> : null}
         </p>
       </div>
       <Tooltip content="Undo (⌘Z)">
@@ -243,9 +291,13 @@ function ChangeBox({
   onRefresh,
 }: SimpleStudioProps & { review: VideoReview | null }) {
   const doc = data.version.doc;
+  const still = isStillDoc(doc);
   const { can } = useWorkspace();
   const toast = useToast();
   const invalidate = useInvalidate();
+  // The app's features, for "Add a slide about …" (same query as Create and About your app).
+  const dna = useApiQuery<AppDnaResponse>(still ? wsPath(workspaceId, `/apps/${appId}/dna`) : null, { retry: false, staleTime: 60_000 });
+  const features = useMemo(() => (dna.data?.profile?.features ?? []).map((f) => f.name.trim()).filter(Boolean), [dna.data]);
   const scope = sceneId && doc.scenes.some((s) => s.id === sceneId) ? [sceneId] : [];
   const sceneIndex = doc.scenes.findIndex((s) => s.id === sceneId);
   const scene = doc.scenes[sceneIndex];
@@ -310,6 +362,7 @@ function ChangeBox({
   }, [base, data.composition.currentVersion, toast]);
 
   const chips = useMemo<Chip[]>(() => {
+    if (still) return stillChips(doc, scene?.id ?? null, features).map((x) => ({ key: x.key, label: x.label, hint: x.hint, act: () => void send(x.instruction, x.sceneIds) }));
     const out: Chip[] = [];
     const first = doc.scenes[0];
     const sparkScenes = new Set<string>();
@@ -339,14 +392,14 @@ function ChangeBox({
     }
     if (doc.audio.some((a) => a.kind === "music" && a.sourceLabel === "original_music")) out.push({ key: "music", label: "Change the music", hint: "New original music in another mood (free)", act: () => void changeMusic() });
     return out.slice(0, 4);
-  }, [doc, review, data.composition.currentVersion, scene, trackedLabels.length, fixFindings, send, changeMusic]);
+  }, [doc, still, features, review, data.composition.currentVersion, scene, trackedLabels.length, fixFindings, send, changeMusic]);
 
   const musicRunning = music.job && (music.job.status === "queued" || music.job.status === "running");
 
   return (
     <TellMuse
       appId={appId}
-      placeholder={scene ? "e.g. Make this scene more exciting" : "e.g. Show my app on an animated iPhone"}
+      placeholder={still ? (scene ? "e.g. Make this headline shorter" : "e.g. Use calmer colours on every slide") : scene ? "e.g. Make this scene more exciting" : "e.g. Show my app on an animated iPhone"}
       busy={sending}
       disabled={disabled}
       onSubmit={(v, o) => {
@@ -358,14 +411,14 @@ function ChangeBox({
             type="button"
             onClick={() => onSceneId(null)}
             className="inline-flex max-w-[55%] shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-caption font-medium text-accent-ink hover:bg-accent-soft/70 focus-visible:outline-none focus-visible:shadow-focus"
-            aria-label={`Only scene ${sceneIndex + 1} (${scene.name}). Change the whole video instead`}
-            title={scene.name}
+            aria-label={still ? `Change slide ${sceneIndex + 1} only. Change ${wholeLabel(doc).toLowerCase()} instead` : `Only scene ${sceneIndex + 1} (${scene.name}). Change the whole video instead`}
+            title={still ? undefined : scene.name}
           >
-            <span className="truncate">Only scene {sceneIndex + 1}</span>
+            <span className="truncate">{still ? `Change slide ${sceneIndex + 1} only` : `Only scene ${sceneIndex + 1}`}</span>
             <X className="size-3.5 shrink-0" aria-hidden />
           </button>
         ) : (
-          <span className="shrink-0 rounded-full bg-mist px-2.5 py-1 text-caption font-medium text-ink-2">Whole video</span>
+          <span className="shrink-0 rounded-full bg-mist px-2.5 py-1 text-caption font-medium text-ink-2">{wholeLabel(doc)}</span>
         )
       }
       chips={canWrite ? chips.map((chip) => ({ key: chip.key, label: chip.label, hint: chip.hint, fromSpark: chip.fromSpark, act: chip.act, disabled: saving || (chip.key === "music" && !!musicRunning) })) : []}
@@ -402,23 +455,41 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
   const toast = useToast();
   const router = useRouter();
   const [posting, setPosting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const c = data.composition;
+  const doc = data.version.doc;
   const last = data.lastRender;
   const errors = data.lint.filter((i) => i.level === "error");
   const ready = !!last && last.version === c.currentVersion && last.quality === "final" && !!last.assetId;
   const olderFinal = !!last && !ready && last.quality === "final" && !!last.assetId;
-  const isVideo = data.version.doc.kind === "video";
+  const isVideo = doc.kind === "video";
+  const noun = stillNoun(doc);
+  const slides = isVideo ? [] : ready ? slideAssetIds(last!.assetId!, doc.scenes.length) : [];
   const download = (assetId: string) => downloadAsset(workspaceId, assetId).catch((e) => toast.error("Download failed", errorMessage(e)));
+  const downloadAll = async () => {
+    setDownloading(true);
+    try {
+      const how = await downloadSlides(workspaceId, { assetIds: slides, campaignId: c.campaignId, compositionId: c.id });
+      if (how === "zip") toast.success("Downloaded", `All ${slides.length} slides in one ZIP, with the captions Muse wrote.`);
+    } catch (e) {
+      toast.error("Download failed", errorMessage(e));
+    } finally {
+      setDownloading(false);
+    }
+  };
   const status =
     c.status === "rendering"
       ? "Rendering…"
       : ready
-        ? `Ready to post · ${last!.asset.width && last!.asset.height ? `${last!.asset.width}×${last!.asset.height}` : "final"}${last!.asset.durationSec ? ` · ${Math.round(last!.asset.durationSec * 10) / 10}s` : ""}`
+        ? isVideo
+          ? `Ready to post · ${last!.asset.width && last!.asset.height ? `${last!.asset.width}×${last!.asset.height}` : "final"}${last!.asset.durationSec ? ` · ${Math.round(last!.asset.durationSec * 10) / 10}s` : ""}`
+          : `Ready · ${doc.scenes.length} ${doc.scenes.length === 1 ? "image" : "images"}${last!.asset.width && last!.asset.height ? ` at ${last!.asset.width}×${last!.asset.height}` : ""}`
         : last && last.version === c.currentVersion
           ? `Quick preview rendered. Render the final ${isVideo ? "video" : "images"} to download or post.`
           : last
             ? `Changed since the last render (v${last.version}). Render this version to download or post it.`
             : `Not rendered yet. Render the final ${isVideo ? "video" : "images"} to download or post.`;
+  const storeSet = noun === "screenshots";
   return (
     <section aria-label="Render and share" className="space-y-2.5">
       <p className="text-footnote text-ink-2" aria-live="polite">
@@ -426,12 +497,26 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
         {olderFinal ? (
           <>
             {" "}
-            <button type="button" className="font-medium text-accent hover:underline" onClick={() => void download(last!.assetId!)}>
+            <button type="button" className="font-medium text-accent hover:underline" onClick={() => void (isVideo ? download(last!.assetId!) : downloadEachSlideOf(workspaceId, last!.assetId!, doc.scenes.length, toast))}>
               Download v{last!.version}
             </button>
           </>
         ) : null}
       </p>
+      {!isVideo && ready && slides.length > 1 ? (
+        <ol aria-label={`The final ${noun}`} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+          {slides.map((id, i) => (
+            <li key={id} className="shrink-0">
+              <button type="button" onClick={() => void download(id)} className="group relative block w-12 overflow-hidden rounded-md shadow-raised focus-visible:outline-none focus-visible:shadow-focus" style={{ aspectRatio: `${doc.width} / ${doc.height}` }} aria-label={`Download slide ${i + 1}`} title={`Download slide ${i + 1}`}>
+                <SlideImage assetId={id} alt="" />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100 group-focus-visible:bg-black/35 group-focus-visible:opacity-100">
+                  <Download className="size-3.5" aria-hidden />
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : null}
       {errors.length && !ready ? (
         <div className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2">
           <div className="min-w-0 flex-1">
@@ -447,7 +532,7 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
           </Button>
         </div>
       ) : null}
-      <div className="grid grid-cols-3 gap-2">
+      <div className={cn("grid gap-2", storeSet ? "grid-cols-2" : "grid-cols-3")}>
         <RenderDialog
           workspaceId={workspaceId}
           base={base}
@@ -455,31 +540,56 @@ function ShareActions({ workspaceId, appId, base, data, onRendered, onDetail }: 
           onRendered={onRendered}
           trigger={
             <Button variant={ready ? "secondary" : "primary"} icon={<Clapperboard className="size-4" aria-hidden />} disabled={!can("content.write")}>
-              Render
+              {isVideo ? "Render" : "Finish"}
             </Button>
           }
         />
-        <Button variant={ready ? "primary" : "secondary"} icon={<Download className="size-4" aria-hidden />} disabled={!ready} onClick={() => ready && void download(last!.assetId!)}>
-          Download
+        <Button
+          variant={ready ? "primary" : "secondary"}
+          icon={<Download className="size-4" aria-hidden />}
+          disabled={!ready}
+          loading={downloading}
+          onClick={() => ready && void (isVideo || slides.length < 2 ? download(last!.assetId!) : downloadAll())}
+        >
+          {isVideo || slides.length < 2 ? "Download" : "Download all"}
         </Button>
-        <Button variant="secondary" icon={<Send className="size-4" aria-hidden />} disabled={!ready || !can("content.write")} onClick={() => setPosting(true)}>
-          Post
-        </Button>
+        {storeSet ? null : (
+          <Button variant="secondary" icon={isVideo ? <Send className="size-4" aria-hidden /> : <CalendarClock className="size-4" aria-hidden />} disabled={!ready || !can("content.write")} onClick={() => setPosting(true)}>
+            {isVideo ? "Post" : "Schedule"}
+          </Button>
+        )}
       </div>
-      <NewPostDialog
-        appId={appId}
-        open={posting}
-        onOpenChange={setPosting}
-        initialCampaignId={c.campaignId}
-        initialAssetId={ready ? last!.assetId : undefined}
-        onCreated={() =>
-          toast.toast({
-            title: "Draft post created",
-            description: "Nothing is posted yet: ask for approval in Scheduled, then MuseLaunch posts it or you post it yourself.",
-            action: { label: "Open Scheduled", onClick: () => router.push(routes.app(workspaceId, appId).scheduled) },
-          })
-        }
-      />
+      {isVideo ? (
+        <NewPostDialog
+          appId={appId}
+          open={posting}
+          onOpenChange={setPosting}
+          initialCampaignId={c.campaignId}
+          initialAssetId={ready ? last!.assetId : undefined}
+          onCreated={() =>
+            toast.toast({
+              title: "Draft post created",
+              description: "Nothing is posted yet: ask for approval in Scheduled, then MuseLaunch posts it or you post it yourself.",
+              action: { label: "Open Scheduled", onClick: () => router.push(routes.app(workspaceId, appId).scheduled) },
+            })
+          }
+        />
+      ) : (
+        <SchedulePostDialog
+          appId={appId}
+          target={posting && ready && c.campaignId ? { type: "stills", compositionId: c.id, assetIds: slides, campaignId: c.campaignId, title: c.title, width: last!.asset.width ?? doc.width, height: last!.asset.height ?? doc.height, version: last!.version, renderedAt: last!.at } : null}
+          onClose={() => setPosting(false)}
+        />
+      )}
     </section>
   );
+}
+
+/** An older final render's slides, each on its own. */
+async function downloadEachSlideOf(workspaceId: string, firstAssetId: string, n: number, toast: ReturnType<typeof useToast>) {
+  try {
+    await downloadSlides(workspaceId, { assetIds: slideAssetIds(firstAssetId, n) });
+  } catch (e) {
+    toast.error("Download failed", errorMessage(e));
+  }
 }
