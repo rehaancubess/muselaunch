@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale } from "./common";
+import { TEMPLATE_IDS } from "./composition";
 import { CreateRunState } from "./create-run";
+import { MusicMood } from "./sound";
 
 export const CampaignGoal = z.enum([
   "awareness",
@@ -129,6 +131,34 @@ export const AngleType = z.enum([
 ]);
 export type AngleType = z.infer<typeof AngleType>;
 
+export const DirectionPacing = z.enum(["punchy", "steady", "slow-burn"]);
+export type DirectionPacing = z.infer<typeof DirectionPacing>;
+
+/**
+ * Muse Wonder's creative direction for one video (Growth Autopilot, `pick_variants`): how the concept
+ * should look, move and sound. The storyboard writer (Muse Spark) works to it; the music mood is
+ * applied as chosen. Additive and optional: concepts produced by hand have none.
+ */
+export const CreativeDirection = z.object({
+  /** How the first seconds stop the scroll. */
+  hookApproach: z.string().min(1).max(600),
+  pacing: DirectionPacing,
+  /** The visual idea that runs through the whole video. */
+  visualMotif: z.string().min(1).max(600),
+  /** Up to 3 templates the video should feature (allowlisted; object-aware ones only with presenter footage). */
+  signatureShots: z.array(z.enum(TEMPLATE_IDS)).max(3).default([]),
+  musicMood: MusicMood,
+  /** What to stay away from in this video. */
+  avoid: z.string().max(400).optional(),
+  /** Why this direction suits the concept and what it tests. */
+  why: z.string().max(800).default(""),
+  /** The model that actually directed (e.g. muse-wonder-1.0) and its run. */
+  model: z.string().max(120),
+  runId: Id.optional(),
+  directedAt: IsoDateTime.optional(),
+});
+export type CreativeDirection = z.infer<typeof CreativeDirection>;
+
 /** A strategically distinct campaign concept (not a copy variant). */
 export const CampaignVariant = BaseEntity.extend({
   appId: Id,
@@ -154,6 +184,8 @@ export const CampaignVariant = BaseEntity.extend({
   generatedByRunId: Id.optional(),
   /** Video length chosen for this concept (seconds): the founder's choice, else Spark's pick in AUTO_VIDEO_DURATION. */
   targetDurationSec: z.number().positive().max(180).optional(),
+  /** Muse Wonder's creative direction (Growth Autopilot); the storyboard follows it. */
+  creativeDirection: CreativeDirection.optional(),
 });
 export type CampaignVariant = z.infer<typeof CampaignVariant>;
 

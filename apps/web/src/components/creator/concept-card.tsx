@@ -10,6 +10,7 @@ import { WorkspaceCostEstimate } from "@/lib/estimate";
 import { ANGLE_LABEL, CHANNEL_LABEL } from "@/lib/labels";
 import { useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
+import { WonderDirection } from "./wonder-direction";
 
 export interface ConceptCardProps {
   variant: CampaignVariant;
@@ -119,6 +120,7 @@ export function ConceptCard({ variant: v, produced, campaignId, workspaceId, cla
             <span className="text-ink">Test:</span> {v.hypothesis} <span className="text-ink-3">Measured by {v.successMetric.metric}.</span>
           </p>
         </div>
+        {v.creativeDirection ? <WonderDirection direction={v.creativeDirection} /> : null}
       </dl>
       <div className="mt-4 flex flex-wrap gap-1.5">
         {linkedClaims.map((c) => (
