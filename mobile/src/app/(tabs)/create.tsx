@@ -37,6 +37,7 @@ import {
   type CreateKind,
   type FormatId,
 } from "../../lib/plan";
+import { fullNumber } from "../../lib/results-lines";
 import { useSession } from "../../session";
 import { Button, Chip, Field, Notice, T } from "../../ui/components";
 import { color, radius, space } from "../../ui/theme";
@@ -298,7 +299,7 @@ export default function CreateScreen() {
             trailing={
               total !== null ? (
                 <View style={styles.credits}>
-                  <T v="caption" style={{ color: color.white, fontWeight: "600" }}>{`${total} credits`}</T>
+                  <T v="caption" style={{ color: color.white, fontWeight: "600" }}>{`${fullNumber(total)} credits`}</T>
                 </View>
               ) : null
             }
@@ -308,7 +309,7 @@ export default function CreateScreen() {
               ? estimates.some((e) => e.isLoading)
                 ? "Checking the cost…"
                 : "The cost shows here before anything runs."
-              : `About ${total} credits${available !== null ? ` · ${Math.max(0, available)} available` : ""}${aiVoice ? " · AI voice only if the video has narration" : ""}`}
+              : `About ${fullNumber(total)} credits${available !== null ? ` · ${fullNumber(Math.max(0, available))} available` : ""}${aiVoice ? " · AI voice only if the video has narration" : ""}`}
           </T>
           {short ? <Notice tone="warning">Not enough credits for this length. Pick a shorter one, or add credits on the web.</Notice> : null}
           <T v="caption" style={{ textAlign: "center" }}>

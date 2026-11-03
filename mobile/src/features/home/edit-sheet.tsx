@@ -11,6 +11,7 @@ import { View } from "react-native";
 import { errorMessage, type Api } from "../../api/client";
 import { useRefresh } from "../../api/hooks";
 import type { EstimateResponse, PostChangePart, TodayPost } from "../../api/types";
+import { fullNumber } from "../../lib/results-lines";
 import { useSession } from "../../session";
 import { Button, Chip, Field, Notice, Sheet, T } from "../../ui/components";
 import { color } from "../../ui/theme";
@@ -43,7 +44,7 @@ export function useChangeEstimate(api: Api, postId: string, part: PostChangePart
 export function costLine(est: EstimateResponse | undefined): { text: string | null; short: boolean } {
   if (!est) return { text: null, short: false };
   const short = est.credits > est.available;
-  return { text: short ? `Needs about ${est.credits} credits; ${Math.max(0, est.available)} left` : `Uses about ${est.credits} credits`, short };
+  return { text: short ? `Needs about ${fullNumber(est.credits)} credits; ${fullNumber(Math.max(0, est.available))} left` : `Uses about ${fullNumber(est.credits)} credits`, short };
 }
 
 export function EditSheet({ post, open, onClose }: { post: TodayPost; open: boolean; onClose: () => void }) {

@@ -11,7 +11,7 @@ describe("the interface colour follows the app", () => {
   });
 
   it("uses the app's colour, darkened only as far as WCAG AA needs, keeping its hue", () => {
-    for (const c of ["#ff9500", "#ffcc00", "#34c759", "#00c7be", "#007aff", "#5856d6", "#af52de", "#ff2d55", "#7c3aed", "#a2845e"]) {
+    for (const c of ["#ff9500", "#ffcc00", "#34c759", "#00c7be", "#007aff", "#5856d6", "#af52de", "#ff2d55", "#30b0c7", "#a2845e"]) {
       const t = themeFor({ theme: { color: c, source: "icon" } });
       expect(t.color).toBe(c);
       expect(contrastRatio(t.accent, "#ffffff")).toBeGreaterThanOrEqual(4.8);
