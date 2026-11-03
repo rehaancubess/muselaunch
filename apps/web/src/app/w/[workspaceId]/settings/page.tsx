@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppIcon } from "@/components/app-icon";
 import { MoreLink, MoreSection, TheBasics, TTS_VOICES } from "@/components/settings/basics";
 import { AlwaysOnSettings } from "@/features/autopilot/always-on";
+import { PhoneAppSettings } from "@/features/phone/phone-app";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { countryOptions } from "@/lib/countries";
 import { useInvalidate } from "@/lib/query";
@@ -252,6 +253,9 @@ export default function WorkspaceSettingsPage() {
           <p className="text-body-sm text-ink-2 text-pretty">Everything else. Tap a section to open it.</p>
         </div>
         <div className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-raised">
+          <MoreSection id="phone" title="Phone app" summary="Link your phone: review, schedule and share posts, with notifications">
+            <PhoneAppSettings />
+          </MoreSection>
           <MoreSection id="autopilot" title="Autopilot" summary="Starting on new apps, rendering without asking, credit limit per run">
             <AutopilotSettings />
           </MoreSection>
