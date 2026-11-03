@@ -19,7 +19,9 @@ import { ArrowUpRight, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect } from "react";
 import { DOING, NeedsYouList, useNeedsYou } from "@/features/autopilot/needs-you";
-import { MadeWith, RunProgress } from "@/features/autopilot/progress";
+import { FirstRunStudying, useFirstRunNotice } from "@/features/autopilot/first-run-studying";
+import { shortAppName } from "@/features/autopilot/first-run";
+import { MadeWith, RunProgress, runNeeds } from "@/features/autopilot/progress";
 import { isActive, isWorking, type AutopilotDetail, type AutopilotListItem } from "@/features/autopilot/types";
 import { errorMessage, wsPath } from "@/lib/api";
 import { useApiQuery, useInvalidate } from "@/lib/query";
@@ -47,7 +49,7 @@ function HomeSkeleton() {
 }
 
 export function HomePage() {
-  const { appId, workspaceId } = useCurrentApp();
+  const { app, appId, workspaceId } = useCurrentApp();
   const { can } = useWorkspace();
   const invalidate = useInvalidate();
   const r = routes.app(workspaceId, appId);
@@ -76,13 +78,19 @@ export function HomePage() {
     if (status) void invalidate(wsPath(workspaceId, `/apps/${appId}/today`), wsPath(workspaceId, "/needs-you"));
   }, [status, stage, appId, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps -- useInvalidate returns a new function each render
 
-  if (list.isLoading || (shown && detail.isLoading) || today.isLoading) return <HomeSkeleton />;
-
   const d = detail.data;
   // The first run is still making the first videos (no posts drafted yet): its own calm progress
   // screen, with the quick setup. Once it waits for results, or has posts, it's Home.
   const s = d?.autopilot.status;
   const firstRun = Boolean(d && s && (list.data?.items.length ?? 0) <= 1 && d.posts.length === 0 && (isWorking(s) || s === "awaiting_user" || s === "paused" || s === "failed"));
+  useFirstRunNotice(d, firstRun, shortAppName(app?.name ?? "Your app"));
+
+  if (list.isLoading || (shown && detail.isLoading) || today.isLoading) return <HomeSkeleton />;
+
+  // While it studies the app and makes the first videos: one calm "Getting to know …" screen.
+  if (d && s && firstRun && isWorking(s) && d.progress.videos.length === 0) {
+    return <FirstRunStudying detail={d} needs={runNeeds(d, needs.data?.items ?? [])} />;
+  }
   if (d && firstRun) {
     return (
       <div className="pb-6">

@@ -78,7 +78,7 @@ export async function onboardWithAutopilot(page: Page, shot: (page: Page, name: 
     if (opts.shots !== false) await shot(page, "onboarding");
     await page.getByRole("button", { name: "Go" }).click();
     await page.waitForURL(/\/home$/);
-    await expect(page.getByRole("list", { name: "What Autopilot is doing" })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "How far Muse has got" })).toBeVisible();
   });
 }
 
