@@ -283,7 +283,8 @@ export function deriveRun(input: RunInput): Derived {
   // Finished: a ready final render of this video (stills: its slide images).
   const finalJob = track(latest(mine("render.final", (p) => p.compositionId === comp.id)));
   if (still) {
-    const slides = finalSlides(input.finals, comp.id);
+    // The renderer saves slide images one by one: a still is finished once its render job is, not at its first image.
+    const slides = isActive(finalJob) ? [] : finalSlides(input.finals, comp.id);
     if (slides.length) return result("done", { ...made, finalAssetId: slides[0]!.id, finalAssetIds: slides.map((a) => a.id) });
   } else {
     const final = finalFor(input.finals, comp.id);
@@ -296,7 +297,8 @@ export function deriveRun(input: RunInput): Derived {
     // The render finished (the records may be a moment behind the job).
     const lastFinal = comp.lastRender?.quality === "final" ? comp.lastRender.assetId : undefined;
     if (still) {
-      const ids = (finalJob.output?.refs ?? []).filter((r) => r.entity === "mediaAssets").map((r) => r.id);
+      // Slide images only (a video render's poster is `ast_t_…`).
+      const ids = (finalJob.output?.refs ?? []).filter((r) => r.entity === "mediaAssets" && !r.id.startsWith("ast_t_")).map((r) => r.id);
       const cover = ids[0] ?? lastFinal;
       return result("done", { ...made, finalAssetId: cover, finalAssetIds: ids.length ? ids : cover ? [cover] : undefined });
     }

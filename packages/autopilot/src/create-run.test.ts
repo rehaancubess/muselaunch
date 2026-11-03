@@ -167,6 +167,9 @@ describe("Create runs: stills and text posts", () => {
     const done = deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [], finals });
     expect(done).toMatchObject({ stage: "done", pct: 100, finalAssetId: "ast_r_k", finalAssetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] });
     expect(finalSlides(finals, "cmp_c").map((a) => a.id)).toEqual(["ast_r_k", "ast_r_k_2", "ast_r_k_3"]);
+    // While the renderer is still saving slides, the run isn't done (its first images aren't the whole set).
+    const saving = job("f", "render.final", "running", { compositionId: "cmp_c" }, { progress: { pct: 92, stage: "saving" } });
+    expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [saving], finals: finals.slice(0, 2) })).toMatchObject({ stage: "finish", working: true, detail: "saving" });
     // A video final render of the same composition is not a still's result (and the other way round).
     const video = [{ id: "ast_r_v", status: "ready", kind: "video", role: "render", render: { compositionId: "cmp_c", quality: "final", version: 2 } }];
     expect(deriveRun({ campaign: c, variants: chosen, compositions: [comp], jobs: [], finals: video }).stage).toBe("check");

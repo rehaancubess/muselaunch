@@ -413,7 +413,8 @@ async function finish(p: Platform, wid: string, campaign: Campaign, s: CreateRun
   }
 
   // 2. The final render is priced on the video's real length: ask first if that's more than "Generate video" showed.
-  const isVideo = ver.doc.kind === "video";
+  // A still run renders slide images even from a doc built as a video (one image per scene).
+  const isVideo = ver.doc.kind === "video" && !isStillOutput(output);
   const credits = isVideo ? { operation: "render.final", params: { durationSec } } : { operation: "render.final", amount: Math.max(1, Math.ceil(ver.doc.scenes.length / 4)) };
   const price = credits.amount ?? p.credits.estimate("render.final", { durationSec }).credits;
   const chosen = runSettings(campaign).lengthSec;
@@ -624,10 +625,11 @@ export async function getCreateRun(p: Platform, wid: string, campaignId: string,
 export async function resolveCreateRun(p: Platform, wid: string, campaignId: string, input: ResolveCreateRunRequest, actor: string, member: Member): Promise<CreateRunView> {
   const c = await createCampaignOrThrow(p, wid, campaignId);
   const view = toView(await loader(p, wid)(c), member, nowMs(p));
+  const w = wordsOf(view.format.output ?? "video");
   if (!view.actions.includes(input.action)) {
-    throw new AppError("CONFLICT", `This video can’t ${input.action} now (it is ${view.status})`, { userMessage: view.status === "done" ? "This video is already finished." : "That isn’t possible for this video right now. Have a look at where it is now." });
+    throw new AppError("CONFLICT", `This run can’t ${input.action} now (it is ${view.status})`, { userMessage: view.status === "done" ? `${w.this} ${w.one} ${w.is} already finished.` : `That isn’t possible for ${w.this.toLowerCase()} ${w.one} right now. Have a look at where ${w.they} ${w.is} now.` });
   }
-  const stale = () => new AppError("CONFLICT", "The decision changed", { userMessage: "This video changed since you looked. Have a look at it again.", details: { reason: "stale_decision" } });
+  const stale = () => new AppError("CONFLICT", "The decision changed", { userMessage: `${w.this} ${w.one} changed since you looked. Have a look at ${w.it} again.`, details: { reason: "stale_decision" } });
   if (input.stepKey && view.decision && input.stepKey !== view.decision.stepKey) throw stale();
   const at = iso(nowMs(p));
   const moved = { status: "working" as const, decision: undefined, waitUntil: undefined, waitReason: undefined, waitKind: undefined, waits: 0, touchedAt: at, actingAs: actor };
