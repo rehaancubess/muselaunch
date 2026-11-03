@@ -57,6 +57,76 @@ Rules:
 - Keep text legible inside the frame and the safe zone; durations 0.5-60 s.
 ${OP_REFERENCE}`;
 
+/**
+ * Stills (posts, carousels, thumbnails, store screenshots): the same scene-scoped patches, as a
+ * designer. Slide n is scene n; a still has no sound, captions, transitions, timing or video layers.
+ */
+const STILL_INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's designer. You edit an existing, editable still (a post, a carousel, a thumbnail or a store screenshot set) by returning a minimal list of PatchOps — never a new design.
+
+Rules:
+- Each scene is ONE slide: "slide 1" (the cover, the first slide) is scene 1, "slide 3" is scene 3, "the last slide" is the last scene. The slide list below maps slide numbers to scene ids.
+- Change only what the instruction asks. When target scenes are given, every op must stay inside those scenes (no scene add/remove/move, theme changes) so other slides stay byte-identical.
+- A still has no sound, captions, transitions or timing: never use upsert_audio, remove_audio or set_captions, never set transitionIn or durationSec, never add video layers. Animations don't show on a still.
+- Keep existing layer ids; prefer update_layer over remove+add. Do not modify LOCKED layers.
+- Device screens show the REAL app: use only asset ids from the asset list (role screenshot/app_recording). Never invent asset ids, and never put generated or stock pictures where the app's screen goes.
+- Product claims in text must come from the verified claims list; never invent numbers, reviews, ratings, rankings, prices or awards.
+- Short words on slides: a headline of a few words and at most one supporting line. Keep text inside the frame and the safe zone.
+${OP_REFERENCE}`;
+
+const isStill = (doc: Pick<CompositionDoc, "kind">) => doc.kind !== "video";
+
+/** "Slide 3" / "the third slide" / "the cover" / "the last slide" → scene ids (stills only; slides are counted from 1). */
+const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
+export function slideRefs(instruction: string, doc: Pick<CompositionDoc, "kind" | "scenes">): string[] {
+  if (!isStill(doc) || !doc.scenes.length) return [];
+  const n = doc.scenes.length;
+  const picks = new Set<number>();
+  const text = instruction.toLowerCase();
+  for (const m of text.matchAll(/\b(?:slides?|images?|screenshots?|pages?)\s*(?:#|no\.?\s*|number\s*)?(\d{1,2})(?:\s*(and|&|,|to|-|–)\s*(\d{1,2}))?/g)) {
+    const a = Number(m[1]);
+    const b = m[3] ? Number(m[3]) : undefined;
+    if (b !== undefined && /^(?:to|-|–)$/.test(m[2]!)) for (let k = Math.min(a, b); k <= Math.max(a, b); k++) picks.add(k);
+    else for (const k of [a, b]) if (k !== undefined) picks.add(k);
+  }
+  for (const m of text.matchAll(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|final)\s+(?:slide|image|screenshot|page)\b/g)) picks.add(m[1] === "last" || m[1] === "final" ? n : ORDINALS[m[1]!]!);
+  if (doc.kind === "carousel" && /\b(?:the\s+)?cover\b/.test(text)) picks.add(1);
+  return [...picks].filter((k) => k >= 1 && k <= n).sort((a, b) => a - b).map((k) => doc.scenes[k - 1]!.id);
+}
+
+/** Most slides a still can have: one image, a Google Play set (9:16 store screenshots) 8, else 10 (Instagram, the App Store). */
+function maxSlides(doc: CompositionDoc): number {
+  if (doc.kind === "static") return 1;
+  return doc.aspectRatio === "9:16" && doc.scenes.every((s) => s.template === "store-screenshot") ? 8 : 10;
+}
+
+/** What a still edit must never do (audio, captions, transitions, video layers, made-up screens, too many slides). */
+function stillProblems(base: CompositionDoc, ops: PatchOp[], after: CompositionDoc, affected: string[], assets: Map<string, MediaAsset>): string[] {
+  const problems: string[] = [];
+  ops.forEach((op, i) => {
+    if (op.op === "upsert_audio" || op.op === "remove_audio") problems.push(`ops.${i}: a still has no sound; "${op.op}" is not allowed.`);
+    if (op.op === "set_captions") problems.push(`ops.${i}: a still has no captions; "set_captions" is not allowed.`);
+    if (op.op === "update_scene" && op.set.transitionIn) problems.push(`ops.${i}: a still has no transitions; don't set transitionIn.`);
+    if (op.op === "add_scene" && op.scene.transitionIn && op.scene.transitionIn.kind !== "cut") problems.push(`ops.${i}: a still has no transitions; new slides use a cut.`);
+  });
+  if (after.audio.length > base.audio.length) problems.push("A still has no sound: the patch added an audio track.");
+  if (after.captions.enabled && !base.captions.enabled) problems.push("A still has no captions: the patch turned captions on.");
+  if (after.scenes.length > maxSlides(base)) problems.push(`A ${base.kind === "static" ? "single image has one slide" : `set like this has at most ${maxSlides(base)} slides`}; the patch makes ${after.scenes.length}.`);
+  const baseLayers = new Set(base.scenes.flatMap((sc) => sc.layers.map((l) => `${sc.id}/${l.id}`)));
+  const baseAssets = new Set(base.scenes.flatMap((sc) => sc.layers.flatMap(layerAssetIds)));
+  for (const sc of after.scenes) {
+    if (!affected.includes(sc.id)) continue;
+    for (const l of sc.layers) {
+      const fresh = !baseLayers.has(`${sc.id}/${l.id}`);
+      if (l.type === "video" && fresh) problems.push(`Layer ${l.id}: a still has no video layers (show the app on a device with a real screenshot instead).`);
+      if ((l.type === "image" || l.type === "device") && fresh) {
+        const id = l.type === "image" ? l.assetId : l.screenAssetId;
+        const a = baseAssets.has(id) ? undefined : assets.get(id);
+        if (a && (a.origin === "generated" || a.origin === "stock" || a.generation)) problems.push(`Layer ${l.id}: slides show the real app; ${a.origin === "stock" ? "stock" : "generated"} pictures (${id}) can't stand in for it.`);
+      }
+    }
+  }
+  return problems;
+}
 
 // ---------------------------------------------------------------------------
 // Clip context (effects direction) and multi-version intent routing
@@ -206,12 +276,13 @@ export function checkEdit(base: CompositionDoc, out: EditOutput, opts: { sceneId
       if (l.type === "text" && baseTexts.get(l.id) !== l.text) changedTexts.push({ id: l.id, text: l.text });
     }
   }
+  if (isStill(base)) problems.push(...stillProblems(base, ops, result.doc, result.affectedSceneIds, opts.assets));
   return { problems, doc: problems.length ? undefined : result.doc, ops, affectedSceneIds: result.affectedSceneIds, changedTexts };
 }
 
 export async function compositionEditHandler(ctx: JobContext<"composition.edit">): Promise<JobResult> {
   const p = ctx.platform;
-  const { appId, compositionId, baseVersion, instruction, sceneIds, patchId, autoApply } = ctx.payload;
+  const { appId, compositionId, baseVersion, instruction, patchId, autoApply } = ctx.payload;
   const ws = ctx.ws;
   const patches = ws.collection("compositionPatches");
   const comp = await ws.collection("compositions").getOrThrow(compositionId);
@@ -223,8 +294,12 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
     return { refs: [{ entity: "compositionPatches", id: patchId }], data: { alreadyProcessed: true, status: existingPatch.status } };
   }
   const base = await getVersion(ws, compositionId, baseVersion);
-  const unknownScenes = sceneIds.filter((id) => !base.doc.scenes.some((s) => s.id === id));
+  const unknownScenes = ctx.payload.sceneIds.filter((id) => !base.doc.scenes.some((s) => s.id === id));
   if (unknownScenes.length) throw new AppError("BAD_REQUEST", `Unknown scene ids: ${unknownScenes.join(", ")}`);
+  // Stills: "slide 3" is scene 3. With no slide selected, the slides the instruction names are the edit's scope.
+  const still = isStill(base.doc);
+  const named = still && !ctx.payload.sceneIds.length ? slideRefs(instruction, base.doc) : [];
+  const sceneIds = ctx.payload.sceneIds.length ? ctx.payload.sceneIds : named;
 
   const app = await loadAppContext(ws, appId);
   const clipCtx = await loadClipContext(ws, appId, ctx.payload.clipAnalysisIds);
@@ -246,6 +321,7 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
     const memory = await retrieveMemory(p, { workspaceId: ctx.workspaceId, appId, task: "scene_edit", query: instruction, jobId: ctx.job.id, agentRunId: rec.id });
     const memoryRefs0 = memory.items.map((m) => m.id);
     if (clipCtx) await rec.step({ kind: "message", title: `Clip context: ${clipCtx.analyses.length} analysed clip(s), ${[...clipCtx.targets].filter((t) => !t.endsWith("/*")).length} tracked object(s)`, output: clipCtx.text });
+    if (named.length) await rec.step({ kind: "decision", title: `Editing only ${named.length === 1 ? "the slide" : "the slides"} the instruction names (${named.map((id) => `slide ${base.doc.scenes.findIndex((s) => s.id === id) + 1}`).join(", ")})`, output: { sceneIds: named } });
 
     // Intent router: "three different hooks" → composition.variants, not an in-place edit.
     if (intent && !intent.remaining) {
@@ -264,6 +340,7 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
       `Instruction from the founder: ${editInstruction}`,
       intent ? `(The founder also asked for ${intent.count} ${intent.mode === "hooks" ? "different hooks" : "audience versions"}; those are produced separately as variants of the edited video — do not create them here.)` : "",
       sceneIds.length ? `Edit ONLY these scenes: ${sceneIds.join(", ")}` : "No scenes were selected: change the smallest set of scenes that satisfies the instruction and list them in targetSceneIds.",
+      still ? `Slides (slide number = scene): ${base.doc.scenes.map((s, i) => `slide ${i + 1} = scene ${s.id} (${s.template})`).join("; ")}. This is a ${base.doc.kind === "carousel" ? `carousel of ${base.doc.scenes.length} slides` : "single still image"}: no sound, captions, transitions or video.` : "",
       memory.items.length ? `Team preferences (apply when relevant):\n${memory.summary}` : "",
       `Verified claims (id: text): ${app.verifiedClaims.map((c) => `${c.id}: ${c.text}`).join(" | ") || "(none)"}`,
       `Asset list (id | role | title): ${[...assets.values()].filter((a) => a.isProductTruth || a.role === "founder_clip" || a.origin === "generated" || a.origin === "stock").map((a) => `${a.id} | ${a.role} | ${a.title ?? a.originalFilename ?? ""}`).join(" ; ") || "(none)"}`,
@@ -275,7 +352,8 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
       .filter(Boolean)
       .join("\n");
     await ctx.progress(20, `${planned.name} is planning the edit`);
-    let out = await sparkJson(p, rec, route, { ctx: rec.callCtx("composition.edit"), instructions: INSTRUCTIONS, input, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
+    const instructions = still ? STILL_INSTRUCTIONS : INSTRUCTIONS;
+    let out = await sparkJson(p, rec, route, { ctx: rec.callCtx("composition.edit"), instructions, input, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
     let modelNote = out.fallback?.title;
     await rec.modelStep(`Propose scene-scoped patch (${engineName(out.model)})`, out, { instruction, sceneIds }, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
     const clipTargets = clipCtx?.targets;
@@ -286,7 +364,7 @@ export async function compositionEditHandler(ctx: JobContext<"composition.edit">
       const issues = [...check.problems, ...claims.issues.map((x) => `Text layer ${x.id}: ${x.issue}`)];
       await rec.step({ kind: "decision", title: `Patch rejected by validation (${issues.length}); one repair attempt`, status: "failed", output: issues });
       const repair = `${input}\n\nYour previous patch was invalid:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious patch:\n${JSON.stringify(out.data).slice(0, 12_000)}\n\nReturn a corrected patch.`;
-      out = await sparkJson(p, rec, "composition.edit.repair", { ctx: rec.callCtx("composition.edit.repair"), instructions: INSTRUCTIONS, input: repair, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
+      out = await sparkJson(p, rec, "composition.edit.repair", { ctx: rec.callCtx("composition.edit.repair"), instructions, input: repair, schema: EditOutput, schemaName: "CompositionEdit", maxOutputTokens: 6000, reasoningEffort: "medium", cacheKey: "agents.edit" });
       modelNote = out.fallback?.title;
       await rec.modelStep(`Repair patch (${engineName(out.model)})`, out, issues, { summary: out.data.summary, ops: out.data.ops.map((o) => o.op) });
       check = checkEdit(base.doc, out.data, { sceneIds, assets, clipTargets });

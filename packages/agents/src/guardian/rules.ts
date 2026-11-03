@@ -30,8 +30,8 @@ export interface BrandContext {
 export const fingerprintOf = (key: string, quote: string | undefined, fallback: string) => `${key}|${normalizeText(quote ?? fallback).slice(0, 160)}`;
 
 /** Templates where on-screen media must be real product media. */
-const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "product-in-hand", "object-spotlight"]);
-const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
+const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "product-in-hand", "object-spotlight", "slide-feature", "store-screenshot", "carousel-slide"]);
+const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card", "slide-proof"]);
 
 /** Accepted aspect ratios and durations (seconds) per channel for short-form video. */
 export const PLATFORM_VIDEO: Partial<Record<Channel, { aspects: CompositionDoc["aspectRatio"][]; maxSec: number; idealSec?: number; label: string }>> = {
@@ -42,6 +42,22 @@ export const PLATFORM_VIDEO: Partial<Record<Channel, { aspects: CompositionDoc["
   x: { aspects: ["16:9", "1:1", "9:16", "4:5"], maxSec: 140, label: "X" },
   threads: { aspects: ["9:16", "4:5", "1:1"], maxSec: 300, label: "Threads" },
   linkedin: { aspects: ["1:1", "4:5", "16:9", "9:16"], maxSec: 600, idealSec: 90, label: "LinkedIn" },
+};
+
+/**
+ * Stills (posts, carousels, thumbnails, store screenshots) per channel: the frames its feed or
+ * listing shows natively and the most images one post (or listing) takes. Instagram API carousels
+ * take up to 10 items and crop every slide to the first one's frame; X shows up to 4 images per post;
+ * LinkedIn multi-image posts take up to 20; App Store Connect up to 10 screenshots per localization
+ * (6.9" iPhone: 1290×2796); Google Play 2–8 phone screenshots (9:16).
+ */
+export const PLATFORM_STILL: Partial<Record<Channel, { aspects: CompositionDoc["aspectRatio"][]; maxSlides: number; label: string }>> = {
+  instagram: { aspects: ["4:5", "1:1"], maxSlides: 10, label: "Instagram" },
+  x: { aspects: ["16:9", "1:1", "4:5"], maxSlides: 4, label: "X" },
+  linkedin: { aspects: ["1:1", "4:5", "16:9"], maxSlides: 20, label: "LinkedIn" },
+  youtube: { aspects: ["16:9"], maxSlides: 1, label: "YouTube thumbnails" },
+  app_store: { aspects: ["9:19.5"], maxSlides: 10, label: "the App Store" },
+  google_play: { aspects: ["9:16"], maxSlides: 8, label: "Google Play" },
 };
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
@@ -411,6 +427,15 @@ function layoutRules(doc: CompositionDoc, out: DraftFinding[]) {
 }
 
 function ctaRules(doc: CompositionDoc, b: BrandContext, out: DraftFinding[]) {
+  // A carousel ends on what to do next (a single post or thumbnail doesn't need a CTA slide).
+  if (doc.kind === "carousel") {
+    const isStore = doc.scenes.every((sc) => sc.template === "store-screenshot");
+    const hasCta = doc.scenes.some((sc) => sc.template === "slide-cta" || sc.purpose === "cta" || sc.layers.some((l) => l.type === "text" && !l.hidden && l.role === "cta"));
+    if (!isStore && !hasCta && doc.scenes.length > 1) {
+      const last = doc.scenes[doc.scenes.length - 1]!;
+      out.push(draft({ severity: "info", category: "cta", rule: "cta.missing_slide", message: "The carousel never tells people what to do next.", location: { sceneId: last.id }, suggestion: b.brand?.preferredCtas.length ? `End on a call-to-action slide: "${b.brand.preferredCtas[0]}".` : "End on a call-to-action slide.", source: "rules", fingerprint: "cta.missing_slide" }));
+    }
+  }
   if (doc.kind !== "video") return;
   const preferred = b.brand?.preferredCtas ?? [];
   const ctaLayers = doc.scenes.flatMap((s) => s.layers.filter((l): l is TextLayer => l.type === "text" && !l.hidden && l.role === "cta").map((l) => ({ s, l })));
@@ -517,6 +542,24 @@ function platformVideoRules(s: LoadedSubject, doc: CompositionDoc, out: DraftFin
   }
 }
 
+/** Stills: the channel's native frames and how many images one post takes (no duration, pacing or sound). */
+function platformStillRules(s: LoadedSubject, doc: CompositionDoc, out: DraftFinding[]) {
+  if (doc.kind === "video") return;
+  const n = doc.scenes.length;
+  const what = doc.kind === "carousel" ? `${n} slides` : "This image";
+  for (const ch of s.channels) {
+    const spec = PLATFORM_STILL[ch];
+    if (!spec) continue;
+    if (!spec.aspects.includes(doc.aspectRatio))
+      out.push(draft({ severity: "warn", category: "platform_fit", rule: "platform.still_aspect", message: `${doc.aspectRatio} isn't a native frame for ${spec.label} (${spec.aspects.join(", ")}).`, quote: doc.aspectRatio, suggestion: `Make a ${spec.aspects[0]} version for ${spec.label}.`, source: "rules", fingerprint: `platform.still_aspect|${ch}|${doc.aspectRatio}` }));
+    if (n > spec.maxSlides)
+      out.push(draft({ severity: "warn", category: "platform_fit", rule: "platform.slide_count", message: `${what} is more than ${spec.label} takes in one post (${spec.maxSlides}).`, suggestion: `Keep the best ${spec.maxSlides} slide${spec.maxSlides === 1 ? "" : "s"} for ${spec.label}.`, source: "rules", fingerprint: `platform.slide_count|${ch}` }));
+  }
+  // Instagram crops every carousel slide to the first slide's frame.
+  if (doc.kind === "carousel" && s.channels.includes("instagram") && doc.aspectRatio !== "4:5" && doc.aspectRatio !== "1:1")
+    out.push(draft({ severity: "info", category: "platform_fit", rule: "platform.carousel_crop", message: "Instagram crops every carousel slide to the frame of the first one.", suggestion: "Use 4:5 or 1:1 slides for Instagram.", source: "rules", fingerprint: "platform.carousel_crop" }));
+}
+
 function typographyRules(doc: CompositionDoc, b: BrandContext, out: DraftFinding[]) {
   const v = b.brand?.visual;
   if (!v) return;
@@ -550,6 +593,7 @@ export function runRules(s: LoadedSubject, b: BrandContext): DraftFinding[] {
     ctaRules(doc, b, out);
     productTruthRules(s, doc, out);
     platformVideoRules(s, doc, out);
+    platformStillRules(s, doc, out);
     typographyRules(doc, b, out);
   }
   postRules(s, out);

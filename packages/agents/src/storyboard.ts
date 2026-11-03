@@ -1,8 +1,7 @@
-import { ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type AspectRatio, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
+import { isStillFormat, ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type AspectRatio, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
 import { CTA_TEMPLATES, DEVICE_TEMPLATES, isLandscapeMedia, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT } from "@muselaunch/compositions";
-import { AppError, assertKeyInWorkspace, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
-import { imagePart, runSam, untrusted, type InputPart } from "@muselaunch/providers";
-import sharp from "sharp";
+import { AppError, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
+import { runSam, untrusted, type InputPart } from "@muselaunch/providers";
 import { z } from "zod";
 import { validateClaims } from "./claims";
 import { planMaxVideoSec, seededDuration } from "./concepts";
@@ -11,7 +10,9 @@ import { productMediaOptions } from "./media-options";
 import { retrieveMemory } from "./memory";
 import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
 import { creativeDirectionLines, directionFollowed, directorLabel } from "./direction";
+import { imageInput } from "./images";
 import { RunRecorder } from "./runs";
+import { slidesHandler } from "./slides";
 import { clip, hashId } from "./util";
 
 const HintKind = z.enum(["screenshot", "app_recording", "founder_clip", "generated_image", "stock_video", "stock_image", "logo", "none"]);
@@ -646,23 +647,6 @@ interface Visual {
   image: MediaAsset;
 }
 
-async function imageInput(p: Platform, workspaceId: string, a: MediaAsset): Promise<{ part: InputPart; bytes: Buffer; width: number; height: number } | null> {
-  assertKeyInWorkspace(workspaceId, a.storagePath);
-  let buf: Buffer;
-  try {
-    buf = await p.storage.get(a.storagePath);
-  } catch {
-    return null;
-  }
-  const small = await sharp(buf).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true }).catch(() => null);
-  if (!small) return null;
-  if (p.storage.driver === "gcs") {
-    const { url } = await p.storage.signedDownloadUrl(a.storagePath, { expiresSec: 900 });
-    return { part: imagePart({ url }), bytes: small.data, width: small.info.width, height: small.info.height };
-  }
-  return { part: imagePart({ bytes: small.data, mimeType: "image/jpeg" }), bytes: small.data, width: small.info.width, height: small.info.height };
-}
-
 function optionLine(o: ProductMediaOption, imageNo: number | undefined, crops: Map<string, string>, landscape = false): string {
   const where = o.deviceFrameOk ? `device frame OK${landscape ? "; landscape: fullscreen-recording OK" : ""}` : `FULL SCREEN ONLY (fullscreen-showcase)${crops.get(o.ref) ? `; its app-screen cut-out ${crops.get(o.ref)} is the device version` : ""}`;
   const trim = o.trim && o.kind === "recording_segment" ? ` of ${o.assetId}, ${o.trim.inSec.toFixed(1)}–${o.trim.outSec.toFixed(1)} s (${(o.trim.outSec - o.trim.inSec).toFixed(1)} s)` : "";
@@ -703,6 +687,8 @@ async function resolveFocusQueries(ctx: JobContext, rec: RunRecorder, scenes: St
 }
 
 export async function storyboardHandler(ctx: JobContext<"storyboard.generate">): Promise<JobResult> {
+  // Stills (post, carousel, thumbnail, store screenshots): one scene per slide (slides.ts).
+  if (isStillFormat(ctx.payload.format)) return slidesHandler(ctx);
   const p = ctx.platform;
   const { appId, campaignId, variantId, aspectRatio } = ctx.payload;
   const ws = ctx.ws;
