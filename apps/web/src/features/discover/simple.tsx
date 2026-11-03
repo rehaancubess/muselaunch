@@ -12,7 +12,7 @@
 import type { Job, ResearchRun } from "@muselaunch/contracts";
 import { Avatar, Button, JobProgress, Skeleton, Spinner, cn, useToast } from "@muselaunch/ui";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ArrowUpRight, Clapperboard, Compass, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, Clapperboard, Compass, Plus, RefreshCw, Sparkle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -82,7 +82,7 @@ export default function SimpleDiscover({ appId }: { appId: string }) {
 // Look again: the existing research action, one tap, honest progress
 // ---------------------------------------------------------------------------
 
-function useLookAgain(appId: string) {
+export function useLookAgain(appId: string) {
   const { workspaceId, can } = useWorkspace();
   const toast = useToast();
   const invalidate = useInvalidate();
@@ -134,7 +134,8 @@ function useLookAgain(appId: string) {
   };
 }
 
-function LookAgainBar({ research }: { research: ReturnType<typeof useLookAgain> }) {
+/** "Look again" (also on Create → Use a suggested idea, as a quieter `outline` button next to Generate video). */
+export function LookAgainBar({ research, variant = "primary" }: { research: ReturnType<typeof useLookAgain>; variant?: "primary" | "outline" }) {
   const { latest, live, job, running, estimate } = research;
   const short = estimate ? estimate.credits > estimate.available : false;
   const showProgress = Boolean(job && (running || job.status === "failed"));
@@ -143,7 +144,7 @@ function LookAgainBar({ research }: { research: ReturnType<typeof useLookAgain> 
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {research.canRun ? (
-          <Button size="lg" icon={running ? <Spinner size={16} className="text-current" /> : <RefreshCw className="size-4" aria-hidden />} onClick={() => void research.start()} disabled={running || short}>
+          <Button size="lg" variant={variant} icon={running ? <Spinner size={16} className="text-current" /> : <RefreshCw className="size-4" aria-hidden />} onClick={() => void research.start()} disabled={running || short}>
             {running ? "Looking…" : "Look again"}
           </Button>
         ) : null}
@@ -176,8 +177,12 @@ function LookAgainBar({ research }: { research: ReturnType<typeof useLookAgain> 
 // One idea: title, why it fits, where it was found, two actions
 // ---------------------------------------------------------------------------
 
-/** One idea card (also on Creator → Today, `compact`: smaller heading and padding). */
-export function IdeaCard({ item, appId, compact }: { item: FeedItem; appId: string; compact?: boolean }) {
+/**
+ * One idea card (also on Creator → Today, `compact`: smaller heading and padding). With `onUse`
+ * (Create → Use a suggested idea) its one action is "Use this idea" instead of Make a video / Not for
+ * me; `selected` marks the idea in use (accent outline and a check).
+ */
+export function IdeaCard({ item, appId, compact, onUse, selected }: { item: FeedItem; appId: string; compact?: boolean; onUse?: (item: FeedItem) => void; selected?: boolean }) {
   const { workspaceId, can } = useWorkspace();
   const toast = useToast();
   const router = useRouter();
@@ -225,8 +230,21 @@ export function IdeaCard({ item, appId, compact }: { item: FeedItem; appId: stri
   };
 
   return (
-    <article aria-label={item.title} className={cn("space-y-4 rounded-2xl bg-surface shadow-raised", compact ? "p-4 sm:p-5" : "p-5 sm:p-6")}>
-      <div className="space-y-2">
+    <article
+      aria-label={item.title}
+      className={cn(
+        "relative space-y-4 rounded-2xl bg-surface shadow-raised transition-shadow",
+        compact ? "p-4 sm:p-5" : "p-5 sm:p-6",
+        onUse && "flex flex-col",
+        selected && "shadow-[0_0_0_2px_var(--ml-accent),0_8px_24px_-12px_rgb(16_24_40/0.18)]",
+      )}
+    >
+      {selected ? (
+        <span className="absolute right-3 top-3 flex size-6 items-center justify-center rounded-full bg-accent text-white" aria-hidden>
+          <Check className="size-3.5" strokeWidth={3} />
+        </span>
+      ) : null}
+      <div className={cn("space-y-2", selected && "pr-7")}>
         {channels.length ? <p className="text-footnote font-medium text-ink-2">For {channels.join(" and ")}</p> : null}
         {compact ? <h3 className="text-headline font-semibold text-ink text-balance">{item.title}</h3> : <h2 className="text-title-3 font-semibold text-ink text-balance">{item.title}</h2>}
         {why ? (
@@ -262,7 +280,14 @@ export function IdeaCard({ item, appId, compact }: { item: FeedItem; appId: stri
           </p>
         )
       ) : null}
-      {isUsed(item) ? (
+      {onUse ? (
+        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
+          <Button size="lg" variant={selected ? "secondary" : "outline"} aria-pressed={selected} onClick={() => onUse(item)} icon={selected ? <Check className="size-4" aria-hidden /> : <Sparkle className="size-4" aria-hidden />}>
+            {selected ? "Using this idea" : "Use this idea"}
+          </Button>
+          {isUsed(item) && !selected ? <p className="text-footnote text-ink-2">A video was already started from this idea.</p> : null}
+        </div>
+      ) : isUsed(item) ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button asChild size="lg" variant="secondary">
             <Link href={routes.app(workspaceId, appId).campaign(item.campaignId!)}>
@@ -306,7 +331,8 @@ function NothingYet({ looking, hasOther }: { looking: boolean; hasOther: boolean
 // Accounts you follow (the stories row, simplified)
 // ---------------------------------------------------------------------------
 
-function FollowedAccounts({ appId }: { appId: string }) {
+/** Accounts you follow (also on Create → Use a suggested idea). */
+export function FollowedAccounts({ appId }: { appId: string }) {
   const { workspaceId, can } = useWorkspace();
   const toast = useToast();
   const invalidate = useInvalidate();
