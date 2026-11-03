@@ -99,15 +99,22 @@ function maxSlides(doc: CompositionDoc): number {
   return doc.aspectRatio === "9:16" && doc.scenes.every((s) => s.template === "store-screenshot") ? 8 : 10;
 }
 
-/** What a still edit must never do (audio, captions, transitions, video layers, made-up screens, too many slides). */
-function stillProblems(base: CompositionDoc, ops: PatchOp[], after: CompositionDoc, affected: string[], assets: Map<string, MediaAsset>): string[] {
+/** Ops a still never takes (sound, captions, transitions), in plain words for the repair round. */
+function stillOpProblems(ops: PatchOp[]): string[] {
   const problems: string[] = [];
   ops.forEach((op, i) => {
-    if (op.op === "upsert_audio" || op.op === "remove_audio") problems.push(`ops.${i}: a still has no sound; "${op.op}" is not allowed.`);
-    if (op.op === "set_captions") problems.push(`ops.${i}: a still has no captions; "set_captions" is not allowed.`);
-    if (op.op === "update_scene" && op.set.transitionIn) problems.push(`ops.${i}: a still has no transitions; don't set transitionIn.`);
-    if (op.op === "add_scene" && op.scene.transitionIn && op.scene.transitionIn.kind !== "cut") problems.push(`ops.${i}: a still has no transitions; new slides use a cut.`);
+    const o = op as { op: string; set?: { transitionIn?: unknown }; scene?: { transitionIn?: { kind?: string } } };
+    if (o.op === "upsert_audio" || o.op === "remove_audio") problems.push(`ops.${i}: a still has no sound; "${o.op}" is not allowed.`);
+    if (o.op === "set_captions") problems.push(`ops.${i}: a still has no captions; "set_captions" is not allowed.`);
+    if (o.op === "update_scene" && o.set?.transitionIn) problems.push(`ops.${i}: a still has no transitions; don't set transitionIn.`);
+    if (o.op === "add_scene" && o.scene?.transitionIn && o.scene.transitionIn.kind !== "cut") problems.push(`ops.${i}: a still has no transitions; new slides use a cut.`);
   });
+  return problems;
+}
+
+/** What a still edit must never make (sound, captions, video layers, made-up screens, too many slides). */
+function stillProblems(base: CompositionDoc, after: CompositionDoc, affected: string[], assets: Map<string, MediaAsset>): string[] {
+  const problems: string[] = [];
   if (after.audio.length > base.audio.length) problems.push("A still has no sound: the patch added an audio track.");
   if (after.captions.enabled && !base.captions.enabled) problems.push("A still has no captions: the patch turned captions on.");
   if (after.scenes.length > maxSlides(base)) problems.push(`A ${base.kind === "static" ? "single image has one slide" : `set like this has at most ${maxSlides(base)} slides`}; the patch makes ${after.scenes.length}.`);
@@ -226,6 +233,7 @@ export function checkEdit(base: CompositionDoc, out: EditOutput, opts: { sceneId
   const ops = out.ops as unknown as PatchOp[];
   const scoped = opts.sceneIds.length > 0;
   const sceneById = new Map(base.scenes.map((s) => [s.id, s]));
+  if (isStill(base)) problems.push(...stillOpProblems(ops));
   ops.forEach((op, i) => {
     const o = op as { op: string; sceneId?: string; layerId?: string };
     if (scoped && !SCENE_OPS.has(o.op)) problems.push(`ops.${i}: "${o.op}" is not allowed when editing only scenes ${opts.sceneIds.join(", ")}`);
@@ -276,7 +284,7 @@ export function checkEdit(base: CompositionDoc, out: EditOutput, opts: { sceneId
       if (l.type === "text" && baseTexts.get(l.id) !== l.text) changedTexts.push({ id: l.id, text: l.text });
     }
   }
-  if (isStill(base)) problems.push(...stillProblems(base, ops, result.doc, result.affectedSceneIds, opts.assets));
+  if (isStill(base)) problems.push(...stillProblems(base, result.doc, result.affectedSceneIds, opts.assets));
   return { problems, doc: problems.length ? undefined : result.doc, ops, affectedSceneIds: result.affectedSceneIds, changedTexts };
 }
 

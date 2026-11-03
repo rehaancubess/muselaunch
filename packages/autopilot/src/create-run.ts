@@ -4,16 +4,82 @@
  * takes next, and what a refused step means (a decision for the person, or a short wait).
  * The I/O (taking steps, storing decisions, the read model) is in create-runner.ts.
  */
-import type { AspectRatio, Campaign, CampaignVariant, Channel, Composition, CreateDecisionKind, CreateRunFailure, CreateRunStage, Job } from "@muselaunch/contracts";
+import { clampSlides, formatOfDeliverable, isTextDeliverable, stillAspect, TEXT_POST_CHANNELS, type AspectRatio, type Campaign, type CampaignVariant, type Channel, type Composition, type CopyPack, type CreateDecisionKind, type CreateRunFailure, type CreateRunStage, type Job, type OutputFormat, type StoreTarget } from "@muselaunch/contracts";
 
 export type CreateKind = "promote" | "feature";
 type Step = Exclude<CreateRunStage, "done">;
+/** What a run makes: a video, stills (stills.ts formats) or a text post. */
+export type RunOutput = OutputFormat | "text_post";
 
-/** What a Create campaign was asked for (its one deliverable). */
-export function runSettings(campaign: Pick<Campaign, "deliverables" | "goal">): { kind: CreateKind; aspectRatio: AspectRatio; lengthSec?: number; channel?: Channel } {
+export interface RunSettings {
+  kind: CreateKind;
+  aspectRatio: AspectRatio;
+  /** Videos only. */
+  lengthSec?: number;
+  channel?: Channel;
+  output: RunOutput;
+  /** Stills: how many slides (clamped to the format's limits). */
+  slides?: number;
+  /** Store screenshot sets: which store. */
+  store?: StoreTarget;
+}
+
+export const isStillOutput = (o: RunOutput): o is Exclude<OutputFormat, "video"> => o !== "video" && o !== "text_post";
+
+/** What a Create campaign was asked for (its one deliverable): the format, the frame, the length or the slide count. */
+export function runSettings(campaign: Pick<Campaign, "deliverables" | "goal">): RunSettings {
   const d = campaign.deliverables[0];
   const kind: CreateKind = d?.kind === "feature_promo" || campaign.goal === "feature_announcement" ? "feature" : "promote";
-  return { kind, aspectRatio: d?.aspectRatio ?? "9:16", lengthSec: d?.durationSec, channel: d?.channel };
+  if (isTextDeliverable(d?.kind)) {
+    const channel = d?.channel && (TEXT_POST_CHANNELS as readonly string[]).includes(d.channel) ? d.channel : "x";
+    return { kind, aspectRatio: d?.aspectRatio ?? "9:16", channel, output: "text_post" };
+  }
+  const format = formatOfDeliverable(d?.kind) ?? "video";
+  if (format === "video") return { kind, aspectRatio: d?.aspectRatio ?? "9:16", lengthSec: d?.durationSec, channel: d?.channel, output: "video" };
+  const store = format === "store_screenshots" ? (d?.store ?? "ios") : undefined;
+  return { kind, aspectRatio: stillAspect(format, d?.aspectRatio, store), channel: d?.channel, output: format, slides: clampSlides(format, d?.slides, store), ...(store ? { store } : {}) };
+}
+
+/** How a run's piece is named in plain words ("your carousel", "these screenshots"). */
+export interface RunNoun {
+  /** "video", "carousel", "post", "thumbnail", "screenshots" */
+  one: string;
+  /** "videos", "carousels", "posts", "thumbnails", "store screenshots" */
+  many: string;
+  plural: boolean;
+}
+
+export function runNoun(output: RunOutput | undefined): RunNoun {
+  switch (output) {
+    case "carousel":
+      return { one: "carousel", many: "carousels", plural: false };
+    case "post":
+    case "text_post":
+      return { one: "post", many: "posts", plural: false };
+    case "thumbnail":
+      return { one: "thumbnail", many: "thumbnails", plural: false };
+    case "store_screenshots":
+      return { one: "screenshots", many: "store screenshots", plural: true };
+    default:
+      return { one: "video", many: "videos", plural: false };
+  }
+}
+
+/** Step names in plain words, for the piece a run makes (text posts: write the idea, then the post). */
+export function stageLabel(output: RunOutput | undefined, stage: Step): string {
+  const n = runNoun(output);
+  switch (stage) {
+    case "idea":
+      return "Writing the idea";
+    case "plan":
+      return output === "text_post" ? "Writing the post" : `Planning the ${n.one}`;
+    case "make":
+      return "Making it";
+    case "check":
+      return output === "text_post" ? "Checking the facts" : "Checking facts and brand";
+    case "finish":
+      return "Finishing";
+  }
 }
 
 type VariantLike = Pick<CampaignVariant, "id" | "status" | "angleType" | "title">;
@@ -35,15 +101,19 @@ export function pickVariant<V extends VariantLike>(variants: V[], kind: CreateKi
 
 /** The step the server takes for the person (what they'd click on the campaign page / in the Studio). */
 export type NextStep =
-  | { kind: "produce"; variantId: string; select: boolean; aspectRatio: AspectRatio; targetDurationSec?: number }
-  | { kind: "final"; compositionId: string; version: number };
+  | { kind: "produce"; variantId: string; select: boolean; aspectRatio: AspectRatio; targetDurationSec?: number; format?: Exclude<OutputFormat, "video">; slides?: number; store?: StoreTarget }
+  | { kind: "final"; compositionId: string; version: number }
+  /** Text posts: Muse Spark writes the post for the run's one channel (copy.generate). */
+  | { kind: "copy"; variantId: string; select: boolean; channel: Channel };
 
 /** One key per step: a decision, an approval or an override belongs to exactly this step. */
-export const stepKeyOf = (n: NextStep) => (n.kind === "produce" ? `produce:${n.variantId}` : `final:${n.compositionId}:v${n.version}`);
+export const stepKeyOf = (n: NextStep) => (n.kind === "produce" ? `produce:${n.variantId}` : n.kind === "copy" ? `copy:${n.variantId}` : `final:${n.compositionId}:v${n.version}`);
 
-/** Overall progress where each step starts (the last one ends at 100). */
+/** Overall progress where each step starts (the last one ends at 100). Text posts: the idea, then the post. */
 const STEP_START: Record<Step, number> = { idea: 0, plan: 20, make: 45, check: 75, finish: 80 };
 const STEP_END: Record<Step, number> = { idea: 20, plan: 45, make: 75, check: 80, finish: 100 };
+const TEXT_START: Record<Step, number> = { ...STEP_START, idea: 0, plan: 40 };
+const TEXT_END: Record<Step, number> = { ...STEP_END, idea: 40, plan: 100 };
 
 export interface Derived {
   stage: CreateRunStage;
@@ -60,14 +130,22 @@ export interface Derived {
   ideaTitle?: string;
   ideaCount: number;
   compositionId?: string;
+  /** Videos: the final render. Stills: slide 1 (the cover). */
   finalAssetId?: string;
+  /** Stills: the final render's slide images, in order. */
+  finalAssetIds?: string[];
+  /** Text posts: the copy pack Muse wrote. */
+  copyPackId?: string;
+  /** What the run makes. */
+  output: RunOutput;
   /** Newest change to any job of this run (ms), for "nobody moved it for a day". */
   lastActivity: number;
 }
 
 export type JobLike = Pick<Job, "id" | "type" | "status" | "payload" | "progress" | "parentJobId" | "error" | "createdAt"> & Partial<Pick<Job, "output" | "updatedAt">>;
 type CompLike = Pick<Composition, "id" | "status" | "currentVersion" | "lastRender" | "variantId" | "createdAt">;
-export type FinalLike = { id: string; render?: { compositionId: string; quality: string; version: number } | null; status: string; kind?: string; role?: string };
+export type FinalLike = { id: string; render?: { compositionId: string; quality: string; version: number } | null; status: string; kind?: string; role?: string; labels?: string[] };
+export type PackLike = Pick<CopyPack, "id" | "channel" | "createdAt"> & Partial<Pick<CopyPack, "variantId" | "items" | "validation">>;
 
 export interface RunInput {
   campaign: Pick<Campaign, "id" | "status" | "deliverables" | "goal" | "createdAt">;
@@ -75,8 +153,10 @@ export interface RunInput {
   compositions: CompLike[];
   /** The app's recent jobs plus the run's own (any order). */
   jobs: JobLike[];
-  /** Final render assets (of this campaign). */
+  /** Final render assets (of this campaign), newest first. */
   finals: FinalLike[];
+  /** Text posts: the campaign's copy packs (any order). */
+  copyPacks?: PackLike[];
   /** Screenshot checks or a walkthrough being cut right now (plans wait for that real footage). */
   footageBusy?: boolean;
 }
@@ -84,7 +164,6 @@ export interface RunInput {
 const isActive = (j: Pick<Job, "status"> | null | undefined) => Boolean(j && (j.status === "queued" || j.status === "running"));
 const newest = <T extends { createdAt: string }>(xs: T[]) => [...xs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 const jobPct = (j: JobLike | undefined) => (j && isActive(j) ? Math.max(0, Math.min(100, j.progress?.pct ?? 0)) / 100 : 0);
-const within = (step: Step, frac: number) => Math.round(STEP_START[step] + (STEP_END[step] - STEP_START[step]) * Math.max(0, Math.min(1, frac)));
 const failText = (j: JobLike, fallback: string) => j.error?.userMessage ?? j.error?.message ?? fallback;
 /** The running job's step in its own plain words ("rendering video"), not its technical detail. */
 const detailOf = (j: JobLike | undefined) => {
@@ -93,15 +172,34 @@ const detailOf = (j: JobLike | undefined) => {
   return stage && !["queued", "running", "starting", "done", "retrying"].includes(stage) ? stage.slice(0, 200) : undefined;
 };
 
-/** The newest final render of a composition, if it's ready. */
-export function finalFor(finals: FinalLike[], compositionId: string): FinalLike | undefined {
-  return finals.find((a) => a.render?.compositionId === compositionId && a.render.quality === "final" && a.status === "ready" && (a.kind ?? "video") === "video" && (a.role ?? "render") === "render");
+/** The newest final render of a composition, if it's ready (stills: its first slide image). */
+export function finalFor(finals: FinalLike[], compositionId: string, still = false): FinalLike | undefined {
+  return finals.find((a) => a.render?.compositionId === compositionId && a.render.quality === "final" && a.status === "ready" && (a.kind ?? "video") === (still ? "image" : "video") && (a.role ?? "render") === "render");
+}
+
+/** Slide number of a still render image (`slide:<n>` label; else the id's `_<n>` suffix; else 1). */
+const slideNo = (a: FinalLike) => Number(a.labels?.find((l) => l.startsWith("slide:"))?.slice(6)) || Number(/_(\d{1,2})$/.exec(a.id)?.[1]) || 1;
+/** The render a still image belongs to (slide 1 is `ast_r_<key>`, slide n `ast_r_<key>_<n>`). */
+const renderBase = (id: string) => id.replace(/_\d{1,2}$/, "");
+
+/** A still's final slide images, in order (slide 1 = the cover): those of its newest ready final render. */
+export function finalSlides(finals: FinalLike[], compositionId: string): FinalLike[] {
+  const first = finalFor(finals, compositionId, true);
+  if (!first) return [];
+  const base = renderBase(first.id);
+  return finals.filter((a) => renderBase(a.id) === base && a.render?.compositionId === compositionId && a.render.version === first.render!.version && a.render.quality === "final" && a.status === "ready" && a.kind === "image").sort((a, b) => slideNo(a) - slideNo(b));
 }
 
 export function deriveRun(input: RunInput): Derived {
   const { campaign, variants } = input;
   const jobs = dedupe(input.jobs);
   const settings = runSettings(campaign);
+  const output = settings.output;
+  const still = isStillOutput(output);
+  const noun = runNoun(output).one;
+  const starts = output === "text_post" ? TEXT_START : STEP_START;
+  const ends = output === "text_post" ? TEXT_END : STEP_END;
+  const within = (step: Step, frac: number) => Math.round(starts[step] + (ends[step] - starts[step]) * Math.max(0, Math.min(1, frac)));
   const mine = (type: Job["type"], match: (p: Record<string, unknown>) => boolean) => newest(jobs.filter((j) => j.type === type && match(j.payload)));
   /** A job, or the newest retry of it ("Try again" runs a failed job as a new one whose parent is the old one). */
   const latest = (j: JobLike | undefined): JobLike | undefined => {
@@ -116,11 +214,11 @@ export function deriveRun(input: RunInput): Derived {
   const childOf = (parent: JobLike | undefined, type: Job["type"]) => (parent ? latest(newest(jobs.filter((j) => j.parentJobId === parent.id && j.type === type))) : undefined);
   const touched: JobLike[] = [];
   const track = <T extends JobLike | undefined>(j: T) => (j && touched.push(j), j);
-  const base = { ideaCount: variants.length, failure: null, next: null, working: false };
+  const base = { ideaCount: variants.length, failure: null, next: null, working: false, output };
   const result = (stage: CreateRunStage, rest: Partial<Derived>): Derived => ({
     ...base,
     stage,
-    pct: stage === "done" ? 100 : STEP_START[stage],
+    pct: stage === "done" ? 100 : starts[stage],
     ...rest,
     lastActivity: Math.max(Date.parse(campaign.createdAt), ...touched.map((j) => Date.parse(j.updatedAt ?? j.createdAt))),
   });
@@ -143,7 +241,21 @@ export function deriveRun(input: RunInput): Derived {
   }
   const idea = { variantId: chosen.id, ideaTitle: chosen.title };
 
-  // 2. Planning the video (storyboard) → 3. Making it (b-roll → editable video → preview).
+  // Text posts: 2. Muse Spark writes the post (a fact-checked copy pack for the one channel) → done.
+  if (output === "text_post") {
+    const channel = settings.channel!;
+    const pack = newest((input.copyPacks ?? []).filter((x) => x.channel === channel && (!x.variantId || x.variantId === chosen.id)));
+    if (pack) return result("done", { ...idea, copyPackId: pack.id });
+    const write = track(latest(mine("copy.generate", (p) => p.campaignId === campaign.id && (p.variantId === chosen.id || !p.variantId) && Array.isArray(p.channels) && p.channels.includes(channel))));
+    if (!write) return result("plan", { ...idea, next: { kind: "copy", variantId: chosen.id, select: chosen.status === "proposed", channel } });
+    if (isActive(write)) return result("plan", { ...idea, working: true, pct: within("plan", jobPct(write)), detail: detailOf(write) });
+    if (write.status !== "succeeded") return failed("plan", write, "Writing the post was stopped.", "Muse couldn’t write the post.", idea);
+    // The job finished: the post is a moment behind it (its id is in the job's output).
+    const ref = write.output?.refs?.find((r) => r.entity === "copyPacks")?.id;
+    return ref ? result("done", { ...idea, copyPackId: ref }) : result("plan", { ...idea, working: true });
+  }
+
+  // 2. Planning the video or stills (storyboard) → 3. Making it (b-roll → editable video → preview).
   const comp = newest(input.compositions.filter((c) => c.variantId === chosen.id || (chosen.compositionIds ?? []).includes(c.id)));
   const board = track(mine("storyboard.generate", (p) => p.campaignId === campaign.id && (p.variantId === chosen.id || !p.variantId)));
   const media = track(childOf(board, "storyboard.resolve_media"));
@@ -151,15 +263,16 @@ export function deriveRun(input: RunInput): Derived {
   if (!comp) {
     if (!board) {
       if (input.footageBusy) return result("plan", { ...idea, working: true, detail: "Getting your app’s screens ready first" });
-      return result("plan", { ...idea, next: { kind: "produce", variantId: chosen.id, select: chosen.status === "proposed", aspectRatio: settings.aspectRatio, targetDurationSec: settings.lengthSec } });
+      const stills = isStillOutput(output) ? { format: output, slides: settings.slides, ...(settings.store ? { store: settings.store } : {}) } : {};
+      return result("plan", { ...idea, next: { kind: "produce", variantId: chosen.id, select: chosen.status === "proposed", aspectRatio: settings.aspectRatio, targetDurationSec: settings.lengthSec, ...stills } });
     }
     if (isActive(board)) return result("plan", { ...idea, working: true, pct: within("plan", jobPct(board)), detail: detailOf(board) });
-    if (board.status !== "succeeded") return failed("plan", board, "Planning the video was stopped.", "Muse couldn’t plan the video.", idea);
+    if (board.status !== "succeeded") return failed("plan", board, `Planning the ${noun} was stopped.`, `Muse couldn’t plan the ${noun}.`, idea);
     for (const [j, what] of [
       [media, "Finding the extra footage failed."],
-      [build, "Making the video failed."],
+      [build, `Making the ${noun} failed.`],
     ] as const) {
-      if (j && !isActive(j) && j.status !== "succeeded") return failed("make", j, "Making the video was stopped.", what, idea);
+      if (j && !isActive(j) && j.status !== "succeeded") return failed("make", j, `Making the ${noun} was stopped.`, what, idea);
     }
     const running = isActive(build) ? build : isActive(media) ? media : undefined;
     const frac = isActive(build) ? 0.25 + 0.5 * jobPct(build) : isActive(media) ? 0.25 * jobPct(media) : 0;
@@ -167,19 +280,30 @@ export function deriveRun(input: RunInput): Derived {
   }
   const made = { ...idea, compositionId: comp.id };
 
-  // Finished: a ready final render of this video.
-  const final = finalFor(input.finals, comp.id);
+  // Finished: a ready final render of this video (stills: its slide images).
   const finalJob = track(latest(mine("render.final", (p) => p.compositionId === comp.id)));
-  if (final) return result("done", { ...made, finalAssetId: final.id });
+  if (still) {
+    const slides = finalSlides(input.finals, comp.id);
+    if (slides.length) return result("done", { ...made, finalAssetId: slides[0]!.id, finalAssetIds: slides.map((a) => a.id) });
+  } else {
+    const final = finalFor(input.finals, comp.id);
+    if (final) return result("done", { ...made, finalAssetId: final.id });
+  }
 
   // 5. Finishing (final render).
   if (isActive(finalJob)) return result("finish", { ...made, working: true, pct: within("finish", jobPct(finalJob)), detail: detailOf(finalJob) });
   if (finalJob?.status === "succeeded") {
-    // The render finished (the video's records may be a moment behind the job).
-    const assetId = (finalJob.output?.data as { assetId?: string } | undefined)?.assetId ?? (comp.lastRender?.quality === "final" ? comp.lastRender.assetId : undefined);
+    // The render finished (the records may be a moment behind the job).
+    const lastFinal = comp.lastRender?.quality === "final" ? comp.lastRender.assetId : undefined;
+    if (still) {
+      const ids = (finalJob.output?.refs ?? []).filter((r) => r.entity === "mediaAssets").map((r) => r.id);
+      const cover = ids[0] ?? lastFinal;
+      return result("done", { ...made, finalAssetId: cover, finalAssetIds: ids.length ? ids : cover ? [cover] : undefined });
+    }
+    const assetId = (finalJob.output?.data as { assetId?: string } | undefined)?.assetId ?? lastFinal;
     return result("done", { ...made, finalAssetId: assetId });
   }
-  if (finalJob && (finalJob.status === "failed" || finalJob.status === "cancelled")) return failed("finish", finalJob, "The final video was stopped.", "The final video didn’t finish.", made);
+  if (finalJob && (finalJob.status === "failed" || finalJob.status === "cancelled")) return failed("finish", finalJob, `The final ${noun} ${still && runNoun(output).plural ? "were" : "was"} stopped.`, still ? `The final ${noun} didn’t finish.` : "The final video didn’t finish.", made);
 
   // Still making the video or its preview: wait for it (the person would see the video before
   // finishing it). The build queues the preview before it finishes, so once neither runs, none is coming.
