@@ -19,6 +19,19 @@ export const routes = {
     const base = `/w/${wid}/a/${appId}`;
     return {
       root: base,
+      /** Home: what's ready to review, what's coming up, what needs you (the app opens here). */
+      home: `${base}/home`,
+      /** Create: "What would you like to make?" (promote, show a feature, a suggested idea) + your content. `opts` prefill it. */
+      create: (opts: { kind?: "promote" | "feature" | "idea"; prompt?: string; ideaId?: string } = {}) => {
+        const q = new URLSearchParams();
+        if (opts.kind) q.set("kind", opts.kind);
+        if (opts.prompt) q.set("prompt", opts.prompt);
+        if (opts.ideaId) q.set("idea", opts.ideaId);
+        const s = q.toString();
+        return s ? `${base}/create?${s}` : `${base}/create`;
+      },
+      /** Results: "See what is working": measured numbers, a chart, the best post and one tip. */
+      results: `${base}/results`,
       /** Discover: "What Muse found", the few best ideas for this app. */
       discover: `${base}/discover`,
       /** Discover → See everything: every finding, filters, saved ideas, creators. */
