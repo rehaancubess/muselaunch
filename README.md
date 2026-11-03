@@ -56,6 +56,8 @@ Install Node.js once (`winget install OpenJS.NodeJS.LTS` in PowerShell), then do
 | `setup-youtube.cmd` | Creates the YouTube public-data API key (restricted to YouTube Data API v3) and saves it in `.env` without showing it. |
 | `deploy.cmd` | Puts MuseLaunch online on Google Cloud Run (project and region from `.env`). Needs the Google Cloud CLI once (`winget install Google.CloudSDK`); signs you in if needed. Creates the Firestore indexes, secrets, queues and four services. Log: `.data/logs/deploy.log`. |
 | `setup-glimmer.cmd` | Downloads Muse Glimmer (about 18 GB) into Ollama on your GPU, connects MuseLaunch to it and runs a live Brand Guardian check. |
+| `build-phone-android.cmd` | Builds the **phone app** (`mobile/`, Expo) for Android on Expo's servers: an APK to install from a link. Asks you to log in to Expo. |
+| `build-phone-ios.cmd` | Builds the phone app for iPhone and sends it to **TestFlight**. Asks you to log in to Expo and to your Apple Developer account. Push setup and details: `mobile/README.md`. |
 
 Both start scripts open the site at http://localhost:3000. Close their two server windows to stop.
 
