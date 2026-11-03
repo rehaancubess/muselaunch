@@ -1,21 +1,29 @@
 "use client";
 /**
- * One Create run, in plain words: the five steps (Writing the idea → Planning the video → Making it →
- * Checking facts and brand → Finishing) with real progress from the jobs, and, when the server
- * stopped for the person, its decision right here (credits, a plan limit, the facts or brand check, a
- * longer video, a day without progress, a failed step). Finished: the video with Open it and Post it.
+ * One Create run, in plain words: its steps for what it makes (a video: Writing the idea → Planning
+ * the video → Making it → Checking facts and brand → Finishing; a carousel: … Planning the slides →
+ * Making the carousel …; a text post: Writing the idea → Writing the post → Checking facts) with real
+ * progress from the jobs, and, when the server stopped for the person, its decision right here
+ * (credits, a plan limit, the facts or brand check, a longer video, a day without progress, a failed
+ * step). Finished: the video (Open it, Post it), the slides (a gallery: Download all, Edit, Schedule
+ * post) or the post text (as it will read, its length and fact check: Copy, Schedule post).
  * Everything shown comes from the server's read model; the buttons answer its decision.
  */
-import type { CreateRunDecision } from "@muselaunch/contracts";
-import { Button, Input, ProgressBar, Spinner, cn } from "@muselaunch/ui";
-import { ArrowUpRight, Check, Play, RotateCcw, Send, X } from "lucide-react";
+import type { CreateRunDecision, CreateRunText } from "@muselaunch/contracts";
+import { Button, Input, ProgressBar, Spinner, cn, useToast } from "@muselaunch/ui";
+import { ArrowUpRight, CalendarClock, Check, Copy, Download, PenLine, Play, RotateCcw, Send, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useAssetUrl } from "@/components/app-icon";
+import { SlideGallery } from "@/components/creator/slide-gallery";
+import { TextPostCard } from "@/components/creator/text-post-card";
+import { api, errorMessage, wsPath } from "@/lib/api";
+import type { SignedUrl } from "@/lib/api-types";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
-import { STEP_LABEL, STEPS, clock, isMoving, needsPerson, stepState, type FinishedVideo, type StepKey } from "./plan";
+import { clock, isMoving, isSlideSet, makeNoun, needsPerson, runMake, stageLabel, stepState, stepsFor, type FinishedStills, type FinishedVideo, type MakeFormat } from "./plan";
 import type { CreateRun, CreateRunsState } from "./runs";
+import type { ScheduleTarget } from "./schedule";
 
 function StepIcon({ state }: { state: ReturnType<typeof stepState> | "attention" }) {
   if (state === "attention")
@@ -45,25 +53,41 @@ function StepIcon({ state }: { state: ReturnType<typeof stepState> | "attention"
   return <span className="size-6 shrink-0 rounded-full border-2 border-line-strong" aria-hidden />;
 }
 
-function headline(run: CreateRun): string {
-  if (run.status === "done") return "Your video is ready";
-  if (run.status === "failed") return "Your video stopped";
-  if (run.status === "stopped" || run.decision?.kind === "resume") return "Your video is waiting";
-  if (run.status === "needs_you") return "Your video needs you";
-  return "Making your video";
+/** "Your carousel is ready", "Your screenshots stopped", "Making your post". */
+export function headline(run: Pick<CreateRun, "status" | "decision" | "format">): string {
+  const { noun, plural } = makeNoun(runMake(run));
+  const is = plural ? "are" : "is";
+  const needs = plural ? "need" : "needs";
+  if (run.status === "done") return `Your ${noun} ${is} ready`;
+  if (run.status === "failed") return `Your ${noun} stopped`;
+  if (run.status === "stopped" || run.decision?.kind === "resume") return `Your ${noun} ${is} waiting`;
+  if (run.status === "needs_you") return `Your ${noun} ${needs} you`;
+  return `Making your ${noun}`;
 }
 
-export function RunPanel({ run, finished, actions, appId, onPost }: { run: CreateRun; finished?: FinishedVideo; actions: CreateRunsState; appId: string; onPost: (v: FinishedVideo) => void }) {
+/** The finished stills of a run: the server's (`run.stills`), else what Your content found for its composition. */
+function stillsOf(run: CreateRun, found?: FinishedStills): FinishedStills | null {
+  if (run.stills?.assetIds.length)
+    return { compositionId: run.compositionId ?? found?.compositionId ?? "", assetIds: run.stills.assetIds, campaignId: run.campaignId, title: run.ideaTitle ?? run.name, width: run.stills.width ?? found?.width, height: run.stills.height ?? found?.height, version: run.stills.version ?? found?.version, renderedAt: run.stills.renderedAt ?? found?.renderedAt ?? run.createdAt };
+  return found ?? null;
+}
+
+export function RunPanel({ run, finished, stills, actions, appId, onSchedule }: { run: CreateRun; finished?: FinishedVideo; stills?: FinishedStills; actions: CreateRunsState; appId: string; onSchedule: (t: ScheduleTarget) => void }) {
   const { workspaceId, can } = useWorkspace();
   const r = routes.app(workspaceId, appId);
   const canWrite = can("content.write");
   const busy = actions.busy[run.campaignId];
   const can_ = (a: Parameters<CreateRunsState["resolve"]>[1]) => canWrite && run.actions.includes(a);
+  const make = runMake(run);
+  const steps = stepsFor(make);
+  const noun = makeNoun(make).noun;
+  const doneStills = run.status === "done" && make !== "video" && make !== "text_post" ? stillsOf(run, stills) : null;
+  const doneText = run.status === "done" && make === "text_post" ? (run.text ?? null) : null;
 
   return (
     <section aria-labelledby={`run-${run.campaignId}`} aria-live="polite" className="space-y-5 rounded-2xl bg-surface p-5 shadow-raised sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        {run.status === "done" && finished ? <DonePoster video={finished} href={r.studio(finished.compositionId)} /> : null}
+        {run.status === "done" && finished && make === "video" ? <DonePoster video={finished} href={r.studio(finished.compositionId)} /> : null}
         <div className="min-w-0 flex-1 space-y-1.5">
           <h2 id={`run-${run.campaignId}`} className="text-title-3 font-semibold text-ink">
             {headline(run)}
@@ -90,15 +114,15 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
       {run.status !== "done" ? (
         <>
           <ProgressBar value={run.pct} label="Progress" tone={run.status === "failed" ? "danger" : "accent"} />
-          <ol className="grid gap-2.5 sm:grid-cols-5 sm:gap-3">
-            {STEPS.map((s) => {
-              const state = stepState(run, s);
+          <ol className={cn("grid gap-2.5 sm:gap-3", steps.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-5")}>
+            {steps.map(({ key: s, label }) => {
+              const state = stepState(run, s, steps);
               const current = state === "current" || state === "failed";
               return (
                 <li key={s} className="flex items-start gap-2.5 sm:flex-col sm:gap-2">
                   <StepIcon state={state === "current" ? (needsPerson(run) ? "attention" : isMoving(run) ? "current" : "todo") : state} />
                   <div className="min-w-0">
-                    <p className={cn("text-body-sm", current ? "font-semibold text-ink" : state === "done" ? "text-ink" : "text-ink-3")}>{STEP_LABEL[s]}</p>
+                    <p className={cn("text-body-sm", current ? "font-semibold text-ink" : state === "done" ? "text-ink" : "text-ink-3")}>{label}</p>
                     {current && run.detail ? <p className="text-caption text-ink-3 first-letter:uppercase">{run.detail}</p> : null}
                   </div>
                 </li>
@@ -125,7 +149,7 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
       ) : run.status === "needs_you" && run.decision ? (
         <DecisionBox run={run} decision={run.decision} actions={actions} appId={appId} allowed={can_} />
       ) : run.status === "stopped" ? (
-        <Decision text={`You left this video at “${STEP_LABEL[run.stage as StepKey] ?? "a step"}”. It stays in the editor; Muse carries on only if you continue it.`}>
+        <Decision text={`You left this ${noun} at “${stageLabel(make, run.stage)}”. ${make === "text_post" ? "Nothing was posted" : "It stays in the editor"}; Muse carries on only if you continue it.`}>
           {can_("retry") ? (
             <Button size="lg" onClick={() => void actions.resolve(run, "retry")} loading={busy === "retry"}>
               Continue
@@ -134,7 +158,16 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
         </Decision>
       ) : null}
 
-      {run.status === "done" && run.compositionId ? (
+      {doneStills ? <StillsResult stills={doneStills} make={make} studioHref={run.compositionId ? r.studio(run.compositionId) : null} canWrite={canWrite} onSchedule={() => onSchedule({ type: "stills", ...doneStills, campaignId: doneStills.campaignId ?? run.campaignId })} /> : null}
+      {doneText ? <TextResult text={doneText} canWrite={canWrite} onSchedule={() => onSchedule({ type: "text", campaignId: run.campaignId, copyPackId: doneText.copyPackId, channel: doneText.channel, text: doneText.text, ok: doneText.ok, title: run.ideaTitle ?? run.name, at: run.createdAt })} /> : null}
+      {run.status === "done" && make !== "video" && make !== "text_post" && !doneStills ? (
+        <p className="flex items-center gap-2 text-body-sm text-ink-2">
+          <Spinner size={14} className="text-ink-3" />
+          Loading the finished {isSlideSet(make) ? "slides" : "image"}…
+        </p>
+      ) : null}
+
+      {run.status === "done" && run.compositionId && make === "video" ? (
         <div className="flex flex-wrap gap-2">
           <Button size="lg" asChild>
             <Link href={r.studio(run.compositionId)}>
@@ -143,7 +176,7 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
             </Link>
           </Button>
           {canWrite && finished ? (
-            <Button size="lg" variant="outline" icon={<Send className="size-4" aria-hidden />} onClick={() => onPost(finished)}>
+            <Button size="lg" variant="outline" icon={<Send className="size-4" aria-hidden />} onClick={() => onSchedule({ type: "video", ...finished })}>
               Post it
             </Button>
           ) : null}
@@ -151,11 +184,15 @@ export function RunPanel({ run, finished, actions, appId, onPost }: { run: Creat
       ) : null}
 
       <p className="text-caption text-ink-3">
-        {run.status === "done" ? "Change anything by telling Muse in the editor. Nothing is posted without your OK." : "It keeps going even when MuseLaunch is closed. Nothing is posted without your OK."}
+        {run.status === "done"
+          ? make === "text_post"
+            ? "Want it different? Make another, or change the words when you schedule it. Nothing is posted without your OK."
+            : "Change anything by telling Muse in the editor. Nothing is posted without your OK."
+          : "It keeps going even when MuseLaunch is closed. Nothing is posted without your OK."}
         <span className="mx-1.5" aria-hidden>
           ·
         </span>
-        Muse Spark plans it · HyperFrames renders it
+        {make === "text_post" ? "Muse Spark writes it · checked against your facts" : "Muse Spark plans it · HyperFrames renders it"}
       </p>
     </section>
   );
@@ -291,5 +328,104 @@ function DonePoster({ video, href }: { video: FinishedVideo; href: string }) {
       </span>
       {video.durationSec ? <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] font-medium tabular text-white">{clock(video.durationSec)}</span> : null}
     </Link>
+  );
+}
+
+/** Download each slide (the API has no per-run zip; the campaign export packages every final render). */
+async function downloadSlides(workspaceId: string, ids: string[]) {
+  for (const [i, id] of ids.entries()) {
+    const { url } = await api.get<SignedUrl>(wsPath(workspaceId, `/assets/${id}/url`), { query: { download: 1 } });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `slide-${i + 1}`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Browsers drop rapid back-to-back downloads: a short pause between slides.
+    if (i < ids.length - 1) await new Promise((res) => setTimeout(res, 350));
+  }
+}
+
+function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stills: FinishedStills; make: MakeFormat; studioHref: string | null; canWrite: boolean; onSchedule: () => void }) {
+  const { workspaceId } = useWorkspace();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const n = stills.assetIds.length;
+  const store = make === "store_screenshots";
+  return (
+    <div className="space-y-4">
+      <SlideGallery assetIds={stills.assetIds} width={stills.width} height={stills.height} title={stills.title} />
+      {stills.width && stills.height ? (
+        <p className="text-caption text-ink-3 tabular">
+          {n} {n === 1 ? "image" : "images"} · {stills.width} × {stills.height}
+          {store ? " · ready to upload to the store" : ""}
+        </p>
+      ) : null}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {canWrite && !store ? (
+          <Button size="lg" className="col-span-2 sm:col-span-1" icon={<CalendarClock className="size-4" aria-hidden />} onClick={onSchedule}>
+            Schedule post
+          </Button>
+        ) : null}
+        <Button
+          size="lg"
+          variant={store || !canWrite ? "primary" : "outline"}
+          className={cn(store && "col-span-2 sm:col-span-1")}
+          icon={<Download className="size-4" aria-hidden />}
+          loading={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await downloadSlides(workspaceId, stills.assetIds);
+            } catch (e) {
+              toast.error("Download failed", errorMessage(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {n > 1 ? "Download all" : "Download"}
+        </Button>
+        {studioHref ? (
+          <Button size="lg" variant="outline" asChild>
+            <Link href={studioHref}>
+              <PenLine className="size-4" aria-hidden />
+              Edit
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TextResult({ text, canWrite, onSchedule }: { text: CreateRunText; canWrite: boolean; onSchedule: () => void }) {
+  const toast = useToast();
+  return (
+    <div className="space-y-4">
+      <TextPostCard text={text.text} channel={text.channel} ok={text.ok} className="max-w-xl bg-canvas shadow-[0_0_0_1px_var(--ml-line)]" />
+      {!text.ok ? <p className="text-footnote text-ink-2 text-pretty">The fact check found something to look at. When you schedule it, the post shows what and offers one-tap fixes.</p> : null}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {canWrite ? (
+          <Button size="lg" icon={<CalendarClock className="size-4" aria-hidden />} onClick={onSchedule}>
+            Schedule post
+          </Button>
+        ) : null}
+        <Button
+          size="lg"
+          variant="outline"
+          icon={<Copy className="size-4" aria-hidden />}
+          onClick={() =>
+            void navigator.clipboard?.writeText(text.text).then(
+              () => toast.success("Post copied"),
+              () => toast.error("Couldn’t copy", "Select the text and copy it by hand."),
+            )
+          }
+        >
+          Copy
+        </Button>
+      </div>
+    </div>
   );
 }
