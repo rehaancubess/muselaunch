@@ -16,6 +16,7 @@ import { adminRoutes, billingRoutes } from "./routes/billing";
 import { campaignRoutes } from "./routes/campaigns";
 import { compositionRoutes } from "./routes/compositions";
 import { creditRoutes } from "./routes/core-billing";
+import { createRunRoutes } from "./routes/create-runs";
 import { discoverRoutes } from "./routes/discover";
 import { guardianRoutes } from "./routes/guardian";
 import { jobRoutes } from "./routes/jobs";
@@ -85,6 +86,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", appDnaRoutes);
   ws.route("/jobs", jobRoutes);
   ws.route("/", campaignRoutes);
+  ws.route("/", createRunRoutes);
   ws.route("/", autopilotRoutes);
   ws.route("/", alwaysOnRoutes);
   ws.route("/", appSetupRoutes);

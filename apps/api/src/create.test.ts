@@ -9,6 +9,8 @@ import { buildApp } from "./app";
  * "create", one video deliverable in the chosen format and length, the idea it uses) → the ideas →
  * select + produce the chosen one → plan → editable video → the final render (the render route runs
  * the facts and brand check first). Fixture model routes only; renders and reviews are labelled stubs.
+ * The server takes these same steps itself now (create-runs.test.ts); with the same step keys, a
+ * person (or an old browser tab) sending them gets the server's jobs, never second ones.
  */
 
 // biome-ignore lint: loose JSON in tests

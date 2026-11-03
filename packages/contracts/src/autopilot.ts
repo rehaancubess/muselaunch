@@ -271,6 +271,9 @@ export type AutopilotRunCost = z.infer<typeof AutopilotRunCost>;
  *    that version is `blocked`, not overridden);
  *  - `suggestion`: Always on's weekly research found something timely ("People are talking about X
  *    this week: make a video about it?"); approve starts a round focused on it, reject notes it.
+ *  - `decision` with action `create_run`: a Create video stopped for the person (credits, a plan
+ *    limit, the facts or Brand check, a longer video, a failed step): approve/reject name
+ *    POST /create-runs/:campaignId/resolve (see create-run.ts).
  * The last two have no one-tap route (`approve`/`reject` are null): the decision is made where
  * `reviewPath` points (About your app, or the video in the Studio), with that page's own checks.
  */
@@ -278,7 +281,7 @@ export const NeedsYouKind = z.enum(["post", "outreach", "spend", "decision", "ap
 export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
 
 export const NeedsYouItem = z.object({
-  /** The approval id (approvals), the app id (`app_dna`) or the brand review id (`brand_check`). */
+  /** The approval id (approvals), the app id (`app_dna`), the brand review id (`brand_check`) or the campaign id (`create_run`). */
   id: Id,
   kind: NeedsYouKind,
   action: z.string().max(40),
@@ -298,8 +301,15 @@ export const NeedsYouItem = z.object({
   reject: z.object({ path: z.string().max(300), body: z.record(z.string(), z.unknown()).default({}) }).nullable(),
   /** Where to review it in full (path under the web app's /w/:workspaceId). */
   reviewPath: z.string().max(300).optional(),
-  /** Button words when the kind's defaults don't fit (e.g. "Make a video" / "Not now"). */
-  labels: z.object({ approve: z.string().max(40), reject: z.string().max(40), approved: z.string().max(200).optional(), rejected: z.string().max(200).optional() }).optional(),
+  /** Button words when the kind's defaults don't fit (e.g. "Make a video" / "Not now"); `review`: the link to `reviewPath` ("Open it"). */
+  labels: z
+    .object({ approve: z.string().max(40), reject: z.string().max(40), approved: z.string().max(200).optional(), rejected: z.string().max(200).optional(), review: z.string().max(40).optional() })
+    .optional(),
+  /**
+   * Approving needs a short reason typed by the person, sent as `reason` in the approve body (e.g.
+   * finishing a video past the Brand check). Clients without a text field link to `reviewPath` instead.
+   */
+  approveReason: z.object({ label: z.string().max(120), placeholder: z.string().max(200).optional() }).optional(),
   preview: z
     .object({
       channel: z.string().max(40).optional(),

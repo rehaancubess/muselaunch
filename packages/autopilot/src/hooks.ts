@@ -1,5 +1,6 @@
 import { can, type Autopilot, type Job } from "@muselaunch/contracts";
 import { toAppError, type Platform } from "@muselaunch/platform";
+import { advanceCreateRunsForJob, sweepCreateRuns } from "./create-runner";
 import { autopilotSettings } from "./defaults";
 import { advancePostChangesForJob, POST_CHANGE_JOBS } from "./post-change";
 import { enqueueStep } from "./step";
@@ -77,6 +78,8 @@ export function installAutopilotHooks(p: Platform): () => void {
       // "Tell Muse what to change" on a post: its next step (render, then the post uses it).
       if (POST_CHANGE_JOBS.has(job.type) && to !== "needs_approval") await advancePostChangesForJob(p, workspaceId, job).catch((err) => p.log.warn({ err, jobId: job.id }, "post change step failed"));
       if (to === "succeeded" && MEASURED_DATA_JOBS.has(job.type)) await autoRecommendOnNewData(p, workspaceId, job);
+      // Create ("Generate video"): the run's next step, on the server (create-runner.ts).
+      if (to !== "needs_approval") await advanceCreateRunsForJob(p, workspaceId, job).catch((err) => p.log.warn({ err, jobId: job.id }, "Create run step failed"));
     },
   });
   return () => {
@@ -88,18 +91,21 @@ export function installAutopilotHooks(p: Platform): () => void {
 /**
  * Cron: wake loops whose sleep (measure window) is over, and resume any loop whose awaited jobs
  * all finished but whose hook was missed (e.g. a process restart). Safe to call every few minutes.
+ * Also the Create runner's safety sweep (`createRuns`: runs looked at again).
  */
-export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: number; woken: number; resumed: number }> {
+export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: number; woken: number; resumed: number; createRuns: number }> {
   let cursor: string | null | undefined;
   let workspaces = 0;
   let woken = 0;
   let resumed = 0;
+  let createRuns = 0;
   const now = nowMs(p);
   do {
     const page = await p.db.top("workspaces").list({ limit: 100, cursor });
     for (const w of page.items) {
       workspaces++;
       const ws = p.db.ws(w.id);
+      createRuns += await sweepCreateRuns(p, w.id).catch((err) => (p.log.warn({ err, workspaceId: w.id }, "Create run sweep failed"), 0));
       const sleeping = await ws.collection("autopilots").list({ where: [["status", "==", "sleeping"]], limit: 100 });
       for (const ap of sleeping.items) {
         if (!ap.waitingOn.until || Date.parse(ap.waitingOn.until) > now) continue;
@@ -128,5 +134,5 @@ export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: numb
     }
     cursor = page.nextCursor;
   } while (cursor);
-  return { workspaces, woken, resumed };
+  return { workspaces, woken, resumed, createRuns };
 }
