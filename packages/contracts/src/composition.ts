@@ -41,8 +41,20 @@ export const TEMPLATE_IDS = [
   "store-cta", // end card with plain-text store pills ("Download on the App Store"; no third-party logos)
   "fullscreen-showcase", // a designed marketing screenshot full-bleed with a slow push (never inside a device frame)
   "fullscreen-recording", // real LANDSCAPE footage (TV, desktop, web apps/games) filling the frame, cover-cropped around the action (never stretched)
+  // Still templates (posts, carousels, thumbnails, store screenshot sets; one scene = one slide):
+  "slide-cover", // carousel / post cover: the hook headline, big; the founder's SAM cut-out or a real screen beside it
+  "slide-feature", // one feature: headline + supporting line + the REAL screen in a device frame
+  "slide-proof", // one VERIFIED claim, large, with where it comes from (never invented numbers or quotes)
+  "slide-cta", // last slide: app icon, name, call to action and plain-text store pills
+  "thumbnail-bold", // YouTube thumbnail: ≤ 5 huge words, high contrast, a real screen or the founder's cut-out
+  "store-screenshot", // App Store / Google Play screenshot: short benefit headline on top, the REAL screen large below
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
+
+/** Templates made for stills (one scene = one slide). "carousel-slide" stays a generic still too. */
+export const STILL_TEMPLATE_IDS = ["slide-cover", "slide-feature", "slide-proof", "slide-cta", "thumbnail-bold", "store-screenshot", "carousel-slide"] as const satisfies readonly TemplateId[];
+export type StillTemplateId = (typeof STILL_TEMPLATE_IDS)[number];
+export const isStillTemplate = (id: string): id is StillTemplateId => (STILL_TEMPLATE_IDS as readonly string[]).includes(id);
 
 /** Hex colour or a theme token. */
 export const ColorValue = z.union([

@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { AspectRatio, Channel, Id, IsoDateTime } from "./common";
+import { OutputFormat, StoreTarget } from "./stills";
 
 /**
- * Create runs ("What would you like to make?" → Generate video): ONE finished video from a request.
+ * Create runs ("What would you like to make?" → Generate): ONE finished piece from a request: a
+ * video, stills (a post, a carousel, a thumbnail or a store screenshot set: the same chain, rendered
+ * as slide images; `CreateRunView.stills`), or a text post (idea → Muse Spark writes the post as a
+ * fact-checked copy pack → done; `CreateRunView.text`; no render).
  * The SERVER moves every run along (packages/autopilot/src/create-runner.ts), from job-completion
  * hooks and a one-minute safety sweep, acting as the person who started it (their permissions, the
  * workspace's credits, one idempotency key per step). Clients (the web Create page, the phone app)
@@ -139,6 +143,30 @@ export const CreateRunVideo = z.object({
 });
 export type CreateRunVideo = z.infer<typeof CreateRunVideo>;
 
+/**
+ * The finished stills of a run (post, carousel, thumbnail, store screenshot set): the final render's
+ * slide images in order. The first one is the cover (and the card picture).
+ */
+export const CreateRunStills = z.object({
+  assetIds: z.array(Id).min(1).max(20),
+  version: z.number().int().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  renderedAt: IsoDateTime.optional(),
+});
+export type CreateRunStills = z.infer<typeof CreateRunStills>;
+
+/** The finished text post of a run (a copy pack Muse wrote and fact-checked; nothing rendered). */
+export const CreateRunText = z.object({
+  copyPackId: Id,
+  channel: Channel,
+  /** The post as written (the pack's caption item). */
+  text: z.string().max(10_000),
+  /** The fact check passed (otherwise scheduling shows the one-tap fixes). */
+  ok: z.boolean(),
+});
+export type CreateRunText = z.infer<typeof CreateRunText>;
+
 /** What a client resolves a run with (POST /create-runs/:campaignId/resolve). */
 export const CreateRunAction = z.enum(["retry", "approve_spend", "override", "stop"]);
 export type CreateRunAction = z.infer<typeof CreateRunAction>;
@@ -152,7 +180,18 @@ export const CreateRunView = z.object({
   /** The campaign's short name (Muse Spark's, once the ideas are written). */
   name: z.string().max(160),
   kind: z.enum(["promote", "feature"]),
-  format: z.object({ aspectRatio: AspectRatio, lengthSec: z.number().positive().optional(), channel: Channel.optional() }),
+  /**
+   * `output`: what the run makes (stills.ts `OutputFormat`, or "text_post"); missing = a video (runs
+   * started before stills). `slides` / `store`: for stills.
+   */
+  format: z.object({
+    aspectRatio: AspectRatio,
+    lengthSec: z.number().positive().optional(),
+    channel: Channel.optional(),
+    output: z.union([OutputFormat, z.literal("text_post")]).optional(),
+    slides: z.number().int().positive().optional(),
+    store: StoreTarget.optional(),
+  }),
   startedBy: Id,
   createdAt: IsoDateTime,
   stage: CreateRunStage,
@@ -169,6 +208,10 @@ export const CreateRunView = z.object({
   failure: CreateRunFailure.nullable(),
   wait: z.object({ until: IsoDateTime.optional(), reason: z.string().max(300) }).nullable(),
   video: CreateRunVideo.nullable(),
+  /** Finished stills (post / carousel / thumbnail / store set); null for videos and text posts. */
+  stills: CreateRunStills.nullable().optional(),
+  /** Finished text post; null otherwise. */
+  text: CreateRunText.nullable().optional(),
   /** What the caller may do now (empty without `content.write`). */
   actions: z.array(CreateRunAction),
 });

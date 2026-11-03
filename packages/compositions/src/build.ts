@@ -144,6 +144,8 @@ const SAFE: Record<AspectRatio, Frame["safe"]> = {
   "4:5": { top: 0.05, bottom: 0.08, left: 0.05, right: 0.05 },
   "1:1": { top: 0.05, bottom: 0.06, left: 0.05, right: 0.05 },
   "16:9": { top: 0.06, bottom: 0.08, left: 0.05, right: 0.05 },
+  // App Store screenshot: no platform UI over it, only the status bar area at the top.
+  "9:19.5": { top: 0.05, bottom: 0.04, left: 0.06, right: 0.06 },
 };
 
 function frameFor(ar: AspectRatio): Frame {
@@ -1562,6 +1564,12 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
     case "store-cta":
       return ctaEndcard(ctx, txt, true);
     case "carousel-slide":
+    case "slide-cover":
+    case "slide-feature":
+    case "slide-proof":
+    case "slide-cta":
+    case "thumbnail-bold":
+    case "store-screenshot":
       return carouselSlide(ctx, textOr(ctx.app.name), picker.screen(sb));
     case "presenter-depth":
     case "object-spotlight":

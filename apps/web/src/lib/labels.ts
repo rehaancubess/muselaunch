@@ -51,6 +51,8 @@ export const DELIVERABLE_LABEL: Record<DeliverableKind, string> = {
   product_hunt_assets: "Product Hunt assets",
   caption_pack: "Captions",
   outreach_pack: "Creator outreach",
+  store_screenshots: "Store screenshots",
+  text_post: "Text post",
 };
 
 /** Caption-pack items as people read them ("cta" is "Call to action", never "Cta"). */

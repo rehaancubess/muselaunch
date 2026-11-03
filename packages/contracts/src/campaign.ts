@@ -3,6 +3,7 @@ import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale } from "./com
 import { TEMPLATE_IDS } from "./composition";
 import { CreateRunState } from "./create-run";
 import { MusicMood } from "./sound";
+import { OutputFormat, StoreTarget } from "./stills";
 
 export const CampaignGoal = z.enum([
   "awareness",
@@ -42,6 +43,10 @@ export const DeliverableKind = z.enum([
   "product_hunt_assets",
   "caption_pack",
   "outreach_pack",
+  /** A set of App Store / Google Play screenshots (stills: see stills.ts). */
+  "store_screenshots",
+  /** A text-only post (X, Threads, LinkedIn, Reddit, Facebook): written by Muse, nothing rendered. */
+  "text_post",
 ]);
 export type DeliverableKind = z.infer<typeof DeliverableKind>;
 
@@ -51,6 +56,10 @@ export const Deliverable = z.object({
   aspectRatio: AspectRatio.default("9:16"),
   durationSec: z.number().positive().max(180).optional(),
   count: z.number().int().min(1).max(10).default(1),
+  /** Stills: how many slides (carousel 3–10, store sets 3–10 / 3–8; see `slideLimits`). */
+  slides: z.number().int().min(1).max(10).optional(),
+  /** store_screenshots: which store (App Store 1290×2796, Google Play 1080×1920). */
+  store: StoreTarget.optional(),
 });
 export type Deliverable = z.infer<typeof Deliverable>;
 
@@ -212,6 +221,8 @@ export const StoryboardScene = z.object({
   purpose: ScenePurpose,
   durationSec: z.number().positive().max(60),
   onScreenText: z.string().max(300).default(""),
+  /** Stills only: the supporting line under the headline (≤ ~18 words). */
+  body: z.string().max(300).optional(),
   narration: z.string().max(800).default(""),
   visual: z.string().max(1000),
   /** Template from the allowlisted catalog (see compositions/TEMPLATE_IDS). */
@@ -232,6 +243,14 @@ export const Storyboard = BaseEntity.extend({
   title: z.string().max(200),
   aspectRatio: AspectRatio,
   targetDurationSec: z.number().positive().max(180),
+  /**
+   * What this plan makes (stills.ts). Stills: one scene per slide, in order; `durationSec` is only a
+   * render slot; `onScreenText` is the headline and `body` the slide's supporting line; no
+   * narration, no voiceover, no music. Older storyboards have no format: a video.
+   */
+  format: OutputFormat.default("video"),
+  /** store_screenshots: which store the set is for. */
+  store: StoreTarget.optional(),
   scenes: z.array(StoryboardScene).min(1).max(20),
   voiceover: z
     .object({ source: z.enum(["none", "founder_recording", "tts"]), assetId: Id.optional(), script: z.string().max(4000).optional() })

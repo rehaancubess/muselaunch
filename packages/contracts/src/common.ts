@@ -66,7 +66,12 @@ export const Channel = z.enum([
 ]);
 export type Channel = z.infer<typeof Channel>;
 
-export const AspectRatio = z.enum(["9:16", "1:1", "16:9", "4:5"]);
+/**
+ * Frame shapes. "9:19.5" is the App Store's 6.9-inch iPhone screenshot (1290×2796 portrait, one of
+ * the sizes App Store Connect accepts for the required 6.9-inch set); it is only used for store
+ * screenshot sets, never for videos.
+ */
+export const AspectRatio = z.enum(["9:16", "1:1", "16:9", "4:5", "9:19.5"]);
 export type AspectRatio = z.infer<typeof AspectRatio>;
 
 export const ASPECT_DIMENSIONS: Record<AspectRatio, { width: number; height: number }> = {
@@ -74,7 +79,11 @@ export const ASPECT_DIMENSIONS: Record<AspectRatio, { width: number; height: num
   "1:1": { width: 1080, height: 1080 },
   "16:9": { width: 1920, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
+  "9:19.5": { width: 1290, height: 2796 },
 };
+
+/** Aspect ratios a video can be made in (the store-screenshot shape is for stills only). */
+export const VIDEO_ASPECTS = ["9:16", "1:1", "16:9", "4:5"] as const satisfies readonly AspectRatio[];
 
 /**
  * Provenance for any fact. Research findings and claims must carry at least one.
