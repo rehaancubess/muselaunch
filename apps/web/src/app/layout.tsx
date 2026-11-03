@@ -6,7 +6,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: { default: "MuseLaunch — the AI growth studio for indie apps", template: "%s · MuseLaunch" },
-  description: "Build your app. MuseLaunch helps the world discover it. Research, campaigns, real videos and honest insights for indie developers.",
+  description: "Create. Review. Grow. Build your app; MuseLaunch helps the world discover it. Research, campaigns, real videos and honest results for indie developers.",
   applicationName: "MuseLaunch",
 };
 

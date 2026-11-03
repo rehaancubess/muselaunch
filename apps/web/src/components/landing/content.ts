@@ -112,7 +112,7 @@ export const FAQ = [
   },
   {
     q: "Can I do parts of it myself?",
-    a: "Yes. Pause or cancel Autopilot at any point, take over any step, and edit anything it made in the Studio. You can also run research and campaigns by hand from Discover and Creator.",
+    a: "Yes. Pause or cancel Autopilot at any point, take over any step, and edit anything it made in the Studio. You can also run research and campaigns by hand from Create.",
   },
   {
     q: "Where does the research come from?",

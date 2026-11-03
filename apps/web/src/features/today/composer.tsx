@@ -29,7 +29,7 @@ export function Composer({ appName, href }: { appName: string; href: (text: stri
           e.preventDefault();
           submit();
         }}
-        className="group relative rounded-2xl bg-surface shadow-[0_1px_2px_rgb(16_24_40/0.04),0_0_0_1px_rgb(16_24_40/0.08),0_12px_32px_-16px_rgb(16_24_40/0.16)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--ml-accent),0_0_0_4px_rgb(51_85_255/0.14),0_12px_32px_-16px_rgb(16_24_40/0.16)]"
+        className="group relative rounded-2xl bg-surface shadow-[0_1px_2px_rgb(16_24_40/0.04),0_0_0_1px_rgb(16_24_40/0.08),0_12px_32px_-16px_rgb(16_24_40/0.16)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--ml-accent),0_0_0_4px_color-mix(in_srgb,var(--ml-accent)_14%,transparent),0_12px_32px_-16px_rgb(16_24_40/0.16)]"
       >
         <label htmlFor="creator-request" className="sr-only">
           Describe the campaign you want

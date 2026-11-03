@@ -350,7 +350,7 @@ function FollowedAccounts({ appId }: { appId: string }) {
                 title={`${s.displayName} on ${CHANNEL_LABEL[s.channel]}`}
                 className="group flex w-[76px] flex-col items-center gap-1.5 rounded-xl py-1 focus-visible:outline-none focus-visible:shadow-focus"
               >
-                <span className={cn("flex size-16 items-center justify-center rounded-full p-[2.5px]", s.hasRecent ? "bg-[conic-gradient(from_200deg,var(--ml-accent),#7b8cff,var(--ml-accent))]" : "bg-line-strong")}>
+                <span className={cn("flex size-16 items-center justify-center rounded-full p-[2.5px]", s.hasRecent ? "bg-[conic-gradient(from_200deg,var(--ml-accent),#c4a8ff,var(--ml-accent))]" : "bg-line-strong")}>
                   <span className="flex size-full items-center justify-center rounded-full bg-surface p-[2px]">
                     <Avatar name={s.displayName} size={54} />
                   </span>

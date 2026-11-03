@@ -67,7 +67,7 @@ export function StoryRingRow({ items, onAdd, addLabel = "Track", className, labe
             <span
               className={cn(
                 "flex size-[64px] items-center justify-center rounded-full p-[2.5px] transition-transform duration-200 ease-out group-hover:scale-[1.03] group-focus-visible:shadow-focus",
-                it.ring === "new" && "bg-[conic-gradient(from_200deg,var(--ml-accent),#7b8cff,var(--ml-accent))]",
+                it.ring === "new" && "bg-[conic-gradient(from_200deg,var(--ml-accent),#c4a8ff,var(--ml-accent))]",
                 it.ring === "seen" && "bg-line-strong",
               )}
             >

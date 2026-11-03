@@ -21,7 +21,7 @@ import {
 import { BrowserFrame, PhoneFrame, ShotCard, ShotPanel } from "@/components/landing/frames";
 import { HeroLinkForm, NavAuthButtons } from "@/components/landing/hero-form";
 import { HeroVideo } from "@/components/landing/hero-video";
-import { Logo } from "@/components/logo";
+import { Logo, LogoMark } from "@/components/logo";
 import { routes } from "@/lib/routes";
 
 const NAV = [
@@ -84,17 +84,14 @@ export default function Landing() {
 function Hero() {
   return (
     <section aria-labelledby="hero-title" className="relative">
-      <div className={`${WRAP} flex flex-col items-center pt-14 text-center sm:pt-20 lg:pt-[72px]`}>
-        <a
-          href="#pricing"
-          className="animate-rise-in inline-flex h-8 items-center gap-2 rounded-full bg-mist px-3.5 text-footnote font-medium text-ink-2 transition-colors hover:bg-mist-2 hover:text-ink"
-        >
-          <span aria-hidden className="size-1.5 rounded-full bg-accent" />
-          Free during the beta, with {FREE_CREDITS} credits to start
-        </a>
+      <div className={`${WRAP} flex flex-col items-center pt-12 text-center sm:pt-16 lg:pt-[60px]`}>
+        <div className="flex animate-rise-in flex-col items-center">
+          <LogoMark size={64} className="shadow-[0_12px_32px_-12px_rgb(91_33_182/0.55)]" />
+          <p className="mt-4 text-[19px] font-semibold tracking-[-0.016em] text-ink-2 sm:text-[22px]">Create. Review. Grow.</p>
+        </div>
         <h1
           id="hero-title"
-          className="mt-7 animate-rise-in text-[clamp(2.6rem,6.4vw,4.75rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-balance [animation-delay:60ms]"
+          className="mt-6 animate-rise-in text-[clamp(2.6rem,6.4vw,4.75rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-balance [animation-delay:60ms]"
         >
           Build your app.
           <br />
@@ -106,6 +103,13 @@ function Hero() {
         <div className="mt-9 w-full max-w-[540px] animate-rise-in [animation-delay:180ms]">
           <HeroLinkForm />
         </div>
+        <a
+          href="#pricing"
+          className="mt-5 inline-flex h-8 animate-rise-in items-center gap-2 rounded-full bg-accent-soft px-3.5 text-footnote font-medium text-accent-ink transition-colors [animation-delay:220ms] hover:bg-mist-2"
+        >
+          <span aria-hidden className="size-1.5 rounded-full bg-accent" />
+          Free during the beta, with {FREE_CREDITS} credits to start
+        </a>
       </div>
 
       {/* Product stage: straddles the white hero and the mist band below it. */}
@@ -115,8 +119,8 @@ function Hero() {
           <div className="relative animate-scale-in pb-12 [animation-delay:240ms] sm:pb-20 lg:pb-24">
             <BrowserFrame label="Your app’s Home" className="w-full sm:w-[82%]">
               <Image
-                src="/landing/autopilot-run.webp"
-                alt="An app’s Home in MuseLaunch with Autopilot on: the goal “Get more installs of Tidy Timer from students” has gone through learning the app, research, videos, checks, rendering and drafting posts, and two Instagram posts wait under “Needs you” for one-tap approval."
+                src="/landing/home-ready.webp"
+                alt="An app’s Home in MuseLaunch after Autopilot’s first run: “Your content is ready, 2 posts to review”. The next post, “One tap to deep work” for Instagram, shows its video, caption and suggested time with Schedule post, Edit and Skip; Instagram isn’t connected, so it offers Download video and Copy caption. The second post waits under Coming up."
                 width={1440}
                 height={900}
                 loading="eager"
@@ -196,7 +200,7 @@ function HowItWorks() {
 function FeatureLabel({ icon, children, dark }: { icon: ReactNode; children: ReactNode; dark?: boolean }) {
   return (
     <p className={`flex items-center gap-2 text-[15px] font-semibold ${dark ? "text-[#a1a1a6]" : "text-ink-2"}`}>
-      <span aria-hidden className={dark ? "text-[#8fa2ff]" : "text-accent"}>
+      <span aria-hidden className={dark ? "text-[#c4a8ff]" : "text-accent"}>
         {icon}
       </span>
       {children}
@@ -387,17 +391,17 @@ function Insights() {
   return (
     <FeatureRow
       id="insights"
-      label="Insights"
+      label="Results"
       icon={<BarChart3 className="size-4" />}
       title="Only numbers that were actually measured."
       lead="Connect RevenueCat, import store and social analytics, and count clicks with tracked links. Every number names its source, and anything that wasn’t measured is shown as missing, not estimated."
       points={INSIGHT_POINTS}
       visual={
-        <ShotPanel caption="Insights with sample data imported from a CSV file.">
+        <ShotPanel caption="Results in detail, with sample data imported from a CSV file.">
           <ShotCard className="mx-auto max-w-[1040px]">
             <Image
               src="/landing/insights-results.webp"
-              alt="Insights results: views, link clicks, installs, trials started and revenue, each labelled with its source such as Imported CSV or MuseLaunch tracked links, its attribution level, and how many days of data it covers. A note lists what wasn’t measured."
+              alt="Results in detail: views, link clicks, installs, trials started and revenue, each labelled with its source such as Imported CSV or MuseLaunch tracked links, its attribution level, and how many days of data it covers. A note lists what wasn’t measured."
               width={1284}
               height={550}
               sizes="(min-width: 1200px) 1040px, 92vw"
@@ -580,7 +584,7 @@ function Footer() {
       <div className={WRAP}>
         <div className="flex flex-col gap-8 py-12 sm:flex-row sm:items-start sm:justify-between">
           <div className="max-w-sm">
-            <Logo size={20} />
+            <Logo size={20} tagline />
             <p className="mt-3 text-footnote text-ink-2">The AI growth studio for indie app developers. Built for the Meta Global AI Developer Hackathon, 2026.</p>
           </div>
           <nav aria-label="Footer">
