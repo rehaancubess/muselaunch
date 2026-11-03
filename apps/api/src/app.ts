@@ -32,6 +32,7 @@ import { statusRoutes } from "./routes/status";
 import { todayRoutes } from "./routes/today";
 import { localStorageRoutes } from "./routes/storage-local";
 import { videoReviewRoutes } from "./routes/video-reviews";
+import { webPushRoutes } from "./routes/web-push";
 import { workspaceRoutes } from "./routes/workspace";
 
 export function buildApp(platform: Platform) {
@@ -79,6 +80,8 @@ export function buildApp(platform: Platform) {
   v1.use("/admin/*", webSessionOnly);
   v1.route("/", meRoutes);
   v1.route("/", deviceRoutes);
+  // Notifications in the browser (Web Push): the server's public key and this person's browsers.
+  v1.route("/", webPushRoutes);
   v1.route("/", statusRoutes);
   // Operator console (ADMIN_UIDS only; the routes check it themselves).
   v1.route("/admin", adminRoutes);

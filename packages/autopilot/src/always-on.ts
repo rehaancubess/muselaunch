@@ -17,7 +17,7 @@
 import { ALWAYS_ON_PACES, can, type AlwaysOnPostLine, type AlwaysOnStatus, type AlwaysOnWeeklySummary, type App, type AppAlwaysOn, type Approval, type Autopilot, type ResearchRun, type SourceRef, type UpdateAlwaysOnRequest, type Workspace, type WorkspaceMember } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import { connectedAccountFor, freshTokens, growthDeps } from "@muselaunch/growth";
-import { AppError, notifyWeeklySummary, toAppError, workspaceHasPhones, type Platform } from "@muselaunch/platform";
+import { AppError, notifyWeeklySummary, toAppError, workspaceHasReceivers, type Platform } from "@muselaunch/platform";
 import { HttpClient, providerAdapter } from "@muselaunch/providers";
 import { z } from "zod";
 import {
@@ -576,14 +576,14 @@ async function emailStep(p: Platform, workspace: Workspace, app: App, st: State,
 }
 
 /**
- * The weekly summary on the team's linked phones (→ Results in the phone app), once a week while
- * Always on is on: the summary's own counts, nothing else. Only marked sent when a phone got it, so
- * the first one goes out soon after someone links a phone.
+ * The weekly summary on the team's linked phones and browsers (→ Results), once a week while
+ * Always on is on: the summary's own counts, nothing else. Only marked sent when a phone or browser got it, so
+ * the first one goes out soon after someone links a phone or turns notifications on.
  */
 async function pushStep(p: Platform, workspace: Workspace, app: App, st: State, now: number): Promise<boolean> {
   const since = st.push.lastSentAt ?? st.enabledAt ?? app.alwaysOn?.updatedAt;
   if (!since || now - Date.parse(since) < WEEK_MS) return false;
-  if (!(await workspaceHasPhones(p, workspace.id))) return false;
+  if (!(await workspaceHasReceivers(p, workspace.id))) return false;
   const s = await weeklySummary(p, workspace.id, app, now);
   const res = await notifyWeeklySummary(p, workspace.id, app.id, { posted: s.posted.length, queued: s.queued.length, needsYou: s.needsYou, findings: s.research.findings });
   if (!res?.sent) return false;

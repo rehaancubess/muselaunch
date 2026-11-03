@@ -7,7 +7,7 @@ loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), qui
 const { serve } = await import("@hono/node-server");
 const { Hono } = await import("hono");
 const { JOB_POOLS, TaskEnvelope } = await import("@muselaunch/contracts");
-const { checkPushReceipts, createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
+const { checkPushReceipts, createPlatform, createRunner, toAppError, webPushKeys } = await import("@muselaunch/platform");
 const { handlers } = await import("./registry");
 const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
@@ -16,6 +16,8 @@ const { installCampaignHooks } = await import("@muselaunch/agents");
 const { installAutopilotHooks, runAlwaysOn, wakeDueAutopilots } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
+// Browser notifications are sent from job steps here: log at startup whether they're on.
+webPushKeys(platform);
 installAnalyticsHooks(platform);
 // Growth Autopilot (module B): resume a loop when the jobs it waits on finish (status hook in the
 // process that finishes them); the "autopilot-wake" cron wakes sleeping loops and repairs missed resumes.

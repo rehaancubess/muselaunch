@@ -38,9 +38,9 @@ import { ensureUser } from "../services/workspaces";
 
 const MINUTE = 60_000;
 
-/** Sliding-window limits, per process (Cloud Run instances each keep their own). */
+/** Sliding-window limits, per process (Cloud Run instances each keep their own). Also used by routes/web-push.ts. */
 const windows = new WeakMap<Platform, Map<string, number[]>>();
-function allow(p: Platform, key: string, max: number, windowMs: number, now = Date.now()): boolean {
+export function allow(p: Platform, key: string, max: number, windowMs: number, now = Date.now()): boolean {
   let m = windows.get(p);
   if (!m) windows.set(p, (m = new Map()));
   const hits = (m.get(key) ?? []).filter((t) => now - t < windowMs);
@@ -54,7 +54,7 @@ function allow(p: Platform, key: string, max: number, windowMs: number, now = Da
   return true;
 }
 
-const tooMany = (c: Ctx, retrySec: number, what: string) => {
+export const tooMany = (c: Ctx, retrySec: number, what: string) => {
   c.header("retry-after", String(retrySec));
   return new AppError("RATE_LIMITED", `Too many ${what}`, { userMessage: `Too many tries. Wait ${Math.ceil(retrySec / 60)} minutes and try again.` });
 };

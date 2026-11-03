@@ -14,6 +14,7 @@ import {
   type PushFetch,
 } from "@muselaunch/platform";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { buildApp } from "./app";
 
 /**
@@ -399,18 +400,19 @@ describe("Push notifications to linked phones", () => {
   });
 });
 
-describe("Autopilot's drafts send one “ready to review” push", () => {
+describe("Autopilot's drafts send one push for the batch", () => {
   afterEach(() => setPushFetch(null));
   const h = autopilotPlatform();
   const p = h.p;
   const app = buildApp(p);
   const alice = client(app, dev("alice"));
+  const kinds = (sent: Sent[]) => sent.filter((s) => s.url.endsWith("/send")).map((s) => (s.body as J[])[0]?.data?.kind);
 
-  it("after drafting its posts, with how many wait", async () => {
+  it("the app's first run: “Your first videos are ready” with how many wait (instead of, never as well as, “ready to review”); a later run: “ready to review”", async () => {
     const sent = fakeExpo();
     const wsA = (await alice.post("/v1/workspaces", { name: "Alice Apps" })).body.workspace.id;
     await p.db.top("workspaces").update(wsA, { planId: "studio" });
-    await p.credits.grant(wsA, 1000, { reason: "test", idempotencyKey: "devices-test", actor: "system" });
+    await p.credits.grant(wsA, 2000, { reason: "test", idempotencyKey: "devices-test", actor: "system" });
     const appId = (await seedApp(p, wsA)).appId;
     const phone = await link(app, dev("alice"));
     await client(app, phone.token).put("/v1/me/device/push", { token: "ExponentPushToken[autopilotphone01]" });
@@ -420,8 +422,20 @@ describe("Autopilot's drafts send one “ready to review” push", () => {
     const posts = (await alice.get(`/v1/workspaces/${wsA}/autopilots/${started.body.autopilot.id}`)).body.posts as J[];
     const waiting = posts.filter((x) => x.status === "awaiting_approval").length;
     expect(waiting).toBeGreaterThan(0);
-    const ready = sent.filter((s) => (s.body as J[])[0]?.data?.kind === "posts_ready");
-    expect(ready).toHaveLength(1);
-    expect((ready[0]!.body as J[])[0].body).toBe(`${waiting} post${waiting === 1 ? " is" : "s are"} ready to review`);
+    expect(kinds(sent)).toEqual(["first_run_studied", "first_videos_ready"]);
+    const ready = sent.find((s) => (s.body as J[])[0]?.data?.kind === "first_videos_ready")!;
+    expect((ready.body as J[])[0]).toMatchObject({ title: "Your first videos are ready", body: `${waiting} post${waiting === 1 ? " is" : "s are"} waiting for your OK.`, data: { url: `/?w=${wsA}&a=${appId}` } });
+
+    // The first-run note started the app's posts-ready hour (so no "ready to review" right after it).
+    const window = p.db.global(`push-ready-${wsA}-${appId}`, z.object({ lastSentAt: z.string() }));
+    expect(Date.now() - Date.parse((await window.get())!.lastSentAt)).toBeLessThan(60_000);
+    // A later run of the same app, outside that hour: the usual "ready to review".
+    await alice.post(`/v1/workspaces/${wsA}/autopilots/${started.body.autopilot.id}/cancel`);
+    await window.set({ lastSentAt: new Date(Date.now() - 2 * 3_600_000).toISOString() });
+    sent.length = 0;
+    const again = await alice.post(`/v1/workspaces/${wsA}/apps/${appId}/autopilot`, { goal: "More installs from teachers", maxCredits: 400, autoApproveCredits: 100, variants: 2 });
+    expect(again.status, again.text).toBe(202);
+    await p.inline!.drain();
+    expect(kinds(sent)).toEqual(["posts_ready"]);
   });
 });

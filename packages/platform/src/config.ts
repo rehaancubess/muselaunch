@@ -39,6 +39,19 @@ export const ConfigSchema = z.object({
   AUTH_DEV_TOKENS: bool.default(false),
   /** Optional: Expo access token for push notifications to the phone app (only needed with Expo's enhanced push security). */
   EXPO_ACCESS_TOKEN: z.string().optional(),
+  /**
+   * Notifications in the browser (Web Push). The key pair comes from setup-web-push.cmd (or
+   * `pnpm setup:web-push`); the private key is a secret. Without them, local runs (APP_ENV=local) use
+   * a temporary pair made at startup and production has browser notifications off.
+   */
+  WEB_PUSH_VAPID_PUBLIC_KEY: z.string().optional(),
+  WEB_PUSH_VAPID_PRIVATE_KEY: z.string().optional(),
+  /** Who push services can contact about our pushes: `mailto:` or an https URL. Default: the contact email, else the web URL. */
+  WEB_PUSH_SUBJECT: z.string().optional(),
+  /** Public contact email (also shown on the legal pages); the default Web Push subject. */
+  NEXT_PUBLIC_CONTACT_EMAIL: z.string().optional(),
+  /** The operator's email, when there is no public contact email (Web Push subject). */
+  OPERATOR_EMAIL: z.string().optional(),
 
   // Jobs
   JOB_DISPATCH: z.enum(["inline", "http", "cloudtasks"]).default("http"),

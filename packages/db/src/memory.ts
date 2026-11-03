@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { Device, DeviceLink, Invite, UserProfile, Workspace, type CreateInput, type EntityName, type EntityOf } from "@muselaunch/contracts";
+import { Device, DeviceLink, Invite, UserProfile, WebPushSubscription, Workspace, type CreateInput, type EntityName, type EntityOf } from "@muselaunch/contracts";
 import type { z } from "zod";
 import { assertIndexed } from "./indexes";
 import {
@@ -32,7 +32,7 @@ import {
   stripUndefined,
 } from "./util";
 
-const TOP_SCHEMAS = { users: UserProfile, workspaces: Workspace, invites: Invite, devices: Device, deviceLinks: DeviceLink } as const;
+const TOP_SCHEMAS = { users: UserProfile, workspaces: Workspace, invites: Invite, devices: Device, deviceLinks: DeviceLink, webPushSubscriptions: WebPushSubscription } as const;
 
 type Doc = Record<string, unknown>;
 
