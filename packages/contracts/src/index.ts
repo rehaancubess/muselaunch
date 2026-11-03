@@ -20,5 +20,6 @@ export * from "./video-review";
 export * from "./autopilot";
 export * from "./always-on";
 export * from "./today";
+export * from "./devices";
 export * from "./entities";
 export * from "./api";

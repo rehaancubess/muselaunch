@@ -145,6 +145,8 @@ const SECRETS = [
   "TIKTOK_CLIENT_SECRET",
   "LINKEDIN_CLIENT_SECRET",
   "X_CLIENT_SECRET",
+  // Phone app push (optional: only with Expo's enhanced push security; pushes work without it).
+  "EXPO_ACCESS_TOKEN",
 ].filter((k) => env[k]);
 for (const name of SECRETS) {
   sh(`gcloud secrets create ${name} --replication-policy=automatic --project ${PROJECT}`, { allowFail: true, quiet: true });

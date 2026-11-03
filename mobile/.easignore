@@ -1,0 +1,50 @@
+# EAS Build uploads this folder (EAS_NO_VCS=1, EAS_PROJECT_ROOT=mobile; see build-phone-*.cmd).
+# Same as .gitignore, except google-services.json IS uploaded (Android push), though it is not committed.
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# Jest
+coverage/
+
+# Firebase service-account keys (FCM push): upload them with eas credentials, never commit or upload them
+*firebase-adminsdk*.json
+service-account*.json

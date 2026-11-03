@@ -1,0 +1,98 @@
+{
+  "expo": {
+    "name": "MuseLaunch",
+    "slug": "muselaunch",
+    "scheme": "muselaunch",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#ffffff",
+    "description": "Create. Review. Grow. Review and schedule the posts MuseLaunch made for your app, post them yourself, change them by voice and see what is working.",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.muselaunch.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "MuseLaunch uses the camera only to scan the link code shown on your computer.",
+        "NSMicrophoneUsageDescription": "MuseLaunch uses the microphone only while you hold the mic button, to write down what you say.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.muselaunch.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundImage": "./assets/adaptive-icon-background.png",
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png",
+        "backgroundColor": "#1d1d1f"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MuseLaunch uses the camera only to scan the link code shown on your computer.",
+          "microphonePermission": "MuseLaunch uses the microphone only while you hold the mic button, to write down what you say.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "MuseLaunch uses the microphone only while you hold the mic button, to write down what you say.",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1d1d1f",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": false
+        }
+      ],
+      "expo-sharing",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "apiUrl": "https://muselaunch-api-264489246542.us-central1.run.app"
+    }
+  }
+}

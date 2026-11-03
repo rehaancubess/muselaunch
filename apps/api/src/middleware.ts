@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AppError, toAppError, verifyBearer } from "@muselaunch/platform";
+import { AppError, toAppError, verifyBearer, verifyDeviceToken, type AuthUser } from "@muselaunch/platform";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "./context";
 
@@ -28,7 +28,15 @@ export function logPath(path: string): string {
 
 export const authenticate: MiddlewareHandler<AppEnv> = async (c, next) => {
   const p = c.get("platform");
-  const user = await verifyBearer(p.cfg, c.req.header("authorization"));
+  const header = c.req.header("authorization");
+  // A linked phone (`Bearer mld_…`, see routes/devices.ts) acts as the person who linked it; anything
+  // else is a Firebase session (or a dev token in local runs and tests).
+  const bearer = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  let user: AuthUser;
+  if (bearer.startsWith("mld_")) {
+    const { device: _device, ...fromPhone } = await verifyDeviceToken(p.db, bearer);
+    user = fromPhone;
+  } else user = await verifyBearer(p.cfg, header);
   c.set("user", user);
   // Only trust a country header injected by our own edge (Cloud Run behind a LB/CDN that sets it).
   const edgeCountry = c.req.header("x-client-country") ?? c.req.header("cf-ipcountry");
@@ -83,4 +91,24 @@ export function errorResponse(err: unknown, c: Parameters<MiddlewareHandler<AppE
   const p = c.get("platform");
   if (e.status >= 500) p?.log.error({ requestId: c.get("requestId"), err: { code: e.code, message: e.message, stack: e.stack } }, "request failed");
   return c.json({ error: e.toInfo() }, e.status as 400);
+}
+
+/**
+ * Routes a linked phone may not call: making more phone links, accepting invites and the operator
+ * console need a real web session (a phone token can't mint new ways in or change who you are).
+ */
+export const webSessionOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get("user").provider === "device") throw new AppError("FORBIDDEN", "Not available to a linked phone", { userMessage: "Do this in MuseLaunch on the web." });
+  await next();
+};
+
+/** The client's address for rate limits: Cloud Run appends the real one last to X-Forwarded-For. */
+export function clientIp(c: Parameters<MiddlewareHandler<AppEnv>>[0]): string {
+  const xff = c.req.header("x-forwarded-for");
+  const last = xff
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .at(-1);
+  return (last || c.req.header("x-real-ip") || "unknown").slice(0, 64);
 }

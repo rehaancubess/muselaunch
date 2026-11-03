@@ -1,4 +1,4 @@
-import { Invite, UserProfile, Workspace, type CreateInput, type EntityName, type EntityOf } from "@muselaunch/contracts";
+import { Device, DeviceLink, Invite, UserProfile, Workspace, type CreateInput, type EntityName, type EntityOf } from "@muselaunch/contracts";
 import { applicationDefault, getApps, initializeApp, type App as FirebaseApp } from "firebase-admin/app";
 import { FieldPath, getFirestore, type DocumentReference, type Firestore, type Query, type Transaction } from "firebase-admin/firestore";
 import type { z } from "zod";
@@ -31,7 +31,7 @@ import {
   stripUndefined,
 } from "./util";
 
-const TOP_SCHEMAS = { users: UserProfile, workspaces: Workspace, invites: Invite } as const;
+const TOP_SCHEMAS = { users: UserProfile, workspaces: Workspace, invites: Invite, devices: Device, deviceLinks: DeviceLink } as const;
 type Doc = Record<string, unknown>;
 
 export interface FirestoreDbOptions {

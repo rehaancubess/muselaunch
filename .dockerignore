@@ -12,3 +12,4 @@ service-account*.json
 .git
 .sync
 docs/screenshots
+mobile
