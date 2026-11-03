@@ -43,7 +43,7 @@ import {
   type WorkspaceMember,
 } from "@muselaunch/contracts";
 import { newId, type WorkspaceDb } from "@muselaunch/db";
-import { AppError, toAppError, type Platform } from "@muselaunch/platform";
+import { AppError, notifyRunNeedsYou, notifyVideoReady, toAppError, type Platform } from "@muselaunch/platform";
 import { deriveRun, MAX_GLITCH_WAITS, overspend, problemFromError, runSettings, stepKeyOf, waitMs, type Derived, type JobLike, type NextStep, type StepProblem } from "./create-run";
 import { nowMs } from "./state";
 
@@ -235,8 +235,14 @@ async function advanceOnce(p: Platform, wid: string, campaignId: string, source:
   const save = (patch: Partial<CreateRunState>) => patchRun(p, wid, campaignId, { stage: d.stage, ...patch });
   const clearWait = { waitUntil: undefined, waitReason: undefined, waitKind: undefined } as Partial<CreateRunState>;
 
+  const run = { id: campaignId, appId: campaign.appId, startedBy: s.startedBy };
   if (d.stage === "done") {
-    if (s.status !== "done") await save({ status: "done", decision: undefined, failure: undefined, ...clearWait, waits: 0, doneAt: iso(now) });
+    if (s.status !== "done") {
+      await save({ status: "done", decision: undefined, failure: undefined, ...clearWait, waits: 0, doneAt: iso(now) });
+      // "Your video is ready" on the starter's (and the posters') phones and browsers, once.
+      const comp = d.compositionId ? await ws.collection("compositions").get(d.compositionId).catch(() => null) : null;
+      await notifyVideoReady(p, wid, run, { title: comp?.title ?? d.ideaTitle ?? campaign.name });
+    }
     return false;
   }
   if (d.failure) {
@@ -258,6 +264,9 @@ async function advanceOnce(p: Platform, wid: string, campaignId: string, source:
   const stage: CreateRunStage = next.kind === "produce" ? "plan" : "check";
   const decide = async (kind: CreateRunDecision["kind"], message: string, extra: Partial<CreateRunDecision> = {}) => {
     await save({ status: "needs_you", stage, failure: undefined, ...clearWait, waits: 0, decision: { kind, stepKey: key, stage, message: clip(message, 1000), at: iso(now), ...extra } });
+    // "Muse needs you for a moment", once per decision, to whoever can answer it (content.write).
+    const t = WORDS[kind].title;
+    await notifyRunNeedsYou(p, wid, { ...run, kind: "create" }, { key: `${kind}:${key}`, what: `${t[0]!.toLowerCase()}${t.slice(1)}`, caps: ["content.write"] });
     return false;
   };
   // A run nobody moved for a day waits for the person (it doesn't carry on, or spend, by itself).

@@ -1,21 +1,32 @@
-import { can, type Capability, type Channel } from "@muselaunch/contracts";
+import { can, runNotificationTag, shortAppName, type Capability, type Channel } from "@muselaunch/contracts";
 import { z } from "zod";
 import { devicesOf } from "./devices";
 import type { Platform } from "./platform";
+import { sendWebPushToUsers, webPushKeys, webPushSubscriptionsOf, type WebPushResult } from "./web-push";
 
 /**
- * Push notifications to linked phones, through Expo's push service (no secret needed; an optional
- * EXPO_ACCESS_TOKEN is sent when set, for projects with enhanced push security).
+ * Notifications: one note reaches the person's linked phones (Expo's push service; no secret needed,
+ * an optional EXPO_ACCESS_TOKEN is sent when set) and the browsers they turned notifications on in
+ * (Web Push, web-push.ts), so they arrive with every MuseLaunch tab closed.
  *
- * Three moments, each opening the right screen of the phone app (`data.url` is an app path):
- *  - posts are ready to review (approval requested): at most one push per app per hour, saying how
- *    many posts wait right now ("2 posts are ready to review") → Home;
+ * The moments, each opening the right screen (`url`: a phone app path; `webUrl`: a web app path):
+ *  - posts are ready to review (approval requested): at most one per app per hour, saying how many
+ *    posts wait right now ("2 posts are ready to review") → Home;
  *  - a post went live through a connected account → Results;
- *  - Always on's weekly summary is ready → Results.
+ *  - Always on's weekly summary is ready → Results;
+ *  - the first run finished studying the app ("Muse has finished studying Pocket Play") → Home;
+ *  - the first run's videos are ready ("2 posts are waiting for your OK"), instead of the posts-ready
+ *    note for that batch → Home;
+ *  - a run (Autopilot or Create) stops for a decision ("Muse needs you for a moment"), once per
+ *    decision → Home, or the Create page for a Create video;
+ *  - a Create video is finished ("Your video is ready") → the Create page.
+ * The once-per-run moments are claimed in `ops/push-run-<wid>-<runId>`, so a step that runs twice
+ * never notifies twice.
  *
- * Only people with a linked phone that kept notifications on get them. A token Expo reports as
- * DeviceNotRegistered (app uninstalled) is removed, from the send tickets and later from the receipts.
- * Nothing here ever throws into the caller: a push that can't go out is logged and dropped.
+ * Phones: only those with notifications on. A token Expo reports as DeviceNotRegistered (app
+ * uninstalled) is removed, from the send tickets and later from the receipts. Browsers: a
+ * subscription the push service reports as gone is removed. Nothing here ever throws into the
+ * caller: a note that can't go out is logged and dropped.
  */
 
 export const EXPO_PUSH_SEND_URL = "https://exp.host/--/api/v2/push/send";
@@ -28,7 +39,7 @@ export const READY_PUSH_WINDOW_MS = 60 * 60_000;
 const RECEIPT_WAIT_MS = 15 * 60_000;
 const RECEIPT_KEEP_MS = 24 * 3_600_000;
 
-export type PushKind = "posts_ready" | "post_live" | "weekly_summary";
+export type PushKind = "posts_ready" | "post_live" | "weekly_summary" | "first_run_studied" | "first_videos_ready" | "needs_you" | "video_ready" | "test";
 
 export interface PushNote {
   kind: PushKind;
@@ -36,16 +47,28 @@ export interface PushNote {
   body: string;
   /** Where tapping it goes in the phone app (an app path, e.g. "/results?w=…&a=…"). */
   url: string;
+  /** Where clicking it goes in the web app (a full path, e.g. "/w/<wid>/a/<appId>/home"). Default: the app's Home. */
+  webUrl?: string;
+  /** Same tag = a newer browser notification replaces the older one. Default: kind + app. */
+  tag?: string;
   workspaceId: string;
   appId?: string;
+  /** Browser pushes: how long a push service keeps it for an offline browser (seconds). */
+  ttlSec?: number;
+  urgency?: "normal" | "high";
 }
 
 export interface PushResult {
   /** Phones the message went to (notifications on and a push token). */
   devices: number;
+  /** Browsers the message went to. */
+  browsers: number;
+  /** Phones and browsers together (each half also below). */
   sent: number;
   removed: number;
   failed: number;
+  phone: { sent: number; removed: number; failed: number };
+  web: { sent: number; removed: number; failed: number };
 }
 
 type PushResponse = { ok: boolean; status: number; json(): Promise<unknown> };
@@ -101,9 +124,46 @@ async function rememberReceipts(p: Platform, items: { id: string; tokenHash: str
   });
 }
 
-/** Send one note to these people's linked phones. */
+const webHome = (wid: string, appId?: string) => (appId ? `/w/${encodeURIComponent(wid)}/a/${encodeURIComponent(appId)}/home` : `/w/${encodeURIComponent(wid)}`);
+
+/**
+ * Send one note to these people's linked phones and their browsers. Never throws: each half that
+ * fails is logged and counted as nothing sent.
+ */
 export async function sendPushToUsers(p: Platform, userIds: string[], note: PushNote): Promise<PushResult> {
-  const out: PushResult = { devices: 0, sent: 0, removed: 0, failed: 0 };
+  const none = { sent: 0, removed: 0, failed: 0 };
+  const [phone, web] = await Promise.all([
+    sendPhonePush(p, userIds, note).catch((err) => {
+      p.log.warn({ err: { message: (err as Error).message }, kind: note.kind }, "push: phones skipped");
+      return { devices: 0, ...none };
+    }),
+    sendWebPushToUsers(p, userIds, {
+      kind: note.kind,
+      title: note.title,
+      body: note.body,
+      url: note.webUrl ?? webHome(note.workspaceId, note.appId),
+      tag: note.tag ?? `ml-${note.kind}-${note.appId ?? note.workspaceId}`,
+      ttlSec: note.ttlSec,
+      urgency: note.urgency,
+    }).catch((err): WebPushResult => {
+      p.log.warn({ err: { message: (err as Error).message }, kind: note.kind }, "push: browsers skipped");
+      return { browsers: 0, ...none };
+    }),
+  ]);
+  return {
+    devices: phone.devices,
+    browsers: web.browsers,
+    sent: phone.sent + web.sent,
+    removed: phone.removed + web.removed,
+    failed: phone.failed + web.failed,
+    phone: { sent: phone.sent, removed: phone.removed, failed: phone.failed },
+    web: { sent: web.sent, removed: web.removed, failed: web.failed },
+  };
+}
+
+/** Send one note to these people's linked phones (Expo). */
+async function sendPhonePush(p: Platform, userIds: string[], note: PushNote): Promise<{ devices: number; sent: number; removed: number; failed: number }> {
+  const out = { devices: 0, sent: 0, removed: 0, failed: 0 };
   const now = Date.now();
   const targets: { token: string; tokenHash: string }[] = [];
   const seen = new Set<string>();
@@ -162,6 +222,18 @@ export async function sendPushToUsers(p: Platform, userIds: string[], note: Push
   return out;
 }
 
+/** "Notifications are on" to the caller's own browsers (Settings → Notifications → Send a test). */
+export function sendWebPushTest(p: Platform, userId: string): Promise<WebPushResult> {
+  return sendWebPushToUsers(p, [userId], {
+    kind: "test",
+    title: "Notifications are on",
+    body: "MuseLaunch will tell you here when your videos are ready or Muse needs you.",
+    url: "/",
+    tag: "ml-test",
+    ttlSec: 600,
+  });
+}
+
 /**
  * Later errors come in receipts (Expo's guidance: check after ~15 minutes). Removes the tokens of
  * uninstalled apps. Run by the hourly Always on cron (and local-cron).
@@ -205,23 +277,56 @@ async function members(p: Platform, wid: string, cap?: Capability): Promise<stri
   return page.items.filter((m) => m.status === "active" && (!cap || can(m, cap))).map((m) => m.userId);
 }
 
-async function hasPhones(p: Platform, userIds: string[]): Promise<boolean> {
-  for (const uid of userIds) if ((await devicesOf(p.db, uid)).some((d) => d.push.enabled && d.push.token)) return true;
+/** Someone here has a linked phone with notifications on, or a browser with notifications on. */
+async function hasReceivers(p: Platform, userIds: string[]): Promise<boolean> {
+  const now = Date.now();
+  const web = webPushKeys(p) !== null;
+  for (const uid of userIds) {
+    if ((await devicesOf(p.db, uid)).some((d) => d.push.enabled && d.push.token && Date.parse(d.expiresAt) > now)) return true;
+    if (web && (await webPushSubscriptionsOf(p.db, uid)).length) return true;
+  }
   return false;
 }
 
-/** Someone in the workspace has a linked phone with notifications on (cheap check before building a summary). */
-export async function workspaceHasPhones(p: Platform, wid: string): Promise<boolean> {
+/** Someone in the workspace gets notifications (a phone or a browser): cheap check before building a summary. */
+export async function workspaceHasReceivers(p: Platform, wid: string): Promise<boolean> {
   try {
-    return await hasPhones(p, await members(p, wid));
+    return await hasReceivers(p, await members(p, wid));
   } catch {
     return false;
   }
 }
 
+/**
+ * Who a run's notes go to: the person who started it (while still an active member) and the active
+ * members holding every one of `caps`.
+ */
+async function runRecipients(p: Platform, wid: string, startedBy: string | undefined, caps: Capability[]): Promise<string[]> {
+  const page = await p.db.ws(wid).collection("members").list({ limit: 200 });
+  const out = new Set<string>();
+  for (const m of page.items) {
+    if (m.status !== "active") continue;
+    if (m.userId === startedBy || (caps.length && caps.every((c) => can(m, c)))) out.add(m.userId);
+  }
+  return [...out];
+}
+
 async function appName(p: Platform, wid: string, appId: string): Promise<string> {
   const app = await p.db.ws(wid).collection("apps").get(appId);
   return app?.name && app.name !== "New app" ? app.name : "MuseLaunch";
+}
+
+const RunMoments = z.object({ sent: z.array(z.string().max(200)).max(100) });
+
+/** Claim a once-per-run moment ("studied", "needs:<decision>", …): true the first time only. */
+async function claimMoment(p: Platform, wid: string, runId: string, moment: string): Promise<boolean> {
+  const key = `push-run-${wid}-${runId}`.slice(0, 400);
+  return p.db.runTransaction(async (tx) => {
+    const cur = (await tx.getGlobal(key, RunMoments))?.sent ?? [];
+    if (cur.includes(moment)) return false;
+    tx.setGlobal(key, RunMoments, { sent: [...cur, moment.slice(0, 200)].slice(-100) });
+    return true;
+  });
 }
 
 /** Run a notification without ever failing the work that caused it. */
@@ -249,22 +354,134 @@ export function notifyPostsReady(p: Platform, wid: string, appId: string, now = 
     const waiting = await postsWaitingForReview(p, wid, appId, now);
     if (!waiting) return null;
     const people = await members(p, wid, "publish");
-    if (!people.length || !(await hasPhones(p, people))) return null;
-    const key = `push-ready-${wid}-${appId}`;
-    const claimed = await p.db.runTransaction(async (tx) => {
-      const last = await tx.getGlobal(key, ReadyThrottle);
-      if (last && now - Date.parse(last.lastSentAt) < READY_PUSH_WINDOW_MS) return false;
-      tx.setGlobal(key, ReadyThrottle, { lastSentAt: new Date(now).toISOString() });
-      return true;
-    });
-    if (!claimed) return null;
+    if (!people.length || !(await hasReceivers(p, people))) return null;
+    if (!(await claimReadyWindow(p, wid, appId, now))) return null;
     return sendPushToUsers(p, people, {
       kind: "posts_ready",
       title: await appName(p, wid, appId),
       body: `${plural(waiting, "post")} ${waiting === 1 ? "is" : "are"} ready to review`,
       url: appPath("", wid, appId),
+      webUrl: webAppPath(wid, appId, "home"),
+      tag: `ml-posts-ready-${appId}`,
       workspaceId: wid,
       appId,
+    });
+  });
+}
+
+/** Start the app's "posts ready" hour (false: one already went out within it). */
+function claimReadyWindow(p: Platform, wid: string, appId: string, now: number): Promise<boolean> {
+  const key = `push-ready-${wid}-${appId}`;
+  return p.db.runTransaction(async (tx) => {
+    const last = await tx.getGlobal(key, ReadyThrottle);
+    if (last && now - Date.parse(last.lastSentAt) < READY_PUSH_WINDOW_MS) return false;
+    tx.setGlobal(key, ReadyThrottle, { lastSentAt: new Date(now).toISOString() });
+    return true;
+  });
+}
+
+const webAppPath = (wid: string, appId: string, page: string) => `/w/${encodeURIComponent(wid)}/a/${encodeURIComponent(appId)}/${page}`;
+const createPage = (wid: string, appId: string, campaignId: string) => webAppPath(wid, appId, `create?run=${encodeURIComponent(campaignId)}`);
+
+/** A run, as far as its notifications go (an Autopilot loop, or a Create video's campaign). */
+export interface RunRef {
+  id: string;
+  appId: string;
+  /** Who started it (gets its notes while still an active member). */
+  startedBy?: string;
+}
+
+/**
+ * First run, "Muse has finished studying Pocket Play" (→ Home): the run moved past the ideas into
+ * making the videos. Once per run; to its starter and whoever can make content.
+ */
+export function notifyFirstRunStudied(p: Platform, wid: string, run: RunRef): Promise<PushResult | null> {
+  return quietly(p, "first_run_studied", async () => {
+    const people = await runRecipients(p, wid, run.startedBy, ["content.write"]);
+    if (!people.length || !(await hasReceivers(p, people)) || !(await claimMoment(p, wid, run.id, "studied"))) return null;
+    return sendPushToUsers(p, people, {
+      kind: "first_run_studied",
+      title: `Muse has finished studying ${shortAppName(await appName(p, wid, run.appId))}`,
+      body: "Now making your first videos.",
+      url: appPath("", wid, run.appId),
+      webUrl: webAppPath(wid, run.appId, "home"),
+      tag: runNotificationTag(run.id),
+      workspaceId: wid,
+      appId: run.appId,
+      ttlSec: 6 * 3600,
+    });
+  });
+}
+
+/**
+ * First run, "Your first videos are ready" (→ Home) when it drafts its posts: "2 posts are waiting
+ * for your OK." It stands in for the "posts ready" note of that batch and starts the app's posts-ready
+ * hour, so the two never both arrive. Once per run; to its starter and whoever can schedule posts.
+ */
+export function notifyFirstVideosReady(p: Platform, wid: string, run: RunRef, now = Date.now()): Promise<PushResult | null> {
+  return quietly(p, "first_videos_ready", async () => {
+    const people = await runRecipients(p, wid, run.startedBy, ["publish"]);
+    if (!people.length || !(await hasReceivers(p, people)) || !(await claimMoment(p, wid, run.id, "ready"))) return null;
+    await claimReadyWindow(p, wid, run.appId, now);
+    const waiting = await postsWaitingForReview(p, wid, run.appId, now);
+    return sendPushToUsers(p, people, {
+      kind: "first_videos_ready",
+      title: "Your first videos are ready",
+      body: waiting ? `${plural(waiting, "post")} ${waiting === 1 ? "is" : "are"} waiting for your OK.` : "Open MuseLaunch to watch them.",
+      url: appPath("", wid, run.appId),
+      webUrl: webAppPath(wid, run.appId, "home"),
+      tag: runNotificationTag(run.id),
+      workspaceId: wid,
+      appId: run.appId,
+    });
+  });
+}
+
+/**
+ * "Muse needs you for a moment" when a run stops for a decision: once per decision (`decisionKey`,
+ * e.g. the approval id or the Create step's key). To the starter and whoever holds `caps` (who can
+ * answer it). An Autopilot run opens Home; a Create video opens the Create page on that video.
+ */
+export function notifyRunNeedsYou(
+  p: Platform,
+  wid: string,
+  run: RunRef & { kind: "autopilot" | "create" },
+  decision: { key: string; what?: string; caps: Capability[] },
+): Promise<PushResult | null> {
+  return quietly(p, "needs_you", async () => {
+    const people = await runRecipients(p, wid, run.startedBy, decision.caps);
+    if (!people.length || !(await hasReceivers(p, people)) || !(await claimMoment(p, wid, run.id, `needs:${decision.key}`))) return null;
+    const name = shortAppName(await appName(p, wid, run.appId));
+    const what = decision.what?.trim().replace(/[.\s]+$/, "");
+    return sendPushToUsers(p, people, {
+      kind: "needs_you",
+      title: "Muse needs you for a moment",
+      body: what ? `${name}: ${what.slice(0, 200)}.` : `${name}: one quick decision, then Muse carries on.`,
+      url: appPath("", wid, run.appId),
+      webUrl: run.kind === "create" ? createPage(wid, run.appId, run.id) : webAppPath(wid, run.appId, "home"),
+      tag: runNotificationTag(run.id),
+      workspaceId: wid,
+      appId: run.appId,
+      urgency: "high",
+    });
+  });
+}
+
+/** A Create video is finished: "Your video is ready" with its title (→ the Create page). Once per run. */
+export function notifyVideoReady(p: Platform, wid: string, run: RunRef, video: { title?: string }): Promise<PushResult | null> {
+  return quietly(p, "video_ready", async () => {
+    const people = await runRecipients(p, wid, run.startedBy, ["publish"]);
+    if (!people.length || !(await hasReceivers(p, people)) || !(await claimMoment(p, wid, run.id, "done"))) return null;
+    const title = video.title?.trim();
+    return sendPushToUsers(p, people, {
+      kind: "video_ready",
+      title: "Your video is ready",
+      body: title ? `“${title.slice(0, 90)}” is ready to watch and post.` : `${shortAppName(await appName(p, wid, run.appId))}: ready to watch and post.`,
+      url: appPath("", wid, run.appId),
+      webUrl: createPage(wid, run.appId, run.id),
+      tag: runNotificationTag(run.id),
+      workspaceId: wid,
+      appId: run.appId,
     });
   });
 }
@@ -280,6 +497,8 @@ export function notifyPostLive(p: Platform, wid: string, post: { appId: string; 
       title: await appName(p, wid, post.appId),
       body: `Your post is live on ${channelName(post.channel)}${title ? `: “${title.slice(0, 80)}”` : ""}. Results counts what it brings in.`,
       url: appPath("results", wid, post.appId),
+      webUrl: webAppPath(wid, post.appId, "results"),
+      tag: `ml-post-live-${post.appId}-${post.channel}`,
       workspaceId: wid,
       appId: post.appId,
     });
@@ -302,6 +521,8 @@ export function notifyWeeklySummary(p: Platform, wid: string, appId: string, s: 
       title: `Your week: ${await appName(p, wid, appId)}`,
       body: `${parts.join(" · ")}.`,
       url: appPath("results", wid, appId),
+      webUrl: webAppPath(wid, appId, "results"),
+      tag: `ml-weekly-${appId}`,
       workspaceId: wid,
       appId,
     });

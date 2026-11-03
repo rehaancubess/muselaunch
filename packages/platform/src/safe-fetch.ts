@@ -79,7 +79,8 @@ export function assertSafeUrl(raw: string): URL {
   return url;
 }
 
-async function resolveSafe(hostname: string): Promise<{ address: string; family: 4 | 6 }> {
+/** Resolve a host and refuse private, loopback, link-local and reserved addresses (also used by Web Push sends). */
+export async function resolveSafe(hostname: string): Promise<{ address: string; family: 4 | 6 }> {
   const host = hostname.replace(/^\[|\]$/g, "");
   if (isIP(host)) {
     if (isBlockedAddress(host)) throw new AppError("UNSAFE_URL", "Private addresses are not allowed");

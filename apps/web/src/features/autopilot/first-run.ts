@@ -38,12 +38,8 @@ export function firstRunPhase(steps: Step[]): "studying" | "making" {
   return c && STUDY.has(c.key) ? "studying" : "making";
 }
 
-/** "Pocket Play: your couch, your game" → "Pocket Play" (store names often carry a tagline). */
-export function shortAppName(name: string): string {
-  const head = name.split(/\s*[:|–—]\s+|\s+-\s+/)[0]?.trim() ?? "";
-  const n = head.length >= 2 ? head : name.trim();
-  return n.length > 28 ? `${n.slice(0, 27).trimEnd()}…` : n;
-}
+/** "Pocket Play: your couch, your game" → "Pocket Play" (shared with the server's notifications). */
+export { shortAppName } from "@muselaunch/contracts";
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

@@ -57,7 +57,7 @@ process.env.MUSELAUNCH_FIXTURE_MODE = "1";
 
 const { serve } = await import("@hono/node-server");
 const { Hono } = await import("hono");
-const { createPlatform, createRunner } = await import("@muselaunch/platform");
+const { createPlatform, createRunner, webPushKeys } = await import("@muselaunch/platform");
 const { installMetaClient, MetaClient } = await import("@muselaunch/providers");
 const agentsT = await import("@muselaunch/agents/testing");
 const mediaT = await import("@muselaunch/media/testing");
@@ -68,6 +68,7 @@ const { handlers } = await import("@muselaunch/worker/registry");
 const { buildApp } = await import("./app");
 
 const p = createPlatform();
+webPushKeys(p); // browser notifications: a temporary key pair unless .env has one (logged once)
 installAnalyticsHooks(p);
 installCampaignHooks(p); // campaigns leave "producing" when their production chains finish
 installAutopilotHooks(p); // Growth Autopilot resumes when the jobs it waits on finish

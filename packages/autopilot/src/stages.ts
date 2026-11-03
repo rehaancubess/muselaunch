@@ -4,13 +4,14 @@ import { collectAssetRefs, lintDoc, totalDuration } from "@muselaunch/compositio
 import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
-import { AppError, notifyPostsReady, toAppError } from "@muselaunch/platform";
+import { AppError, notifyFirstVideosReady, notifyPostsReady, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { ALWAYS_ON_NEXT_INSTRUCTIONS, alwaysOnFocusLine, alwaysOnMeasure, alwaysOnNextRound, alwaysOnResearch, alwaysOnTimes, NEXT_ROUND_TAG } from "./always-on-loop";
 import { decide } from "./decide";
 import { directionMenu, directionProblem, directionSchema, directionSummary, directorName, hasPresenterFootage, signatureShotOptions, toCreativeDirection } from "./direction";
 import { defaultGoal, dnaJobsInFlight, hasRealAppMedia, screenJobsInFlight } from "./defaults";
+import { isFirstRun } from "./notify";
 import { postingTarget } from "./posting";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 import { isWatchTag, watchRenders, watchStep } from "./watch";
@@ -844,8 +845,13 @@ const schedule: StageFn = async (env, step) => {
     }
   }
   env.set({ scheduledPostIds: [...new Set([...env.ap.scheduledPostIds, ...postIds])] });
-  // One push for the whole batch ("2 posts are ready to review") to the linked phones of who can schedule them.
-  if (postIds.length) await notifyPostsReady(env.p, env.ctx.workspaceId, env.appId);
+  // One notification for the whole batch, to the phones and browsers of who can schedule them: the
+  // app's first run says "Your first videos are ready" (instead of, never as well as, "2 posts are
+  // ready to review").
+  if (postIds.length) {
+    if (await isFirstRun(env.p, env.ap).catch(() => false)) await notifyFirstVideosReady(env.p, env.ctx.workspaceId, { id: env.ap.id, appId: env.appId, startedBy: env.ap.createdBy });
+    else await notifyPostsReady(env.p, env.ctx.workspaceId, env.appId);
+  }
   const exp = env.ap.hypothesis?.experimentId ? await env.ws.collection("experiments").get(env.ap.hypothesis.experimentId) : null;
   const starts = times.items.slice(0, comps.length).map((t) => Date.parse(t.at));
   const start = starts.length ? Math.min(...starts) : nowMs(env.p);

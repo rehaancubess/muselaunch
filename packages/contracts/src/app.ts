@@ -372,3 +372,13 @@ export const TrackedCreator = BaseEntity.extend({
   lastRefreshError: z.string().max(1000).optional(),
 });
 export type TrackedCreator = z.infer<typeof TrackedCreator>;
+
+/**
+ * "Pocket Play: your couch, your game" → "Pocket Play" (store names often carry a tagline). Used by
+ * the first-run screen and by notifications ("Muse has finished studying Pocket Play").
+ */
+export function shortAppName(name: string): string {
+  const head = name.split(/\s*[:|–—]\s+|\s+-\s+/)[0]?.trim() ?? "";
+  const n = head.length >= 2 ? head : name.trim();
+  return n.length > 28 ? `${n.slice(0, 27).trimEnd()}…` : n;
+}

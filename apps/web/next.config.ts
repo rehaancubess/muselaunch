@@ -12,6 +12,16 @@ const config: NextConfig = {
   typescript: { ignoreBuildErrors: false },
   images: { unoptimized: true },
   devIndicators: false,
+  // The notifications service worker (public/sw.js): always fetched fresh, so a fix reaches every browser.
+  headers: async () => [
+    {
+      source: "/sw.js",
+      headers: [
+        { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+      ],
+    },
+  ],
 };
 
 export default config;

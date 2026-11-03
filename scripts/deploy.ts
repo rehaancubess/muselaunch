@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
+import { ensureWebPushKeys, envValue, PRIVATE_KEY as WEB_PUSH_PRIVATE, PUBLIC_KEY as WEB_PUSH_PUBLIC, validVapidPair } from "./setup-web-push";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const envFile = join(root, ".env");
@@ -75,6 +76,19 @@ function ensureLocalSecret(name: string, gen: () => string) {
 ensureLocalSecret("TOKEN_ENCRYPTION_KEY", () => randomBytes(32).toString("base64"));
 ensureLocalSecret("WORKER_SHARED_SECRET", () => randomBytes(24).toString("base64url"));
 ensureLocalSecret("STORAGE_SIGNING_SECRET", () => randomBytes(24).toString("base64url"));
+// Browser notifications (Web Push): one key pair, kept in .env (setup-web-push.cmd makes it; made
+// here the same way if it's missing). The private key is never printed.
+if (!validVapidPair(env[WEB_PUSH_PUBLIC], env[WEB_PUSH_PRIVATE])) {
+  const made = ensureWebPushKeys(envFile, { dryRun: DRY });
+  if (made.created && DRY) console.log("Would generate the browser notification keys");
+  else if (made.created) {
+    const text = readFileSync(envFile, "utf8");
+    env[WEB_PUSH_PUBLIC] = envValue(text, WEB_PUSH_PUBLIC) ?? "";
+    env[WEB_PUSH_PRIVATE] = envValue(text, WEB_PUSH_PRIVATE) ?? "";
+    console.log("Generated the browser notification keys and saved them to .env (the private key is not shown)");
+  }
+}
+const isEmail = (s?: string) => Boolean(s && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s.trim()));
 
 const projectNumber = DRY ? "PROJECT_NUMBER" : sh(`gcloud projects describe ${PROJECT} --format="value(projectNumber)"`, { quiet: true });
 const url = (svc: string) => `https://${svc}-${projectNumber}.${REGION}.run.app`;
@@ -147,6 +161,8 @@ const SECRETS = [
   "X_CLIENT_SECRET",
   // Phone app push (optional: only with Expo's enhanced push security; pushes work without it).
   "EXPO_ACCESS_TOKEN",
+  // Browser notifications: the private half of the Web Push key pair (its public half is plain env below).
+  "WEB_PUSH_VAPID_PRIVATE_KEY",
 ].filter((k) => env[k]);
 for (const name of SECRETS) {
   sh(`gcloud secrets create ${name} --replication-policy=automatic --project ${PROJECT}`, { allowFail: true, quiet: true });
@@ -216,6 +232,13 @@ const common = [
         ...(env.SPARK_OPEN_TASKS !== undefined ? [`SPARK_OPEN_TASKS=${env.SPARK_OPEN_TASKS}`] : []),
         `SPARK_OPEN_FALLBACK=${env.SPARK_OPEN_FALLBACK ?? "1"}`,
         ...(env.BASETEN_BASE_URL ? [`BASETEN_BASE_URL=${env.BASETEN_BASE_URL}`] : []),
+      ]
+    : []),
+  // Browser notifications: the public key and who push services can contact (the private key is a secret above).
+  ...(env.WEB_PUSH_VAPID_PUBLIC_KEY && env.WEB_PUSH_VAPID_PRIVATE_KEY
+    ? [
+        `WEB_PUSH_VAPID_PUBLIC_KEY=${env.WEB_PUSH_VAPID_PUBLIC_KEY}`,
+        `WEB_PUSH_SUBJECT=${env.WEB_PUSH_SUBJECT?.trim() || (isEmail(env.NEXT_PUBLIC_CONTACT_EMAIL) ? `mailto:${env.NEXT_PUBLIC_CONTACT_EMAIL!.trim()}` : isEmail(env.OPERATOR_EMAIL) ? `mailto:${env.OPERATOR_EMAIL!.trim()}` : WEB_URL)}`,
       ]
     : []),
   // Social OAuth client ids (public) for the platforms configured in .env; their secrets are above.
