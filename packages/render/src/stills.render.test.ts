@@ -43,6 +43,12 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real still renders", { tim
     expect(done?.status, JSON.stringify(done?.error)).toBe("succeeded");
     const ids = done!.output!.data!.assetIds as string[];
     expect(done!.output!.refs.map((r) => r.id)).toEqual(ids);
+    // Same shape as a video render: slide 1 is the asset and the poster.
+    expect(done!.output!.data).toMatchObject({ assetId: ids[0], posterAssetId: ids[0], slides: ids.length, format: format === "store_screenshots" ? "png" : "jpeg" });
+    // A second final of the same doc is the cached render, with the same data.
+    const again = await p.jobs.create(wid, "render.final", { appId: seed.appId, compositionId, version: 1, format: "png" }, { actor: "u1", idempotencyKey: `f2:${compositionId}`, credits: { operation: "render.final", amount: 1 } });
+    await p.inline!.drain();
+    expect((await p.jobs.get(wid, again.id))?.output?.data).toMatchObject({ cached: true, assetId: ids[0], posterAssetId: ids[0], assetIds: ids, slides: ids.length });
     const slides = (await ws.collection("mediaAssets").getMany(ids)) as MediaAsset[];
     const ordered = ids.map((id) => slides.find((a) => a.id === id)!);
     const after = await ws.collection("compositions").getOrThrow(compositionId);

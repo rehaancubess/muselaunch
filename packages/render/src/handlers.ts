@@ -245,7 +245,12 @@ async function render(ctx: JobContext<"render.preview"> | JobContext<"render.fin
     const frames = still ? await stillSiblings(ctx.ws, cachedId) : [];
     return {
       refs: [{ entity: "mediaAssets", id: cached.id }, ...frames.map((id) => ({ entity: "mediaAssets", id }))],
-      data: { cached: true, assetId: cached.id, ...(still ? { assetIds: [cached.id, ...frames], slides: frames.length + 1, mimeType: cached.mimeType, width: cached.width, height: cached.height } : {}) },
+      data: {
+        cached: true,
+        assetId: cached.id,
+        posterAssetId: still ? cached.id : cached.posterAssetId,
+        ...(still ? { assetIds: [cached.id, ...frames], slides: frames.length + 1, format: encoding, mimeType: cached.mimeType, width: cached.width, height: cached.height, still: stillKind } : {}),
+      },
       creditsUsed: 0,
     };
   }
@@ -481,7 +486,8 @@ async function saveStills(
   const credits = quality === "final" ? Math.max(1, Math.ceil(scenes.length / 4)) : 0;
   return {
     refs,
-    data: { assetId: refs[0]!.id, assetIds: refs.map((r) => r.id), slides: refs.length, mimeType: first!.mimeType, width: first!.width, height: first!.height, still: still.kind },
+    // Same shape as a video render (assetId / posterAssetId: slide 1) plus every slide in order.
+    data: { assetId: refs[0]!.id, posterAssetId: refs[0]!.id, assetIds: refs.map((r) => r.id), slides: refs.length, format: still.encoding, mimeType: first!.mimeType, width: first!.width, height: first!.height, still: still.kind },
     creditsUsed: ctx.job.reservation ? Math.min(credits, ctx.job.reservation.credits) : credits,
   };
 }
