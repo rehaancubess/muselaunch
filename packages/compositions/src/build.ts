@@ -1716,11 +1716,19 @@ function slideCta(ctx: SceneCtx, value: string): Built {
   const pillsH = pills ? ((stack ? 230 : 118) * f.u) / f.H : 0;
   const ctaH = ctaFit.h + (pad * 2) / f.H;
   const gap = (44 * f.u) / f.H;
-  const blockH = (logo ? icon / f.H + gap : 0) + nameFit.h + (subFit ? subFit.h + 0.01 : 0) + gap + ctaH + (pills ? gap * 1.2 + pillsH : 0);
+  const blockH = (logo ? (icon * (deep ? 1.08 : 1)) / f.H + gap : 0) + nameFit.h + (subFit ? subFit.h + 0.01 : 0) + gap + ctaH + (pills ? gap * 1.2 + pillsH : 0);
   const header = pageHeader(ctx, tone, { name: false });
   const layers: Layer[] = [stillGlow(ctx, deep, { x: 0.5, y: 0.36 }, 1.15), ...header.layers];
   let y = Math.max(header.bottom + 0.03, 0.49 - blockH / 2);
   if (logo) {
+    if (deep) {
+      // A frosted plate behind the icon: an icon in the brand's own colour still stands off the slide.
+      const plate = Math.round(icon * 1.16);
+      layers.push({
+        ...shape(`${ctx.sceneId}_plate`, "rect", box(0.5 - plate / f.W / 2, y - (plate - icon) / 2 / f.H, plate / f.W, plate / f.H, 3), "#FFFFFF3D", { gradientTo: "#FFFFFF14", radiusPx: Math.round(plate * 0.25) }),
+        name: "Icon plate",
+      } as Layer);
+    }
     layers.push({
       id: `${ctx.sceneId}_icon`,
       type: "image",
@@ -1798,12 +1806,12 @@ function thumbnailBold(ctx: SceneCtx, value: string): Built {
     return { ...shape(`${ctx.sceneId}_accent`, "circle", box(cx - s / f.W / 2, cy - s / f.H / 2, s / f.W, s / f.H, 2), pop, { gradientTo: mix(theme.accent, "#000000", 0.25) }), name: "Accent disc" } as Layer;
   };
   if (f.landscape) {
-    const tw = media ? 0.5 : mg.w;
+    const tw = media ? 0.47 : mg.w;
     const fit = fitText(f, words, 196 * f.u, tw, { maxLines: 3, lineHeight: 0.98, min: 110 * f.u });
-    if (media) layers.push(disc(0.76, 0.56, 0.98));
+    if (media) layers.push(disc(0.8, 0.56, 0.9));
     layers.push(stillText(ctx, "headline", words, box(mg.x, 0.5 - fit.h / 2, tw, fit.h, 6), { size: fit.size, weight: 900, color: "#FFFFFF", align: "left", lineHeight: 0.98, letterSpacing: -0.04, shadow: true, highlight: { words: ctx.emphasis(words), color: hl }, claimIds: ctx.sb.claimIds }));
-    if (cut) layers.push(founderLayer(ctx, cut, { cx: 0.77, bottom: 1.02, height: 0.92, z: 4 }));
-    else if (screen) layers.push(stillDevice(ctx, screen, { cx: 0.77, top: 0.1, width: 0.27, rotation: 8, z: 4 }));
+    if (cut) layers.push(founderLayer(ctx, cut, { cx: 0.79, bottom: 1.02, height: 0.92, z: 4 }));
+    else if (screen) layers.push(stillDevice(ctx, screen, { cx: 0.79, top: 0.1, width: 0.27, rotation: 8, z: 4 }));
   } else {
     const fit = fitText(f, words, (f.portrait ? 170 : 150) * f.u, mg.w, { maxLines: 3, lineHeight: 0.98, min: 90 * f.u });
     const y = mg.top + 0.01;
@@ -2017,7 +2025,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   return v.doc;
 }
 
-const NAMES: Record<string, string> = { counter: "Slide number", dots: "Slide dots", swipe: "Swipe cue", claim: "Claim", accent: "Accent shape", glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", media1: "Media 1", media2: "Media 2", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", sub: "Subline", cta: "Call to action", stores: "Store badges", body: "Body", caption: "Caption" };
+const NAMES: Record<string, string> = { plate: "Icon plate", counter: "Slide number", dots: "Slide dots", swipe: "Swipe cue", claim: "Claim", accent: "Accent shape", glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", media1: "Media 1", media2: "Media 2", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", sub: "Subline", cta: "Call to action", stores: "Store badges", body: "Body", caption: "Caption" };
 
 function layerName(suffix: string, l: Layer): string {
   if (NAMES[suffix]) return NAMES[suffix]!;
