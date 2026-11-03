@@ -4,7 +4,7 @@
  * a test with enough data or a recommendation grounded in measured numbers, never as a cause) and
  * the ideas card. No React here (unit-tested in results-lines.test.ts).
  */
-import type { Experiment, ExperimentResult, GrowthRecommendation, InsightMetric, MissingMetric, ResultsSeries, ResultsSummary } from "@muselaunch/contracts";
+import type { Experiment, ExperimentResult, GrowthRecommendation, InsightMetric, MetricSourceValue, MissingMetric, ResultsSeries, ResultsSummary } from "@muselaunch/contracts";
 import { RESULTS_MIN_CHART_DAYS } from "@muselaunch/contracts";
 import { topPicks, type FeedItem } from "../discover/picks";
 import { coverageNote, firstParagraph, isMeasured, plainSource, scopeLine } from "../insights/simple-lines";
@@ -39,6 +39,22 @@ const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFra
 /** 386, 4.2K, 12.4K, 1.2M (the exact number goes in the label next to it). */
 export const shortNumber = (v: number) => (Math.abs(v) >= 1000 ? compact.format(v) : exact.format(v));
 export const fullNumber = (v: number) => exact.format(v);
+
+type SourceLike = Pick<MetricSourceValue, "source" | "label" | "imported" | "observationCount">;
+const lowerFirst = (s: string) => (/^(From|Typed) /.test(s) ? s[0]!.toLowerCase() + s.slice(1) : s);
+
+/**
+ * Where a number comes from when several sources reported it: "From a file you imported and typed
+ * in by you". Only sources with numbers in the range are named (a tracked link with no click yet
+ * still counts: it measured a 0).
+ */
+export function sourcesPhrase(sources: SourceLike[]): string | null {
+  const phrases = [...new Set(sources.filter((s) => s.observationCount > 0).map((s) => plainSource({ sources: [s] })!))];
+  if (!phrases.length) return plainSource({ sources });
+  if (phrases.length === 1) return phrases[0]!;
+  if (phrases.length === 2) return `${phrases[0]} and ${lowerFirst(phrases[1]!)}`;
+  return `${phrases[0]} and ${phrases.length - 1} other sources`;
+}
 
 export type TileAction =
   | { kind: "home"; label: string }
@@ -81,10 +97,10 @@ export function tiles(
   const clicks = find("clicks");
   return [
     views
-      ? { key: "views", label: "Views", value: views.value, source: plainSource(views), scope: scopeLine({ metric: "views", attribution: views.attribution }), action: null }
+      ? { key: "views", label: "Views", value: views.value, source: sourcesPhrase(views.sources), scope: scopeLine({ metric: "views", attribution: views.attribution }), action: null }
       : { key: "views", label: "Views", value: null, source: null, scope: null, action: viewsAction(missing.find((m) => m.metric === "views"), youtube, range) },
     clicks
-      ? { key: "clicks", label: "Link clicks", value: clicks.value, source: plainSource(clicks), scope: null, action: null }
+      ? { key: "clicks", label: "Link clicks", value: clicks.value, source: sourcesPhrase(clicks.sources), scope: null, action: null }
       : { key: "clicks", label: "Link clicks", value: null, source: null, scope: null, action: { kind: "sources", label: "Add a tracked link", focus: "links" } },
     posts
       ? { key: "posts", label: "Posts published", value: posts.value, source: "From your MuseLaunch posts", scope: null, action: null }
@@ -123,12 +139,15 @@ export type ChartModel = {
   /** One line per run of consecutive measured days: a missing day breaks the line. */
   lines: string[];
   areas: string[];
-  /** Measured days with no measured neighbour (a 1-day run has no line to show it). */
+  /** Measured days with no measured neighbour (a 1-day run has no line to show it); every measured day when there are only a few. */
   dots: { i: number; x: number; y: number }[];
   ticks: { i: number; x: number; label: string }[];
 };
 
 export const shortDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+/** Up to this many measured days, each one gets a dot so a short series still reads as days. */
+const SPARSE_DAYS = 10;
 
 export function chartModel(points: ResultsSeries["points"], box: ChartBox): ChartModel {
   const { width, height, pad } = box;
@@ -152,7 +171,9 @@ export function chartModel(points: ResultsSeries["points"], box: ChartBox): Char
   const areas = runs
     .filter((run) => run.length > 1)
     .map((run) => `M${r(xs[run[0]!]!)},${r(baseline)} ${run.map((i) => `L${r(xs[i]!)},${r(y(points[i]!.value!))}`).join(" ")} L${r(xs[run.at(-1)!]!)},${r(baseline)} Z`);
-  const dots = runs.filter((run) => run.length === 1).map(([i]) => ({ i: i!, x: r(xs[i!]!), y: r(y(points[i!]!.value!)) }));
+  const measured = runs.flat();
+  const dotted = measured.length <= SPARSE_DAYS ? measured : runs.filter((run) => run.length === 1).flat();
+  const dots = dotted.map((i) => ({ i, x: r(xs[i]!), y: r(y(points[i]!.value!)) }));
   const tickIdx = n <= 1 ? [0] : n <= 7 ? points.map((_, i) => i) : [...new Set([0, Math.round((n - 1) / 2), n - 1])];
   const ticks = n ? tickIdx.map((i) => ({ i, x: r(xs[i]!), label: shortDate(points[i]!.date) })) : [];
   return { max, xs, y, baseline, lines, areas, dots, ticks };
@@ -170,7 +191,7 @@ export function chartHiddenLine(series: ResultsSeries | null, rangeDays: number)
 /** The plain caption over the chart: what it shows and where the numbers come from. */
 export function chartCaption(series: ResultsSeries): string {
   const what = series.metric === "views" ? "Views per day" : "Link clicks per day";
-  const from = plainSource({ sources: series.sources });
+  const from = sourcesPhrase(series.sources);
   return from ? `${what} · ${from}` : what;
 }
 
@@ -191,7 +212,7 @@ export function chartFootnote(series: ResultsSeries): string | null {
 export function bestPostLine(b: Pick<NonNullable<ResultsSummary["bestPost"]>, "metric" | "comparedPosts" | "tiedWith" | "sources">): string {
   const what = b.metric === "views" ? "views" : "link clicks";
   const line = b.comparedPosts === 1 ? `Your only post with ${what} measured so far` : b.tiedWith ? `Tied for the most ${what} of your ${b.comparedPosts} posts with numbers` : `Most ${what} of your ${b.comparedPosts} posts with numbers`;
-  const from = plainSource({ sources: b.sources });
+  const from = sourcesPhrase(b.sources);
   return `${line}${from ? ` · ${from}` : ""}.`;
 }
 

@@ -1,7 +1,7 @@
 import type { InsightMetric, ResultsSeries } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
 import type { FeedItem } from "../discover/picks";
-import { bestPostLine, chartCaption, chartFootnote, chartHiddenLine, chartModel, coverageLine, niceMax, nothingYet, pickTip, rangeQuery, shortNumber, tiles, tipFromRecommendation, tipFromTest, weekIdeas } from "./results-lines";
+import { bestPostLine, chartCaption, sourcesPhrase, chartFootnote, chartHiddenLine, chartModel, coverageLine, niceMax, nothingYet, pickTip, rangeQuery, shortNumber, tiles, tipFromRecommendation, tipFromTest, weekIdeas } from "./results-lines";
 
 type M = Parameters<typeof tiles>[0][number];
 const metric = (name: "views" | "clicks", value: number | null, over: Partial<M> = {}): M => ({ metric: name, value, byCurrency: undefined, sources: [], attribution: null, ...over });
@@ -39,6 +39,18 @@ describe("Results: the three numbers", () => {
       ["Link clicks", 386, "From your MuseLaunch links", null],
       ["Posts published", 8, "From your MuseLaunch posts", null],
     ]);
+  });
+
+  it("names every source that reported a number (up to two)", () => {
+    const file = { source: "csv_import" as const, label: "Imported CSV", imported: true, observationCount: 3 };
+    const typed = { source: "manual" as const, label: "Manual entry", imported: true, observationCount: 9 };
+    const yt = { source: "youtube" as const, label: "YouTube (API)", imported: false, observationCount: 2 };
+    expect(sourcesPhrase([file, typed])).toBe("From a file you imported and typed in by you");
+    expect(sourcesPhrase([yt, file])).toBe("From YouTube and from a file you imported");
+    expect(sourcesPhrase([yt, file, typed])).toBe("From YouTube and 2 other sources");
+    expect(sourcesPhrase([{ ...yt, observationCount: 0 }, file])).toBe("From a file you imported");
+    expect(sourcesPhrase([{ source: "tracked_link", label: "MuseLaunch tracked links", imported: false, observationCount: 0 }])).toBe("From your MuseLaunch links");
+    expect(sourcesPhrase([])).toBeNull();
   });
 
   it("an account-wide total says so", () => {
@@ -91,9 +103,21 @@ describe("Results: the chart", () => {
     expect(m.max).toBe(4000);
     expect(m.lines).toEqual(["M0,15 L100,27.5"]);
     expect(m.areas).toHaveLength(1);
-    expect(m.dots).toEqual([{ i: 3, x: 300, y: 22.5 }]);
+    // Few measured days: every one is a dot (the lone day included).
+    expect(m.dots).toEqual([
+      { i: 0, x: 0, y: 15 },
+      { i: 1, x: 100, y: 27.5 },
+      { i: 3, x: 300, y: 22.5 },
+    ]);
     expect(m.xs).toEqual([0, 100, 200, 300]);
     expect(m.ticks.map((t) => t.label)).toEqual(["Oct 20", "Oct 21", "Oct 22", "Oct 23"]);
+  });
+
+  it("many measured days: only a lone day gets a dot", () => {
+    const values = Array.from({ length: 28 }, (_, i) => (i === 20 ? null : i === 22 ? null : 5));
+    const m = chartModel(pts(values), box);
+    expect(m.lines).toHaveLength(2);
+    expect(m.dots.map((d) => d.i)).toEqual([21]);
   });
 
   it("measured zeros sit on the baseline", () => {

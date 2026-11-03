@@ -48,10 +48,10 @@ export function DailyChart({ series }: { series: ResultsSeries }) {
     for (let i = 1; i < m.xs.length; i++) if (Math.abs(m.xs[i]! - x) < Math.abs(m.xs[best]! - x)) best = i;
     return best;
   };
-  const h = hover !== null && m ? { x: m.xs[hover]!, p: point(hover) } : null;
+  const h = hover !== null && m && hover < series.points.length ? { x: m.xs[hover]!, p: point(hover) } : null;
 
   return (
-    <div ref={ref} className="relative w-full" onPointerLeave={() => setHover(null)}>
+    <div ref={ref} className="relative w-full" onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}>
       {m ? (
         <svg width={width} height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} role="img" aria-label={summary} className="block touch-pan-y select-none">
           <defs>
@@ -112,23 +112,25 @@ export function DailyChart({ series }: { series: ResultsSeries }) {
           <span className="font-medium">{shortDate(h.p.date)}</span> · {h.p.value === null ? "No number that day" : `${fullNumber(h.p.value)} ${words}`}
         </div>
       ) : null}
-      <table className="sr-only">
-        <caption>{summary}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            <th scope="col">{series.label}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {series.points.map((p) => (
-            <tr key={p.date}>
-              <td>{shortDate(p.date)}</td>
-              <td>{p.value === null ? "No number" : fullNumber(p.value)}</td>
+      <div className="sr-only">
+        <table>
+          <caption>{summary}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">{series.label}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {series.points.map((p) => (
+              <tr key={p.date}>
+                <td>{shortDate(p.date)}</td>
+                <td>{p.value === null ? "No number" : fullNumber(p.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -170,7 +170,8 @@ function NumberTile({ tile, appId, sources, onWiden }: { tile: Tile; appId: stri
               {shortNumber(tile.value)}
             </p>
             <p className="text-body-sm text-ink-2">{tile.label}</p>
-            {tile.source ? <p className="mt-1 text-caption text-ink-3">{tile.scope ? `${tile.source} · ${tile.scope.toLowerCase()}` : tile.source}</p> : null}
+            {tile.source ? <p className="mt-1 text-caption text-ink-3 text-pretty">{tile.source}</p> : null}
+            {tile.scope ? <p className="text-caption text-ink-3">{tile.scope}</p> : null}
           </>
         ) : (
           <>
@@ -232,7 +233,7 @@ function ChartSection({ summary, rangeDays }: { summary: ResultsSummary; rangeDa
   return (
     <section aria-label={`${s.label} per day`} className="space-y-2">
       <p className="text-footnote font-medium text-ink-2">{chartCaption(s)}</p>
-      <DailyChart series={s} />
+      <DailyChart key={`${s.metric}:${s.points[0]?.date}:${s.points.length}`} series={s} />
       {foot ? <p className="text-caption text-ink-3 text-pretty">{foot}</p> : null}
     </section>
   );
@@ -360,25 +361,20 @@ function WhatMuseFound({ appId }: { appId: string }) {
           <Compass className="size-5 text-accent" aria-hidden />
           {thisWeek ? "What Muse found this week" : "What Muse found"}
         </h2>
-        <Button asChild variant="link" className="min-h-11 text-body-sm font-medium">
-          <Link href={r.create({ kind: "idea" })}>
-            More ideas
-            <ArrowRight className="size-3.5" aria-hidden />
-          </Link>
-        </Button>
+        <MoreIdeas href={r.create({ kind: "idea" })} className="hidden sm:inline-flex" />
       </div>
       <ul className="mt-2 divide-y divide-line">
         {items.map((item) => {
           const source = primarySource(item);
           return (
-            <li key={item.id} className="py-3 first:pt-1 last:pb-0">
+            <li key={item.id} className="py-1.5 first:pt-0 last:pb-0">
               <Link href={r.create({ kind: "idea", ideaId: item.refId })} className="group flex min-h-11 items-center justify-between gap-3 rounded-md text-body font-medium text-ink focus-visible:outline-none focus-visible:shadow-focus">
                 <span className="min-w-0 text-pretty">{item.title}</span>
                 <ChevronRight className="size-4 shrink-0 text-ink-3 transition-transform group-hover:translate-x-0.5" aria-hidden />
               </Link>
               {source ? (
                 source.url ? (
-                  <a href={source.url} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex min-h-8 max-w-full items-center gap-1 text-footnote text-ink-2 hover:text-ink focus-visible:outline-none focus-visible:shadow-focus" title={source.title ?? source.url}>
+                  <a href={source.url} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex min-h-11 max-w-full items-center gap-1 text-footnote text-ink-2 hover:text-ink focus-visible:outline-none focus-visible:shadow-focus" title={source.title ?? source.url}>
                     <span className="truncate">
                       Found on <span className="font-medium">{siteName(source)}</span>
                     </span>
@@ -395,7 +391,19 @@ function WhatMuseFound({ appId }: { appId: string }) {
           );
         })}
       </ul>
+      <MoreIdeas href={r.create({ kind: "idea" })} className="mt-1 sm:hidden" />
     </section>
+  );
+}
+
+function MoreIdeas({ href, className }: { href: string; className?: string }) {
+  return (
+    <Button asChild variant="link" className={cn("min-h-11 text-body-sm font-medium", className)}>
+      <Link href={href}>
+        More ideas
+        <ArrowRight className="size-3.5" aria-hidden />
+      </Link>
+    </Button>
   );
 }
 
