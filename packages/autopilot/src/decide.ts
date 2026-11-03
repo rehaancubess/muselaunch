@@ -26,7 +26,7 @@ const PREAMBLE =
 export async function decide<S extends z.ZodTypeAny>(
   env: LoopEnv,
   opts: { name: string; title: string; instructions: string; input: string; tool: DecisionTool<S>; searches?: number; app?: AppContextData },
-): Promise<{ args: z.infer<S>; runId: string; citations: SourceRef[] }> {
+): Promise<{ args: z.infer<S>; runId: string; citations: SourceRef[]; model: string }> {
   const rec = await RunRecorder.start(env.ctx, {
     id: hashId("run", env.ap.id, env.iteration, opts.name),
     kind: "growth_autopilot",
@@ -70,7 +70,7 @@ export async function decide<S extends z.ZodTypeAny>(
     await rec.finish("succeeded", { outputRefs: [{ entity: "autopilots", id: env.ap.id }] });
     env.runIds.push(rec.id);
     env.usd += rec.usage.costUsd;
-    return { args: decided.args, runId: rec.id, citations: decided.citations };
+    return { args: decided.args, runId: rec.id, citations: decided.citations, model: outcome.model ?? env.p.cfg.META_MODEL_WONDER };
   } catch (err) {
     env.usd += rec.usage.costUsd;
     await rec.finish("failed", { error: { code: (err as AppError).code ?? "INTERNAL", message: String((err as Error).message).slice(0, 4000), retryable: false } }).catch(() => {});
