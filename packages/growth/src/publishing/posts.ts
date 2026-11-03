@@ -12,6 +12,15 @@ import { manualInstructions, POST_URL_HOSTS } from "./manual";
 // Requests
 // ---------------------------------------------------------------------------
 
+/** "Wed 4 Nov, 11:00 UTC": approval summaries are stored, so they say the time zone (the calendar shows UTC too). */
+function whenUtc(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(d);
+  return `${day}, ${time} UTC`;
+}
+
 export const CreatePostRequest = z
   .object({
     campaignId: Id,
@@ -348,7 +357,7 @@ export async function requestPostApproval(p: Platform, wid: string, id: string, 
     action: "publish",
     subject: { entity: "scheduledPosts", id: post.id },
     hash,
-    summary: `Publish to ${where}: ${(post.title ?? post.caption).slice(0, 140)}${post.scheduledAt ? ` · scheduled ${post.scheduledAt}` : ""}`,
+    summary: `Publish to ${where}: ${(post.title ?? post.caption).slice(0, 140)}${post.scheduledAt ? ` · scheduled for ${whenUtc(post.scheduledAt)}` : ""}`,
     actor,
   });
   const updated = await ws.collection("scheduledPosts").update(post.id, { status: approval.status === "approved" ? post.status : "awaiting_approval", approvalId: approval.id }, { actor });
