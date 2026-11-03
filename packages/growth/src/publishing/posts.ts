@@ -1,6 +1,6 @@
 import { Channel, HttpUrl, Id, IsoDateTime, APP_LINK_TOKEN, fillAppLink, type Approval, type ConnectedAccount, type CopyPack, type MediaAsset, type PostFactCheck, type Publication, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso, type WorkspaceDb } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, trackedLinkUrl, type Platform } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, notifyPostsReady, trackedLinkUrl, type Platform } from "@muselaunch/platform";
 import { MANUAL_ONLY_CHANNELS, providerAdapter, publishingAdapterForChannel } from "@muselaunch/providers";
 import { z } from "zod";
 import { assertApproved, consumeApproval, expireApprovals, postSnapshot, requestApproval } from "../approvals";
@@ -329,7 +329,12 @@ export async function usePostCopyPack(p: Platform, wid: string, id: string, pack
   return { post: next, approvalReset };
 }
 
-export async function requestPostApproval(p: Platform, wid: string, id: string, actor: string): Promise<{ post: ScheduledPost; approval: Approval; preflight: Preflight }> {
+/**
+ * Ask for a post's publish approval. A new request also tells the people who can schedule it on
+ * their linked phones ("2 posts are ready to review", at most once per app per hour); callers that
+ * draft several posts in a row pass `notify: false` and call notifyPostsReady once at the end.
+ */
+export async function requestPostApproval(p: Platform, wid: string, id: string, actor: string, opts: { notify?: boolean } = {}): Promise<{ post: ScheduledPost; approval: Approval; preflight: Preflight }> {
   const ws = p.db.ws(wid);
   const post = await loadPost(ws, id);
   if (!["draft", "awaiting_approval", "failed", "manual_post_needed", "scheduled"].includes(post.status)) throw new AppError("CONFLICT", `Post is ${post.status}`);
@@ -347,6 +352,7 @@ export async function requestPostApproval(p: Platform, wid: string, id: string, 
     actor,
   });
   const updated = await ws.collection("scheduledPosts").update(post.id, { status: approval.status === "approved" ? post.status : "awaiting_approval", approvalId: approval.id }, { actor });
+  if (opts.notify !== false && approval.status === "pending" && post.approvalId !== approval.id) await notifyPostsReady(p, wid, post.appId);
   return { post: updated, approval, preflight: pf };
 }
 

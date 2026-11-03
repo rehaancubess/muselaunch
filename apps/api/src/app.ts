@@ -4,7 +4,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppEnv } from "./context";
-import { accessLog, authenticate, errorResponse, rateLimit, requestId, workspaceScope } from "./middleware";
+import { accessLog, authenticate, errorResponse, rateLimit, requestId, webSessionOnly, workspaceScope } from "./middleware";
+import { deviceRoutes, publicDeviceRoutes } from "./routes/devices";
 import { analyticsRoutes } from "./routes/analytics";
 import { appDnaRoutes } from "./routes/app-dna";
 import { appRoutes } from "./routes/apps";
@@ -65,12 +66,18 @@ export function buildApp(platform: Platform) {
   app.route("/v1/storage/local", localStorageRoutes);
   app.route("/v1/oauth", oauthRoutes);
   app.route("/r", publicLinkRoutes);
+  // The phone app redeems a link code here (it has no token yet; rate-limited per address).
+  app.route("/v1/device-links", publicDeviceRoutes);
 
-  // Authenticated API.
+  // Authenticated API (a Firebase session, or a linked phone's `mld_` token).
   const v1 = new Hono<AppEnv>();
   v1.use("*", authenticate);
   v1.use("*", rateLimit({ perMinute: 240 }));
+  // A linked phone can't accept invites or open the operator console (and can't make phone links).
+  v1.use("/invites/*", webSessionOnly);
+  v1.use("/admin/*", webSessionOnly);
   v1.route("/", meRoutes);
+  v1.route("/", deviceRoutes);
   v1.route("/", statusRoutes);
   // Operator console (ADMIN_UIDS only; the routes check it themselves).
   v1.route("/admin", adminRoutes);

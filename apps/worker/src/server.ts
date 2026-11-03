@@ -7,7 +7,7 @@ loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), qui
 const { serve } = await import("@hono/node-server");
 const { Hono } = await import("hono");
 const { JOB_POOLS, TaskEnvelope } = await import("@muselaunch/contracts");
-const { createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
+const { checkPushReceipts, createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
 const { handlers } = await import("./registry");
 const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
@@ -65,7 +65,8 @@ const CRONS: Record<string, () => Promise<unknown>> = {
   "autopilot-wake": () => wakeDueAutopilots(platform),
   // Always on (hourly): weekly research sweep + Needs-you suggestions, pace clamp after a downgrade,
   // waking loops whose week of posts ran low, and the opt-in weekly email.
-  "always-on": () => runAlwaysOn(platform),
+  // Also: push receipts from Expo (removes the tokens of uninstalled phone apps).
+  "always-on": async () => ({ ...(await runAlwaysOn(platform)), push: await checkPushReceipts(platform) }),
 };
 
 app.post("/tasks/cron/:name", async (c) => {

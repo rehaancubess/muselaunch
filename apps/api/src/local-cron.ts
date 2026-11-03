@@ -1,6 +1,6 @@
 import { runAlwaysOn, wakeDueAutopilots } from "@muselaunch/autopilot";
 import { runDueScheduledPosts } from "@muselaunch/growth";
-import type { Platform } from "@muselaunch/platform";
+import { checkPushReceipts, type Platform } from "@muselaunch/platform";
 
 /**
  * The worker's crons, for single-process modes. Same names and functions as apps/worker
@@ -11,7 +11,8 @@ export function localCrons(p: Platform): Record<string, () => Promise<unknown>> 
     "publish-due": () => runDueScheduledPosts(p),
     "autopilot-wake": () => wakeDueAutopilots(p),
     // Always on: weekly research sweep + suggestions, pace clamp, waking loops whose queue ran low, weekly email.
-    "always-on": () => runAlwaysOn(p),
+    // Also: push receipts from Expo (removes the tokens of uninstalled phone apps).
+    "always-on": async () => ({ ...(await runAlwaysOn(p)), push: await checkPushReceipts(p) }),
   };
 }
 

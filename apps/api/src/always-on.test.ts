@@ -148,7 +148,8 @@ describe("Always on cron wiring", () => {
 
   it("the worker serves it at /tasks/cron/always-on, and deploy schedules it in Cloud Scheduler", () => {
     const worker = read("../../worker/src/server.ts");
-    expect(worker).toMatch(/"always-on": \(\) => runAlwaysOn\(platform\)/);
+    // (Also runs the push-receipt check for the phone app: see platform/push.ts checkPushReceipts.)
+    expect(worker).toMatch(/"always-on": async \(\) => \(\{ \.\.\.\(await runAlwaysOn\(platform\)\), push: await checkPushReceipts\(platform\) \}\)/);
     expect(worker).toMatch(/runAlwaysOn, wakeDueAutopilots \} = await import\("@muselaunch\/autopilot"\)/);
     const deploy = read("../../../scripts/deploy.ts");
     expect(deploy).toMatch(/\["publish-due", "\* \* \* \* \*"\],\s*\["autopilot-wake", "\*\/5 \* \* \* \*"\],\s*\["always-on", "17 \* \* \* \*"\],/);

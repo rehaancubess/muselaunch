@@ -429,7 +429,8 @@ describe("security inventory: every route, every role", () => {
   });
 
   it("rejects unauthenticated calls on every /v1 route except the public, self-validating ones", async () => {
-    const PUBLIC = ["/v1/storage/local/", "/v1/oauth/"];
+    // /v1/device-links/redeem: the phone has no token yet; it validates its own single-use code (devices.test.ts).
+    const PUBLIC = ["/v1/storage/local/", "/v1/oauth/", "/v1/device-links/"];
     for (const r of routes().filter((x) => x.path.startsWith("/v1/") && !PUBLIC.some((pfx) => x.path.startsWith(pfx)))) {
       const url = r.path.startsWith(WS_PREFIX) ? fill(r.path, wsA) : r.path.replace(/:[A-Za-z]+/g, "x");
       const res = await anon.send(r.method, url);

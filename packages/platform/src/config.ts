@@ -37,6 +37,8 @@ export const ConfigSchema = z.object({
   AUTH_MODE: z.enum(["firebase", "dev"]).default("firebase"),
   /** Accept `Bearer dev:<uid>:<email>` tokens. Never honoured when NODE_ENV=production. */
   AUTH_DEV_TOKENS: bool.default(false),
+  /** Optional: Expo access token for push notifications to the phone app (only needed with Expo's enhanced push security). */
+  EXPO_ACCESS_TOKEN: z.string().optional(),
 
   // Jobs
   JOB_DISPATCH: z.enum(["inline", "http", "cloudtasks"]).default("http"),

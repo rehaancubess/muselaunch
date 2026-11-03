@@ -17,7 +17,7 @@
 import { ALWAYS_ON_PACES, can, type AlwaysOnPostLine, type AlwaysOnStatus, type AlwaysOnWeeklySummary, type App, type AppAlwaysOn, type Approval, type Autopilot, type ResearchRun, type SourceRef, type UpdateAlwaysOnRequest, type Workspace, type WorkspaceMember } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import { connectedAccountFor, freshTokens, growthDeps } from "@muselaunch/growth";
-import { AppError, toAppError, type Platform } from "@muselaunch/platform";
+import { AppError, notifyWeeklySummary, toAppError, workspaceHasPhones, type Platform } from "@muselaunch/platform";
 import { HttpClient, providerAdapter } from "@muselaunch/providers";
 import { z } from "zod";
 import {
@@ -78,6 +78,8 @@ const State = z.object({
   sweepNote: z.string().max(300).optional(),
   suggested: z.array(z.object({ subjectId: z.string(), approvalId: z.string(), at: z.string() })).max(100).default([]),
   email: z.object({ lastSentAt: z.string().optional(), messageId: z.string().optional(), lastError: z.string().max(300).optional(), lastAttemptAt: z.string().optional() }).default({}),
+  /** The weekly summary push to linked phones (independent of the email). */
+  push: z.object({ lastSentAt: z.string().optional() }).default({}),
   notes: z.array(z.object({ at: z.string(), text: z.string().max(300) })).max(10).default([]),
 });
 type State = z.infer<typeof State>;
@@ -573,6 +575,22 @@ async function emailStep(p: Platform, workspace: Workspace, app: App, st: State,
   }
 }
 
+/**
+ * The weekly summary on the team's linked phones (→ Results in the phone app), once a week while
+ * Always on is on: the summary's own counts, nothing else. Only marked sent when a phone got it, so
+ * the first one goes out soon after someone links a phone.
+ */
+async function pushStep(p: Platform, workspace: Workspace, app: App, st: State, now: number): Promise<boolean> {
+  const since = st.push.lastSentAt ?? st.enabledAt ?? app.alwaysOn?.updatedAt;
+  if (!since || now - Date.parse(since) < WEEK_MS) return false;
+  if (!(await workspaceHasPhones(p, workspace.id))) return false;
+  const s = await weeklySummary(p, workspace.id, app, now);
+  const res = await notifyWeeklySummary(p, workspace.id, app.id, { posted: s.posted.length, queued: s.queued.length, needsYou: s.needsYou, findings: s.research.findings });
+  if (!res?.sent) return false;
+  st.push = { lastSentAt: iso(now) };
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // The cron
 // ---------------------------------------------------------------------------
@@ -660,6 +678,8 @@ async function tickApp(p: Platform, workspace: Workspace, appIn: App, out: Alway
   if (loop && (await wakeIfNeeded(p, workspace.id, app, loop))) out.woken++;
   // 6. The weekly email (only when turned on and Gmail is connected).
   if ((await emailStep(p, workspace, app, st, now)) === "sent") out.emails++;
+  // 7. The same week on linked phones (a push that opens Results).
+  await pushStep(p, workspace, app, st, now);
   await saveState(ws, app.id, st);
 }
 

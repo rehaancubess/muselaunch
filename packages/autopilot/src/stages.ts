@@ -4,7 +4,7 @@ import { collectAssetRefs, lintDoc, totalDuration } from "@muselaunch/compositio
 import { getVersion } from "@muselaunch/compositions/store";
 import { MetricName, type BrandFinding, type BrandReview, type CampaignGoal, type Channel, type Composition, type CompositionDoc, type EntityRef, type Job, type ResearchFinding, type SourceRef } from "@muselaunch/contracts";
 import { createPost, requestPostApproval, suggestTimes } from "@muselaunch/growth";
-import { AppError, toAppError } from "@muselaunch/platform";
+import { AppError, notifyPostsReady, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { ALWAYS_ON_NEXT_INSTRUCTIONS, alwaysOnFocusLine, alwaysOnMeasure, alwaysOnNextRound, alwaysOnResearch, alwaysOnTimes, NEXT_ROUND_TAG } from "./always-on-loop";
@@ -820,7 +820,7 @@ const schedule: StageFn = async (env, step) => {
       try {
         // Same Brand Guardian gate as the approval route (never overridden by the loop).
         await brandGate(env.p, env.ctx.workspaceId, { subject: { entity: "scheduledPosts", id: post.id }, actor: env.ctx.requestedBy, canOverride: false, action: "request_approval" });
-        const { approval } = await requestPostApproval(env.p, env.ctx.workspaceId, post.id, env.ctx.actor);
+        const { approval } = await requestPostApproval(env.p, env.ctx.workspaceId, post.id, env.ctx.actor, { notify: false });
         refs.push(ref("approvals", approval.id));
       } catch (raw) {
         env.note("observation", `Post for “${c.title}” saved as a draft; approval can't be requested yet: ${toAppError(raw).opts.userMessage ?? toAppError(raw).message}`, [ref("scheduledPosts", post.id)]);
@@ -830,6 +830,8 @@ const schedule: StageFn = async (env, step) => {
     }
   }
   env.set({ scheduledPostIds: [...new Set([...env.ap.scheduledPostIds, ...postIds])] });
+  // One push for the whole batch ("2 posts are ready to review") to the linked phones of who can schedule them.
+  if (postIds.length) await notifyPostsReady(env.p, env.ctx.workspaceId, env.appId);
   const exp = env.ap.hypothesis?.experimentId ? await env.ws.collection("experiments").get(env.ap.hypothesis.experimentId) : null;
   const starts = times.items.slice(0, comps.length).map((t) => Date.parse(t.at));
   const start = starts.length ? Math.min(...starts) : nowMs(env.p);

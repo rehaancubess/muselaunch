@@ -1,6 +1,6 @@
 import { fillAppLink, type ScheduledPost } from "@muselaunch/contracts";
 import { nowIso } from "@muselaunch/db";
-import { AppError, assertKeyInWorkspace, toAppError, trackedLinkUrl, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
+import { AppError, assertKeyInWorkspace, notifyPostLive, toAppError, trackedLinkUrl, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { HttpClient, publishingAdapterForChannel, type PublishMedia } from "@muselaunch/providers";
 import { assertApproved, consumeApproval, postSnapshot } from "../approvals";
 import { freshTokens } from "../connections";
@@ -203,5 +203,7 @@ export async function publishPostHandler(ctx: JobContext<"publish.post">): Promi
   if (Object.values(visibleState).includes(SEALED_STATE_VALUE)) await p.secrets.delete(ctx.workspaceId, publishStateSecretId(post.id)).catch(() => {});
   await consumeApproval(ws, approval.id, ctx.actor, `Published ${adapter!.label} ${result.remoteId}`);
   await ctx.log_event(`Published to ${adapter!.label}: ${result.remoteUrl ?? result.remoteId}`, { entity: "publications", id: publication.id });
+  // "Your post is live on YouTube" on the team's linked phones (never fails the publish).
+  await notifyPostLive(p, ctx.workspaceId, { appId: post.appId, channel: post.channel, title: post.title });
   return { refs: [ref, { entity: "publications", id: publication.id }], data: { remoteId: result.remoteId, remoteUrl: result.remoteUrl, effectiveVisibility: result.effectiveVisibility } };
 }
