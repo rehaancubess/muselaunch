@@ -33,9 +33,6 @@ export function slideAssetIds(firstAssetId: string, slides: number): string[] {
   return Array.from({ length: Math.max(1, slides) }, (_, i) => (i === 0 ? firstAssetId : `${firstAssetId}_${i + 1}`));
 }
 
-/** Credits the final render of stills holds (one per started 4 slides; the render route's formula). */
-export const stillRenderCredits = (slides: number) => Math.max(1, Math.ceil(slides / 4));
-
 export interface StillChip {
   key: string;
   label: string;

@@ -383,38 +383,31 @@ export function campaignRequest(input: GenerateInput) {
 export interface EstimateStep {
   key: string;
   label: string;
+  /** POST /estimate prices `operation` + `params` exactly as the job reserves it. */
   operation: string;
   params: Record<string, unknown>;
-  /**
-   * What the job holds when the server reserves a fixed amount instead of pricing `operation` +
-   * `params` (the final render of stills: one credit per started 4 slides, the same formula as
-   * POST /compositions/:id/render and the Create runner). The page shows this amount as is; when
-   * POST /estimate can price the step itself, drop `amount` and the page asks the server.
-   */
-  amount?: number;
 }
 
-/** Credits the final render of stills holds (apps/api compositions render route, packages/render saveStills). */
-export const stillFinalCredits = (slides: number) => Math.max(1, Math.ceil(slides / 4));
-
 /**
- * The estimates "Generate …" adds up (POST /estimate per step, the operations the jobs reserve):
+ * The estimates "Generate …" adds up (POST /estimate per step, the operations and params the jobs reserve):
  *  - video: the idea, the plan (by length), the editable video, AI voice when on, the final render (by length);
- *  - stills: the idea, the plan (by slides), the editable slides, the final images (by slides);
- *  - text post: the idea, then Muse writes the post (copy.generate, checked against the app's facts).
+ *  - post / thumbnail: the idea, the plan ({ format }), the editable image, the final image ({ slides: 1 });
+ *  - carousel / store set: the idea, the plan ({ format, slides[, store] }), the editable slides, the final images ({ slides });
+ *  - text post: the idea, then Muse writes the post (copy.generate, checked against the app's facts). No render.
  */
 export function estimateSteps(lengthSec: number, opts: { aiVoice?: boolean; make?: MakeFormat; slides?: number; store?: StoreTarget | null } = {}): EstimateStep[] {
   const make = opts.make ?? "video";
   const idea: EstimateStep = { key: "idea", label: "Writing the idea (Muse Spark)", operation: "campaign.generate_concepts", params: {} };
   if (make === "text_post") return [idea, { key: "write", label: "Writing the post and checking its facts (Muse Spark)", operation: "copy.generate", params: {} }];
   if (make !== "video") {
-    const slides = clampSlides(make, opts.slides, opts.store);
     const many = isSlideSet(make);
+    const slides = clampSlides(make, opts.slides, opts.store);
+    const plan = many ? { format: make, slides, ...(make === "store_screenshots" ? { store: opts.store ?? "ios" } : {}) } : { format: make };
     return [
       idea,
-      { key: "plan", label: many ? `Planning ${slides} slides (Muse Spark)` : "Planning the image (Muse Spark)", operation: "storyboard.generate", params: { format: make, slides, ...(make === "store_screenshots" ? { store: opts.store ?? "ios" } : {}) } },
+      { key: "plan", label: many ? `Planning ${slides} slides (Muse Spark)` : "Planning the image (Muse Spark)", operation: "storyboard.generate", params: plan },
       { key: "make", label: many ? "Making the editable slides" : "Making the editable image", operation: "composition.build", params: {} },
-      { key: "finish", label: many ? `Final images (${slides} slides)` : "Final image", operation: "render.final", params: { format: make, slides }, amount: stillFinalCredits(slides) },
+      { key: "finish", label: many ? `Final images (${slides} slides)` : "Final image", operation: "render.final", params: { slides } },
     ];
   }
   return [

@@ -16,7 +16,6 @@ import {
   slideOptions,
   stageLabel,
   stepsFor,
-  stillFinalCredits,
   stillsBadge,
   textCount,
   clampLength,
@@ -194,22 +193,32 @@ describe("Create: format, length and the request", () => {
     expect(screensHint(0, 6)).toMatch(/no real screenshots/);
   });
 
-  it("estimates stills by slides and text posts by the writing (the operations their jobs reserve)", () => {
+  it("estimates stills by slides and text posts by the writing (the operations and params the server prices)", () => {
     const car = estimateSteps(20, { make: "carousel", slides: 6, aiVoice: true });
-    expect(car.map((s) => [s.operation, s.params, s.amount])).toEqual([
-      ["campaign.generate_concepts", {}, undefined],
-      ["storyboard.generate", { format: "carousel", slides: 6 }, undefined],
-      ["composition.build", {}, undefined],
-      // Still finals hold one credit per started 4 slides (the server's render route and runner).
-      ["render.final", { format: "carousel", slides: 6 }, 2],
+    expect(car.map((s) => [s.operation, s.params])).toEqual([
+      ["campaign.generate_concepts", {}],
+      ["storyboard.generate", { format: "carousel", slides: 6 }],
+      ["composition.build", {}],
+      ["render.final", { slides: 6 }],
     ]);
     expect(car.map((s) => s.label)).toEqual(["Writing the idea (Muse Spark)", "Planning 6 slides (Muse Spark)", "Making the editable slides", "Final images (6 slides)"]);
-    expect(estimateSteps(20, { make: "store_screenshots", slides: 10, store: "android" })[1]!.params).toEqual({ format: "store_screenshots", slides: 8, store: "android" });
-    expect(estimateSteps(20, { make: "store_screenshots", slides: 10 }).at(-1)!.amount).toBe(3);
+    // Store sets: the store travels with the plan; Google Play holds at most 8.
+    expect(estimateSteps(20, { make: "store_screenshots", slides: 10, store: "android" }).map((s) => s.params)).toEqual([{}, { format: "store_screenshots", slides: 8, store: "android" }, {}, { slides: 8 }]);
+    expect(estimateSteps(20, { make: "store_screenshots", slides: 10 }).map((s) => s.params)).toEqual([{}, { format: "store_screenshots", slides: 10, store: "ios" }, {}, { slides: 10 }]);
+    // One image: the plan by format, the final image as one slide.
+    expect(estimateSteps(20, { make: "post" }).map((s) => [s.operation, s.params])).toEqual([
+      ["campaign.generate_concepts", {}],
+      ["storyboard.generate", { format: "post" }],
+      ["composition.build", {}],
+      ["render.final", { slides: 1 }],
+    ]);
     expect(estimateSteps(20, { make: "post" }).map((s) => s.label)).toEqual(["Writing the idea (Muse Spark)", "Planning the image (Muse Spark)", "Making the editable image", "Final image"]);
-    expect(estimateSteps(20, { make: "thumbnail" }).at(-1)!.amount).toBe(1);
-    expect(estimateSteps(20, { make: "text_post", aiVoice: true }).map((s) => s.operation)).toEqual(["campaign.generate_concepts", "copy.generate"]);
-    expect([1, 4, 5, 8, 10].map(stillFinalCredits)).toEqual([1, 1, 2, 2, 3]);
+    expect(estimateSteps(20, { make: "thumbnail" })[1]!.params).toEqual({ format: "thumbnail" });
+    // Text post: no render.
+    expect(estimateSteps(20, { make: "text_post", aiVoice: true }).map((s) => [s.operation, s.params])).toEqual([
+      ["campaign.generate_concepts", {}],
+      ["copy.generate", {}],
+    ]);
   });
 
   it("only generates from real footage of the app", () => {

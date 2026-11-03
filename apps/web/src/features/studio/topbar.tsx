@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   CostEstimate,
-  CostEstimateView,
   Dialog,
   IconButton,
   Input,
@@ -32,7 +31,7 @@ import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { HooksDialog } from "./hooks-dialog";
-import { stillNoun, stillRenderCredits } from "./stills";
+import { stillNoun } from "./stills";
 import { useVersions } from "./use-studio";
 import type { Composition, CompositionResponse, LintIssue, RenderResponse } from "./types";
 
@@ -71,8 +70,6 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
   const isVideo = data.version.doc.kind === "video";
   const slides = data.version.doc.scenes.length;
   const last = data.lastRender;
-  // Stills: the final render holds one credit per started 4 slides (the render route's price), shown as is.
-  const balance = useApiQuery<{ balance: { available: number } }>(open && !isVideo ? wsPath(workspaceId, "/billing/credits") : null, { staleTime: 30_000, retry: false });
   const start = async (overrideReason?: string) => {
     setSubmitting(true);
     setError(null);
@@ -143,10 +140,11 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
               {quality === "preview" ? (isVideo ? "Half-resolution MP4 for checking motion and timing." : "Half-resolution images for a quick look.") : isVideo ? "Full-quality H.264 MP4 rendered with HyperFrames, ready to publish." : `One PNG per slide at ${data.version.doc.width}×${data.version.doc.height}, rendered with HyperFrames.`}
             </p>
             {quality === "final" && !isVideo ? (
-              <CostEstimateView
-                estimate={balance.data ? { credits: stillRenderCredits(slides), breakdown: [{ label: `Final images (${slides})`, credits: stillRenderCredits(slides) }], available: balance.data.balance.available } : null}
-                loading={balance.isLoading}
-                note="1 credit per 4 slides. Unused credits return if the render fails or is cancelled; making an unchanged version again is free."
+              <CostEstimate
+                operation="render.final"
+                params={{ slides }}
+                fetchEstimate={(req) => api.post<EstimateResponse>(wsPath(workspaceId, "/estimate"), req)}
+                note="Charged per started 4 slides. Unused credits return if the render fails or is cancelled; making an unchanged version again is free."
               />
             ) : quality === "final" ? (
               <CostEstimate

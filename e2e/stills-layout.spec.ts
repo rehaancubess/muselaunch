@@ -154,6 +154,9 @@ test("stills layout (fixture mode, intercepted results)", async ({ page, browser
     await m.waitForTimeout(1200);
     // Phone width: no horizontal page scroll.
     expect(await m.evaluate(() => document.documentElement.scrollWidth), `${name}: no horizontal scroll`).toBeLessThanOrEqual(390);
+    // A result opened by link: the page scrolls to the run's panel by itself.
+    if (name.startsWith("result-")) await expect.poll(() => m.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+    await m.waitForTimeout(600);
     await m.screenshot({ path: `${OUT}/${name}.png` });
     if (name.startsWith("result-carousel")) {
       await m.screenshot({ path: `${OUT}/${name}-full.png`, fullPage: true });

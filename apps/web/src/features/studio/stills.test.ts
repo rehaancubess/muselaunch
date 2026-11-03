@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStillDoc, slideAssetIds, stillChips, stillNoun, stillRenderCredits, unitWord, wholeLabel } from "./stills";
+import { isStillDoc, slideAssetIds, stillChips, stillNoun, unitWord, wholeLabel } from "./stills";
 
 const text = (id: string, t: string) => ({ id, type: "text", role: "headline", text: t, hidden: false }) as never;
 const device = (id: string) => ({ id, type: "device", hidden: false }) as never;
@@ -25,7 +25,6 @@ describe("Studio for stills", () => {
   it("finds every slide of a still render by the render worker's ids", () => {
     expect(slideAssetIds("ast_r_abc", 3)).toEqual(["ast_r_abc", "ast_r_abc_2", "ast_r_abc_3"]);
     expect(slideAssetIds("ast_r_abc", 0)).toEqual(["ast_r_abc"]);
-    expect([1, 4, 6, 10].map(stillRenderCredits)).toEqual([1, 1, 2, 3]);
   });
 
   it("suggests still edits: shorter headline, another real screen, darker background, a slide about a feature", () => {

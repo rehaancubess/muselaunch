@@ -141,17 +141,15 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
   // ---- the real estimate (the operations the jobs reserve)
   const aiVoice = workspace?.settings.sound?.aiVoiceover !== false;
   const steps = estimateSteps(lengthSec, { aiVoice, make, slides: slideCount, store });
-  // A step the server reserves at a fixed amount (the still final render) shows that amount; the rest ask POST /estimate.
   const estimates = useQueries({
     queries: steps.map((s) => ({
       queryKey: ["estimate", workspaceId, s.operation, s.params],
       queryFn: () => fetchEstimate(workspaceId, { operation: s.operation, params: s.params }),
       staleTime: 60_000,
       retry: false,
-      enabled: s.amount === undefined,
     })),
   });
-  const lines = steps.flatMap((s, i) => (s.amount !== undefined ? [{ label: s.label, credits: s.amount }] : estimates[i]?.data ? [{ label: s.label, credits: estimates[i]!.data!.credits }] : []));
+  const lines = steps.flatMap((s, i) => (estimates[i]?.data ? [{ label: s.label, credits: estimates[i]!.data!.credits }] : []));
   const total = lines.length === steps.length ? sumCredits(lines) : null;
   const available = estimates.find((e) => e.data)?.data?.available ?? credits?.available ?? null;
   const short = total !== null && available !== null && total > available;
@@ -178,6 +176,13 @@ export function CreatePage({ prefill }: { prefill: CreatePrefill }) {
   useEffect(() => {
     if (focus && focusId !== focus.campaignId && focusId !== "none" && !runs.runs.some((x) => x.campaignId === focusId)) setFocusId(focus.campaignId);
   }, [focusId, focus, runs.runs]);
+  // Opened by link (?run=, e.g. Needs you → Open it): bring that run into view once it's loaded.
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (!prefill.runId || focus?.campaignId !== prefill.runId || scrolledTo.current === prefill.runId) return;
+    scrolledTo.current = prefill.runId;
+    requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [prefill.runId, focus?.campaignId]);
   const focusVideo = focus?.compositionId ? videos.find((v) => v.compositionId === focus.compositionId) : undefined;
   const focusStills = focus?.compositionId ? stills.find((v) => v.compositionId === focus.compositionId) : undefined;
   const runsById = useMemo(() => new Map(runs.runs.map((x) => [x.campaignId, x])), [runs.runs]);

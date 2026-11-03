@@ -348,7 +348,7 @@ function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stil
       ) : null}
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {canWrite && !store ? (
-          <Button size="lg" className="col-span-2 sm:col-span-1" icon={<CalendarClock className="size-4" aria-hidden />} onClick={onSchedule}>
+          <Button size="lg" className="col-span-2 sm:col-span-1" icon={<CalendarClock className="size-4 shrink-0" aria-hidden />} onClick={onSchedule}>
             Schedule post
           </Button>
         ) : null}
@@ -356,7 +356,7 @@ function StillsResult({ stills, make, studioHref, canWrite, onSchedule }: { stil
           size="lg"
           variant={store || !canWrite ? "primary" : "outline"}
           className={cn(store && "col-span-2 sm:col-span-1")}
-          icon={<Download className="size-4" aria-hidden />}
+          icon={<Download className="size-4 shrink-0" aria-hidden />}
           loading={busy}
           onClick={async () => {
             setBusy(true);
@@ -393,14 +393,14 @@ function TextResult({ text, canWrite, onSchedule }: { text: CreateRunText; canWr
       {!text.ok ? <p className="text-footnote text-ink-2 text-pretty">The fact check found something to look at. When you schedule it, the post shows what and offers one-tap fixes.</p> : null}
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {canWrite ? (
-          <Button size="lg" icon={<CalendarClock className="size-4" aria-hidden />} onClick={onSchedule}>
+          <Button size="lg" icon={<CalendarClock className="size-4 shrink-0" aria-hidden />} onClick={onSchedule}>
             Schedule post
           </Button>
         ) : null}
         <Button
           size="lg"
           variant="outline"
-          icon={<Copy className="size-4" aria-hidden />}
+          icon={<Copy className="size-4 shrink-0" aria-hidden />}
           onClick={() =>
             void navigator.clipboard?.writeText(text.text).then(
               () => toast.success("Post copied"),
