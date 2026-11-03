@@ -112,6 +112,15 @@ export function httpError(provider: string, op: string, status: number, text: st
 /** Seconds→ms expiry helper. */
 export const expiresIn = (sec: unknown, now = Date.now()): number | undefined => (typeof sec === "number" && sec > 0 ? now + sec * 1000 : typeof sec === "string" && Number(sec) > 0 ? now + Number(sec) * 1000 : undefined);
 
+/**
+ * The provider answered with a definite refusal (4xx other than 408/429): the request was not
+ * carried out, so a "started" marker for that step can be cleared safely.
+ */
+export function definitelyRefused(err: unknown): boolean {
+  const status = (err as AppError | undefined)?.opts?.details && ((err as AppError).opts.details as { status?: number }).status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 /** A publish step completed remotely but we cannot prove its result: never retry blindly (duplicate post risk). */
 export function uncertainOutcome(provider: string, step: string): AppError {
   return new AppError("PROVIDER_ERROR", `${provider}: a previous attempt reached "${step}" but its result was not recorded`, {

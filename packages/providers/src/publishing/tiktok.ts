@@ -49,6 +49,7 @@ function ttTokens(j: Record<string, any>): OAuthTokens {
 }
 
 async function ttPublish(req: PublishRequest, ctx: PublishContext): Promise<PublishResult> {
+  if (req.items?.length || req.media?.kind === "image") throw new AppError("VALIDATION_FAILED", "TikTok photo posts aren't published through the API here", { userMessage: "TikTok photo posts through the API need a web address verified with TikTok, which MuseLaunch doesn't have yet. Post the slides in the TikTok app." });
   if (!req.media || req.media.kind !== "video") throw new AppError("VALIDATION_FAILED", "TikTok publishing needs a rendered video");
   const { http, tokens, settings } = ctx;
   const headers = { "content-type": "application/json; charset=UTF-8" };
@@ -154,7 +155,22 @@ export const tiktokAdapter: ProviderAdapter = {
       "TikTok developer app with Login Kit + Content Posting API (Direct Post) and the video.publish scope approved. Until the client passes TikTok's audit, posts are restricted to private (SELF_ONLY) and only to private accounts; set TIKTOK_AUDITED=true after the audit. TikTok's UX guidelines require showing the creator's nickname, privacy choice and consent before posting.",
     docsUrl: "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
   },
-  accepts: { video: true, image: false, textOnly: false },
+  accepts: {
+    video: true,
+    image: false,
+    textOnly: false,
+    // Photo posts (media_type PHOTO) only pull images from a URL prefix verified with TikTok;
+    // MuseLaunch's signed storage URLs aren't, so photos and carousels are posted in the TikTok app.
+    carousel: null,
+    imageMimeTypes: [],
+    thumbnail: false,
+    manualReason: {
+      text: "TikTok posts need a video.",
+      image: "TikTok photo posts through the API need a web address verified with TikTok, which MuseLaunch doesn't have yet. Post the image in the TikTok app.",
+      carousel: "TikTok photo posts through the API need a web address verified with TikTok, which MuseLaunch doesn't have yet. Post the slides in the TikTok app.",
+      mixed: "TikTok posts through the API are one video. Post the slides in the TikTok app.",
+    },
+  },
   oauth: {
     pkce: false,
     scopes: TT_SCOPES,

@@ -1,0 +1,37 @@
+{
+  "_fixture": "Documented Facebook Pages API shapes (feed, photos); synthetic values",
+  "_source": [
+    "https://developers.facebook.com/docs/pages-api/posts",
+    "https://developers.facebook.com/docs/graph-api/reference/page/photos (published=false + attached_media, fetched 3 Nov 2026)"
+  ],
+  "unpublishedPhotos": [
+    {
+      "id": "1002088839996"
+    },
+    {
+      "id": "1002088840149"
+    },
+    {
+      "id": "1002088840150"
+    }
+  ],
+  "feedPost": {
+    "id": "100000000000001_200000000000001"
+  },
+  "photoPost": {
+    "id": "1002088839000",
+    "post_id": "100000000000001_200000000000002"
+  },
+  "permalink": {
+    "permalink_url": "https://www.facebook.com/100000000000001/posts/FIXTUREpfbid01",
+    "id": "100000000000001_200000000000001"
+  },
+  "duplicateError": {
+    "error": {
+      "message": "(#506) Duplicate status message",
+      "type": "OAuthException",
+      "code": 506,
+      "fbtrace_id": "FIXTUREtrace"
+    }
+  }
+}
