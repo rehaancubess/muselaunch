@@ -933,6 +933,16 @@ function blockHtml(ctx: Ctx, layer: Extract<Layer, { type: "block" }>, w: number
       if (!ctx.still) ctx.tl.push(`tl.fromTo(q("${id}-fill"), {scaleX:0}, {scaleX:1, duration:${n(win.end - win.start)}, ease:"none"}, ${n(win.start)});`);
       return `<div class="media" style="border-radius:${px(h / 2)};background:${withAlpha(c.length === 7 ? c : "#000000", 0.18)};overflow:hidden"><div id="${id}-fill" style="position:absolute;inset:0;background:${c};transform-origin:0 50%"></div></div>`;
     }
+    case "page-dots": {
+      const p = BLOCK_PARAMS["page-dots"].parse(layer.params);
+      const on = themeColor(th, p.color, th.accent);
+      const off = themeColor(th, p.inactive, withAlpha(th.text.slice(0, 7), 0.2));
+      const d = Math.min(h * 0.62, w / Math.max(1, p.count * 2.2 + 2));
+      const dots = Array.from({ length: p.count }, (_, i) =>
+        `<span style="display:block;flex:none;height:${px(d)};width:${px(i + 1 === p.active ? d * 2.6 : d)};border-radius:${px(d / 2)};background:${i + 1 === p.active ? on : off}"></span>`,
+      ).join("");
+      return `<div class="media" style="display:flex;align-items:center;justify-content:${p.align === "center" ? "center" : "flex-start"};gap:${px(d * 0.9)}">${dots}</div>`;
+    }
     case "callout-chip": {
       const p = BLOCK_PARAMS["callout-chip"].parse(layer.params);
       const c = themeColor(th, p.color, th.accent);
