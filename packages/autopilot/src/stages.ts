@@ -1,4 +1,4 @@
-import { applyFinding, brandGate, truncateWords, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
+import { applyFinding, brandGate, truncateWords, dnaSummary, ingestMemory, isTerminalReview, loadAppContext, productAssets, requestBrandReview, retrieveMemory, reviewsFor, validateClaims } from "@muselaunch/agents";
 import { createTrackedLink, gatherExperimentData } from "@muselaunch/analytics";
 import { collectAssetRefs, lintDoc, totalDuration } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
@@ -8,6 +8,7 @@ import { AppError, toAppError } from "@muselaunch/platform";
 import { chooseTextModel, roleNames, untrusted, type TextRoute } from "@muselaunch/providers";
 import { z } from "zod";
 import { decide } from "./decide";
+import { directionMenu, directionProblem, directionSchema, directionSummary, directorName, hasPresenterFootage, signatureShotOptions, toCreativeDirection } from "./direction";
 import { defaultGoal, dnaJobsInFlight } from "./defaults";
 import { fail, hashId, isTerminalJob, nowMs, type LoopEnv, type Outcome, type Stage } from "./state";
 import { isWatchTag, watchRenders, watchStep } from "./watch";
@@ -330,25 +331,32 @@ const planCreative: StageFn = async (env, step) => {
   const want = Math.min(n, variants.length);
   const keys = Array.from({ length: want }, (_, i) => `v${i + 1}`);
   const byId = new Map(variants.map((v) => [v.id, v]));
+  // Wonder also directs each picked video (direction.ts): look, pace, signature shots and score.
+  const app = await loadAppContext(env.ws, env.appId);
+  const hasPresenter = hasPresenterFootage(await productAssets(env.ws, env.appId));
+  const shots = signatureShotOptions(hasPresenter);
   const Schema = z.object({
-    picks: z.array(z.object({ variantId: z.string(), experimentKey: z.string() })).min(1).max(3),
+    picks: z.array(z.object({ variantId: z.string(), experimentKey: z.string(), direction: directionSchema(shots) })).min(1).max(3),
     rationale: z.string().min(1).max(2000),
   });
   const exp = env.ap.hypothesis?.experimentId ? await env.ws.collection("experiments").get(env.ap.hypothesis.experimentId) : null;
-  const { args, runId } = await decide(env, {
+  const { args, runId, model } = await decide(env, {
     name: "pick_variants",
-    title: `Pick ${want} concept(s) that test the hypothesis`,
-    instructions: `Pick exactly ${want} concept(s) with DIFFERENT angle types so the variants test the hypothesis, map each to an experiment variant key (${keys.join(", ")}${want > 1 ? "; v1 is the control" : ""}), then call pick_variants.`,
+    title: `Pick and direct ${want} concept(s) that test the hypothesis`,
+    instructions: `Pick exactly ${want} concept(s) with DIFFERENT angle types so the variants test the hypothesis, map each to an experiment variant key (${keys.join(", ")}${want > 1 ? "; v1 is the control" : ""}), give each one your creative direction, then call pick_variants.`,
     input: [
       `Hypothesis: ${env.ap.hypothesis?.statement ?? ""}`,
       exp ? `Experiment variants: ${exp.variants.map((v) => `${v.key}${v.isControl ? " (control)" : ""}: ${v.label}`).join("; ")}` : "",
+      `Audience: ${env.ap.audience?.description ?? ""}`,
       `Concepts (id | angle | title | hook):\n${variants.map((v) => `- ${v.id} | ${v.angleType} | ${v.title} | ${clip(v.hook, 200)}`).join("\n")}`,
+      directionMenu(shots, hasPresenter),
+      untrusted("app_dna", dnaSummary(app), 4000),
     ]
       .filter(Boolean)
       .join("\n\n"),
     tool: {
       name: "pick_variants",
-      description: "Record which concepts to produce and which experiment variant each represents.",
+      description: "Record which concepts to produce, which experiment variant each represents, and your creative direction for each video.",
       schema: Schema,
       validate: (a) => {
         if (a.picks.length !== want) return `Pick exactly ${want} concept(s).`;
@@ -357,11 +365,14 @@ const planCreative: StageFn = async (env, step) => {
         if (new Set(a.picks.map((p) => byId.get(p.variantId)!.angleType)).size !== want) return "Picked concepts must have different angle types.";
         const k = a.picks.map((p) => p.experimentKey).sort();
         if (JSON.stringify(k) !== JSON.stringify([...keys].sort())) return `Use each experiment key exactly once: ${keys.join(", ")}.`;
-        return null;
+        return directionProblem(a.picks.map((p) => p.direction));
       },
     },
   });
-  for (const pick of args.picks) await env.ws.collection("campaignVariants").update(pick.variantId, { status: "selected" }, { actor: env.ctx.actor });
+  const directedAt = new Date(nowMs(env.p)).toISOString();
+  for (const pick of args.picks) {
+    await env.ws.collection("campaignVariants").update(pick.variantId, { status: "selected", creativeDirection: toCreativeDirection(pick.direction, model, runId, directedAt) }, { actor: env.ctx.actor });
+  }
   await env.ws.collection("campaigns").update(campaignId, { selectedVariantIds: args.picks.map((p) => p.variantId) }, { actor: env.ctx.actor });
   if (exp) {
     const mapped = exp.variants.map((v) => {
@@ -373,6 +384,9 @@ const planCreative: StageFn = async (env, step) => {
   const ordered = [...args.picks].sort((a, b) => a.experimentKey.localeCompare(b.experimentKey)).map((p) => p.variantId);
   env.set({ variantIds: ordered });
   env.note("decision", `Chose ${args.picks.map((p) => `${p.experimentKey} = “${byId.get(p.variantId)!.title}” (${byId.get(p.variantId)!.angleType.replace(/_/g, " ")})`).join("; ")}. Why: ${args.rationale}`, [...ordered.map((id) => ref("campaignVariants", id)), ref("campaigns", campaignId), ref("agentRuns", runId)], runId);
+  for (const pick of [...args.picks].sort((a, b) => a.experimentKey.localeCompare(b.experimentKey))) {
+    env.note("decision", `${directorName(model)} directed ${pick.experimentKey} “${byId.get(pick.variantId)!.title}”: ${directionSummary(pick.direction)}. Hook: ${pick.direction.hookApproach}`, [ref("campaignVariants", pick.variantId), ref("agentRuns", runId)], runId);
+  }
   return { kind: "advance", to: "produce" };
 };
 

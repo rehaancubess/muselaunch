@@ -59,6 +59,17 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
       expect(v.findingIds.length).toBeGreaterThan(0);
       for (const f of v.findingIds) expect(loopFindings.has(f)).toBe(true);
     }
+    // ...each directed by Muse Wonder (distinct looks), and the storyboard worked to that direction
+    for (const v of variants) {
+      expect(v.creativeDirection).toMatchObject({ model: "muse-wonder-1.0", runId: expect.stringMatching(/^run_/) });
+      expect(v.creativeDirection!.signatureShots.length).toBeGreaterThan(0);
+      const sb = await h.p.db.ws(h.wid).collection("storyboards").getOrThrow(v.storyboardId!);
+      expect(sb.music.mood).toBe(v.creativeDirection!.musicMood);
+      const steps = (await h.p.db.ws(h.wid).collection("agentSteps").list({ where: [["runId", "==", sb.generatedByRunId!]], limit: 50 })).items;
+      expect(steps.some((st) => st.title === "Working to Muse Wonder's creative direction")).toBe(true);
+      expect(steps.some((st) => st.title.startsWith("Direction followed"))).toBe(true);
+    }
+    expect(new Set(variants.map((v) => `${v.creativeDirection!.pacing}|${v.creativeDirection!.musicMood}`)).size).toBe(2);
     expect(ap.compositionIds).toHaveLength(2);
     // Verified (lint + claims + Brand Guardian) then rendered under the auto-approve threshold
     expect(ap.reviewIds).toHaveLength(2);
@@ -98,7 +109,9 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(runs.map((r) => r.kind)).toEqual(["growth_autopilot", "growth_autopilot", "growth_autopilot"]);
     for (const r of runs) expect(r.status).toBe("succeeded");
     const decisions = ap.log.filter((e) => e.kind === "decision" && e.agentRunId);
-    expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative"]);
+    // audience, hypothesis, the picks, then one creative-direction entry per video
+    expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative", "plan_creative", "plan_creative"]);
+    expect(decisions.slice(3).map((d) => d.summary)).toEqual([expect.stringMatching(/^Muse Wonder directed v1 “.+”: /), expect.stringMatching(/^Muse Wonder directed v2 “.+”: /)]);
     expect(ap.log.filter((e) => e.kind === "verification" && e.stage === "verify")).toHaveLength(2);
     expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/auto-approved/);
     // Spark watched both final renders (no blockers) before the posts were drafted.

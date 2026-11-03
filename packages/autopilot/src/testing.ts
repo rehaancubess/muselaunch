@@ -51,6 +51,35 @@ export interface AutopilotHarness {
 
 const DECISIONS = () => fixtureJson<Record<string, unknown>>("wonder-autopilot-decisions.json");
 
+/** Wonder's creative direction per pick (distinct looks; shots that need no presenter footage). */
+const FIXTURE_DIRECTIONS = [
+  {
+    hookApproach: "Open on the real search bar mid-type, then cut to the answer before the viewer can scroll.",
+    pacing: "punchy",
+    visualMotif: "Every scene pushes one step closer to the screen, ending on the result.",
+    signatureShots: ["focus-zoom", "tap-demo"],
+    musicMood: "tech-pulse",
+    avoid: "Long type-only cards.",
+    why: "Fast, product-first cuts isolate whether seeing the app work is what stops the scroll.",
+  },
+  {
+    hookApproach: "Name the everyday frustration in the audience's own words, then let the app resolve it.",
+    pacing: "steady",
+    visualMotif: "Cluttered, busy frames give way to calm, centred ones once the app appears.",
+    signatureShots: ["kinetic-type", "phone-tilt"],
+    musicMood: "warm-keys",
+    why: "A problem-led story with a calmer pace tests the emotional angle against the demo-first control.",
+  },
+  {
+    hookApproach: "Start on the icon and a single bold promise, then prove it on the real screen.",
+    pacing: "slow-burn",
+    visualMotif: "One continuous reveal: icon, phone, then the feature, each shot holding longer.",
+    signatureShots: ["icon-reveal", "device-demo"],
+    musicMood: "cinematic-build",
+    why: "A slower reveal checks whether a premium launch feel beats faster formats.",
+  },
+];
+
 /** Wonder answers each autopilot decision tool (pick_variants is computed from the concepts it is shown). */
 export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}): MetaRoute {
   return (req) => {
@@ -69,7 +98,7 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
       const text = requestText(req);
       const want = Number(String(req.instructions ?? "").match(/Pick exactly (\d+)/)?.[1] ?? 2);
       const rows = [...text.matchAll(/- (var_[a-f0-9]+) \| (\w+) \|/g)].map((m) => ({ id: m[1]!, angle: m[2]! }));
-      const picks: { variantId: string; experimentKey: string }[] = [];
+      const picks: { variantId: string; experimentKey: string; direction: unknown }[] = [];
       // Match each experiment variant's label to a concept angle ("Demo-first hook" → practical_demo), so
       // v1/v2 carry the concept the hypothesis describes; otherwise take distinct angles in order.
       const labels = (text.match(/Experiment variants: (.+)/)?.[1] ?? "").split(";").map((x) => x.replace(/^\s*v\d+(?: \(control\))?:\s*/, "").toLowerCase());
@@ -82,7 +111,7 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
       for (let k = 0; k < want; k++) {
         const hint = ANGLE.find(([l]) => l.test(labels[k] ?? ""))?.[1];
         const r = (hint ? rows.find((x) => hint.test(x.angle) && !used(x.angle)) : undefined) ?? rows.find((x) => !used(x.angle));
-        if (r) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}` });
+        if (r) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}`, direction: FIXTURE_DIRECTIONS[picks.length % FIXTURE_DIRECTIONS.length] });
       }
       args = { picks, rationale: "Different angles test the hypothesis directly." };
     }

@@ -10,6 +10,7 @@ import { dnaSummary, loadAppContext, productAssets, requireDna } from "./context
 import { productMediaOptions } from "./media-options";
 import { retrieveMemory } from "./memory";
 import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
+import { creativeDirectionLines, directionFollowed, directorLabel } from "./direction";
 import { RunRecorder } from "./runs";
 import { clip, hashId } from "./util";
 
@@ -659,6 +660,9 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       imageNo.set(v.ref, parts.length);
     }
     const range = sceneRange(targetDurationSec);
+    // Muse Wonder's creative direction (Growth Autopilot), when the concept has one.
+    const direction = variant.creativeDirection;
+    if (direction) await rec.step({ kind: "decision", title: `Working to ${directorLabel(direction)}'s creative direction`, model: direction.model, output: creativeDirectionLines(direction) });
     const voice = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
     const demoMedia = options.filter((o) => o.deviceFrameOk && !["founder_clip", "logo", "icon"].includes(o.kind)).length;
 
@@ -669,6 +673,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       `Key message: ${variant.keyMessage}`,
       `Script outline:\n${variant.scriptOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
       brief ? `Brief: CTA "${brief.cta}" · USP: ${brief.usp}${brief.visualDirection ? ` · Visual direction: ${brief.visualDirection}` : ""}` : "",
+      direction ? creativeDirectionLines(direction) : "",
       `Format: ${aspectRatio}, target ${targetDurationSec} seconds total, ${range.min}-${range.max} scenes (about 3.5 s each; hook 1.5–2.5 s with ≤ ${HOOK_MAX_WORDS} words; CTA 2.5–4 s).`,
       VOICE_LINE[voice],
       targetDurationSec >= 30 ? `This is a ${targetDurationSec} s video: at least ${MIN_TEMPLATES_LONG} different templates, at least one close-up (focus-zoom or tap-demo), no template more than twice in a row.` : "",
@@ -743,6 +748,12 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       ...(s.focus ? { focus: s.focus } : {}),
       ...(s.focusQuery ? { focusQuery: s.focusQuery } : {}),
     }));
+    // The director's music mood is applied as chosen; the run says which signature shots made it in.
+    const music = direction ? { ...out.data.music, mood: direction.musicMood } : out.data.music;
+    if (direction) {
+      const followed = directionFollowed(direction, { scenes, music: out.data.music });
+      await rec.step({ kind: "decision", title: followed.missing.length ? `Direction followed in part (${followed.used.length}/${direction.signatureShots.length} signature shots)` : "Direction followed", output: followed.summary });
+    }
     const founderClip = usable.find((a) => a.role === "founder_clip");
     // Only a voice that exists: AI narration when the workspace turned AI voice on (and lines were
     // written), otherwise nothing is "spoken" and no script captions appear.
@@ -756,7 +767,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
     if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: "No AI voice for this video (workspace AI voice is off): narration kept in the storyboard, not spoken" });
     const storyboard = (
       await ws.collection("storyboards").createIfAbsent(
-        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music: out.data.music, generatedByRunId: rec.id },
+        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music, generatedByRunId: rec.id },
         { actor: ctx.actor },
       )
     ).entity;

@@ -24,6 +24,7 @@ export { installFetcher, fetcherFor, fetchResult, type Fetcher } from "./fetcher
 export { RunRecorder } from "./runs";
 export { runToolLoop, defineTool, type LoopTool, type LoopOutcome } from "./loop";
 export { searchTool, SourceRegistry, type ResearchOutputs } from "./research/tools";
+export { creativeDirectionLines, directionFollowed, directorLabel, type DirectionFollowed } from "./direction";
 export { loadAppContext, dnaSummary, productAssets, requireDna, type AppContextData } from "./context";
 export { productMediaOptions } from "./media-options";
 export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";

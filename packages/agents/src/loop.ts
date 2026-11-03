@@ -30,6 +30,8 @@ export interface LoopOutcome {
   stopReason?: string;
   finalText: string;
   turns: number;
+  /** The model id that answered the last turn (for honest attribution; undefined if no turn ran). */
+  model?: string;
 }
 
 /**
@@ -68,19 +70,20 @@ export async function runToolLoop(
   let stateless = false;
   let previousResponseId: string | undefined;
   let finalText = "";
+  let lastModel: string | undefined;
   /** Set after a search-budget hit: the loop gets one wrap-up turn, and then reports that stop. */
   let wrapUp: string | null = null;
   const ended = async (turns: number): Promise<LoopOutcome> => {
-    if (!wrapUp) return { finished: true, finalText, turns };
+    if (!wrapUp) return { finished: true, finalText, turns, model: lastModel };
     await rec.budgetStopStep(wrapUp);
-    return { finished: false, stopReason: wrapUp, finalText, turns };
+    return { finished: false, stopReason: wrapUp, finalText, turns, model: lastModel };
   };
   for (let turn = 0; turn < maxTurns; turn++) {
     opts.throwIfCancelled();
     const stop = rec.budgetStop();
     if (stop) {
       await rec.budgetStopStep(stop);
-      return { finished: false, stopReason: stop, finalText, turns: turn };
+      return { finished: false, stopReason: stop, finalText, turns: turn, model: lastModel };
     }
     await opts.onTurn?.(turn);
     const call = (items: ResponseInputItem[], prev: string | undefined) =>
@@ -106,6 +109,7 @@ export async function runToolLoop(
       res = await call(history, undefined);
     }
     rec.addModelUsage(res);
+    lastModel = res.model || lastModel;
     await rec.step({
       kind: "model_call",
       title: res.functionCalls.length ? `Muse Wonder → ${res.functionCalls.map((f) => f.name).join(", ")}` : "Muse Wonder (final answer)",
@@ -171,12 +175,12 @@ export async function runToolLoop(
         continue;
       }
       await rec.budgetStopStep(wrapUp ?? budgetHit);
-      return { finished: false, stopReason: wrapUp ?? budgetHit, finalText, turns: turn + 1 };
+      return { finished: false, stopReason: wrapUp ?? budgetHit, finalText, turns: turn + 1, model: lastModel };
     }
     input = outputs;
   }
   await rec.budgetStopStep(`turn limit (${maxTurns})`);
-  return { finished: false, stopReason: `turn limit (${maxTurns})`, finalText, turns: maxTurns };
+  return { finished: false, stopReason: `turn limit (${maxTurns})`, finalText, turns: maxTurns, model: lastModel };
 }
 
 function safeArgs(raw: string): Record<string, unknown> {

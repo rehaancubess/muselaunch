@@ -21,7 +21,7 @@ posted, sent or spent beyond its budget.
 
 | Model | Runs on | Used for |
 |---|---|---|
-| Muse Wonder | Meta Model API | Research planning with live web search (every finding cited), growth strategy, Growth Autopilot decisions: audience, hypothesis, which concepts to test (tool use) |
+| Muse Wonder | Meta Model API | Research planning with live web search (every finding cited), growth strategy, Growth Autopilot decisions: audience, hypothesis, which concepts to test (tool use), and **creative director** of every Autopilot video: hook approach, pacing, visual motif, signature shots and score, which Muse Spark storyboards to (shown on each concept and in the run log) |
 | Muse Spark 1.3 | Meta Model API | App DNA from the listing and screenshots (multimodal); labels every shot of a walkthrough recording by feature and flags personal info; concepts and 30–60 s storyboards that point at the exact UI to zoom into; scene-scoped edits; claim checks; **watches the rendered MP4** and fixes the scenes it finds problems in; insights |
 | SAM 3.1 | Meta Model API | Cuts the real app screen out of designed App Store images (no phone-inside-a-phone); locates UI elements for focus zooms; tracks the founder and their phone in footage for object-aware effects |
 | Muse Voice Transcribe | Meta Model API | Founder recordings and narration, captions, spoken edits, and checking that an AI voiceover says exactly what the script says |
