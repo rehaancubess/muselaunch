@@ -110,7 +110,12 @@ async function xPublish(req: PublishRequest, ctx: PublishContext): Promise<Publi
     });
   } catch (err) {
     // X answered with a definite refusal (e.g. 403 duplicate content, 400): nothing was posted.
-    if (definitelyRefused(err)) await ctx.saveState({ xTweetCreateStarted: undefined });
+    // Uploaded media expire after 24 h, so the next attempt uploads them again (uploads aren't posts).
+    if (definitelyRefused(err)) {
+      const reset: Record<string, undefined> = { xTweetCreateStarted: undefined };
+      media.forEach((_, i) => Object.values(keysFor(i)).forEach((k) => (reset[k] = undefined)));
+      await ctx.saveState(reset);
+    }
     throw err;
   }
   const id = tw.json<{ data?: { id?: string } }>().data?.id;

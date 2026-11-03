@@ -82,7 +82,14 @@ async function igCarousel(req: PublishRequest, ctx: PublishContext, items: Publi
       children.push(id);
       await ctx.saveState({ igCarouselItemIds: [...children] });
     }
-    const created = await http.request(`${base}/${igId}/media`, { op: "create carousel container", method: "POST", bearer: tokens.accessToken, form: { media_type: "CAROUSEL", children: children.join(","), caption: req.caption }, signal: ctx.signal });
+    let created;
+    try {
+      created = await http.request(`${base}/${igId}/media`, { op: "create carousel container", method: "POST", bearer: tokens.accessToken, form: { media_type: "CAROUSEL", children: children.join(","), caption: req.caption }, signal: ctx.signal });
+    } catch (err) {
+      // Item containers expire after 24 h; a refused carousel gets fresh ones next time (they aren't posts).
+      if (definitelyRefused(err)) await ctx.saveState({ igCarouselItemIds: undefined });
+      throw err;
+    }
     carouselId = created.json<{ id?: string }>().id;
     if (!carouselId) throw new AppError("PROVIDER_ERROR", "Instagram did not return a carousel container id");
     await ctx.saveState({ igCarouselId: carouselId });
@@ -335,7 +342,8 @@ async function fbPublish(req: PublishRequest, ctx: PublishContext): Promise<Publ
   const form: Record<string, string> = { access_token: pageToken, message: req.caption };
   photoIds.forEach((id, i) => (form[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id })));
   await ctx.saveState({ fbPostCreateStarted: true });
-  const res = await guarded(ctx, "fbPostCreateStarted", () => http.request(`${graph(v)}/${pageId}/feed`, { op: "create page post", method: "POST", form, signal: ctx.signal }));
+  // Unpublished photos are kept about 24 h: a refused post uploads them again next time (they aren't posts).
+  const res = await guarded(ctx, ["fbPostCreateStarted", "fbPhotoIds"], () => http.request(`${graph(v)}/${pageId}/feed`, { op: "create page post", method: "POST", form, signal: ctx.signal }));
   const postId = res.json<{ id?: string }>().id;
   if (!postId) throw uncertainOutcome("Facebook", "create page post");
   await ctx.saveState({ fbPostId: postId });
@@ -359,11 +367,11 @@ async function fbText(req: PublishRequest, ctx: PublishContext): Promise<Publish
 }
 
 /** Run a non-idempotent step whose "started" marker is already saved; a definite refusal clears it (nothing was posted). */
-async function guarded<T>(ctx: PublishContext, marker: string, step: () => Promise<T>): Promise<T> {
+async function guarded<T>(ctx: PublishContext, keys: string | string[], step: () => Promise<T>): Promise<T> {
   try {
     return await step();
   } catch (err) {
-    if (definitelyRefused(err)) await ctx.saveState({ [marker]: undefined });
+    if (definitelyRefused(err)) await ctx.saveState(Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map((k) => [k, undefined])));
     throw err;
   }
 }
