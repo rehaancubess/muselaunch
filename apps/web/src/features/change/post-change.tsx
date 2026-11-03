@@ -49,7 +49,16 @@ export interface ChangeablePost {
   status: ScheduledPost["status"];
   compositionId?: string;
   change?: PostChange | null;
+  /** The post's media are images (a post, a carousel): the words say "images", not "video". */
+  stills?: boolean;
 }
+
+const STILL_CHIPS: TellMuseChip[] = [
+  { key: "headline", label: "Shorter headlines", text: "Make the headlines shorter and punchier, keeping what they say true" },
+  { key: "darker", label: "Darker background", text: "Use a darker background, keeping the text easy to read" },
+  { key: "first", label: "Stronger first slide", text: "Make the first slide stop the scroll" },
+  { key: "caption", label: "Change the caption", target: "caption", text: "" },
+];
 
 /** The running change's live progress, from its job. */
 export function ChangeProgress({ change }: { change: PostChange }) {
@@ -137,16 +146,16 @@ export function PostTellMuse({ post, autoFocus, className, hideLabel, onStarted 
       className={className}
       hideLabel={hideLabel}
       autoFocus={autoFocus}
-      targets={hasVideo ? [{ value: "video", label: "Video" }, { value: "caption", label: "Caption" }] : undefined}
+      targets={hasVideo ? [{ value: "video", label: post.stills ? "Images" : "Video" }, { value: "caption", label: "Caption" }] : undefined}
       target={part}
       onTargetChange={(v) => setPart(v as PostChangePart)}
-      placeholder={part === "video" ? "e.g. Make the opening shorter" : "e.g. Make it friendlier and shorter"}
-      chips={(part === "video" ? VIDEO_CHIPS : hasVideo ? [...CAPTION_CHIPS, { key: "video", label: "Change the video", target: "video", text: "" }] : CAPTION_CHIPS).map((c) => ({ ...c, disabled: running }))}
+      placeholder={part === "video" ? (post.stills ? "e.g. Make the headline on slide 2 shorter" : "e.g. Make the opening shorter") : "e.g. Make it friendlier and shorter"}
+      chips={(part === "video" ? (post.stills ? STILL_CHIPS : VIDEO_CHIPS) : hasVideo ? [...CAPTION_CHIPS, { key: "video", label: post.stills ? "Change the images" : "Change the video", target: "video", text: "" }] : CAPTION_CHIPS).map((c) => ({ ...c, disabled: running }))}
       busy={busy}
       submitLabel="Make this change"
       disabled={running || short}
       onSubmit={(t, o) => submit(t, o)}
-      footnote={[cost, part === "video" ? "Only the scenes it needs to touch change" : "Checked against your facts again", "you OK the new version before it posts"].filter(Boolean).join(" · ")}
+      footnote={[cost, part === "video" ? (post.stills ? "Only the slides it needs to touch change" : "Only the scenes it needs to touch change") : "Checked against your facts again", "you OK the new version before it posts"].filter(Boolean).join(" · ")}
       detailHref={hasVideo ? routes.app(workspaceId, post.appId).studio(post.compositionId!) : undefined}
     >
       {post.change && running ? <ChangeProgress change={post.change} /> : post.change ? <ChangeResult change={post.change} waiting={post.status === "awaiting_approval"} /> : null}

@@ -300,7 +300,7 @@ export function NextPostCard({ post, appId }: { post: TodayPost; appId: string }
       </div>
 
       {editing && !running ? (
-        <PostTellMuse post={{ id: post.id, appId, status: post.status, compositionId: post.compositionId, change: post.change }} autoFocus onStarted={() => setEditing(false)} className="mt-5 border-t border-line pt-5" />
+        <PostTellMuse post={{ id: post.id, appId, status: post.status, compositionId: post.compositionId, change: post.change, stills: post.video?.kind === "image" }} autoFocus onStarted={() => setEditing(false)} className="mt-5 border-t border-line pt-5" />
       ) : null}
 
       {/* Not connected: say so plainly, with the post-it-yourself path right there. */}

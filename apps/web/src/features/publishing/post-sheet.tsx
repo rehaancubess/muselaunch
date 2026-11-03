@@ -172,7 +172,7 @@ function PostBody({ view }: { view: PostView }) {
 
       {/* Say what to change (typed or spoken): Muse changes the video or the caption, then it needs approval again. */}
       {!terminal && post.status !== "publishing" && can("content.write") ? (
-        <PostTellMuse post={{ id: post.id, appId: post.appId, status: post.status, compositionId: post.compositionId, change: post.change }} className="rounded-xl border border-line p-4" />
+        <PostTellMuse post={{ id: post.id, appId: post.appId, status: post.status, compositionId: post.compositionId, change: post.change, stills: view.media ? view.media.shape === "image" || view.media.shape === "carousel" : undefined }} className="rounded-xl border border-line p-4" />
       ) : null}
 
       {!terminal && ["draft", "failed", "awaiting_approval"].includes(post.status) ? <BrandGuardianBadge subject={{ entity: "scheduledPosts", id: post.id }} /> : null}
