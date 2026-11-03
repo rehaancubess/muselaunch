@@ -1,4 +1,4 @@
-import { ClaimContext, Monetization, Platform as AppPlatform, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
+import { ClaimContext, Monetization, Platform as AppPlatform, pickThemeColor, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
 import { AppError, assertKeyInWorkspace, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { generateJson, imagePart, roleNames, untrusted, type InputPart } from "@muselaunch/providers";
 import sharp from "sharp";
@@ -332,7 +332,9 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     }
 
     await run.step({ kind: "decision", title: "Grounded App DNA against evidence", output: { features: features.length, claimsCreated: created, dropped, palette: palette.length, ...(addTv ? { platformAdded: "tv" } : {}) } });
-    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category, ...(addTv ? { platforms } : {}) }, { actor: ctx.actor });
+    // Interface colour from the real icon, unless the person picked one themselves.
+    const theme = app.theme?.source === "custom" ? {} : { theme: { color: pickThemeColor(profile.visual.palette), source: "icon" as const } };
+    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category, ...(addTv ? { platforms } : {}), ...theme }, { actor: ctx.actor });
     if (imp) await ws.collection("appImports").update(imp.id, { status: imp.warnings.length ? "partial" : "succeeded" }, { actor: ctx.actor });
     await run.finish("succeeded", { outputRefs: [{ entity: "brandProfiles", id: profile.id }] });
     // Designed store screenshots → Muse Spark check + SAM 3.1 screen cut-outs, in the background.

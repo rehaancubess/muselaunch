@@ -7,11 +7,14 @@ import { FullPageLoader, RequireAuth } from "@/components/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
 import { LogoMark } from "@/components/logo";
 import { shellStateFor } from "@/components/shell/shell-state";
-import { WorkspaceProvider, useWorkspace } from "@/lib/workspace";
+import { useAppTheme } from "@/lib/app-theme";
+import { WorkspaceProvider, useRouteIds, useWorkspace } from "@/lib/workspace";
 
 function Gate({ children }: { children: ReactNode }) {
   const ws = useWorkspace();
+  const { appId } = useRouteIds();
   const pathname = usePathname() ?? "";
+  useAppTheme(ws.workspaceId, appId, ws.apps, !ws.appsLoading);
   if (ws.loading) return <FullPageLoader />;
   if (ws.error || !ws.workspace) {
     const notFound = ws.error?.status === 404;

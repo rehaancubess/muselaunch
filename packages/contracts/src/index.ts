@@ -1,4 +1,5 @@
 export * from "./common";
+export * from "./theme";
 export * from "./tenancy";
 export * from "./permissions";
 export * from "./app";
