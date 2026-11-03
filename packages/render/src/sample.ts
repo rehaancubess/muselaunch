@@ -147,3 +147,56 @@ export function sampleStoryboard(wid: string, opts: { appId?: string; scenes?: 3
     music: {},
   } as Storyboard;
 }
+
+/**
+ * Still storyboards over the same fixture screenshots: a 4-slide carousel (4:5), a YouTube thumbnail
+ * (16:9) and a 3-slide App Store set (9:19.5). Copy is fixture copy; the proof slide is only made
+ * when a claim id is given (never an invented number).
+ */
+export function sampleStillStoryboard(
+  wid: string,
+  format: "carousel" | "thumbnail" | "store_screenshots",
+  opts: { appId?: string; id?: string; store?: "ios" | "android"; claimId?: string } = {},
+): Storyboard {
+  const appId = opts.appId ?? "app_focusly";
+  const shot = (id: string) => [{ kind: "screenshot" as const, assetId: id }];
+  const s = (id: string, purpose: string, template: string, onScreenText: string, extra: Partial<Storyboard["scenes"][number]> = {}) =>
+    ({ id, order: 0, purpose, durationSec: 3, onScreenText, narration: "", visual: template, template, assets: [], claimIds: [], ...extra }) as Storyboard["scenes"][number];
+  let scenes: Storyboard["scenes"];
+  let aspectRatio: Storyboard["aspectRatio"];
+  if (format === "carousel") {
+    aspectRatio = "4:5";
+    scenes = [
+      s("c1", "hook", "slide-cover", "Your mornings deserve better", { body: "Plan the whole day in calm focus blocks.", assets: shot("ast_shot_today") }),
+      s("c2", "feature", "slide-feature", "Your whole day on one screen", { body: "Focus blocks, breaks and your goal, together.", assets: shot("ast_shot_today") }),
+      s("c3", "feature", "slide-feature", "See where your focus goes", { body: "Weekly stats show your best hours to focus.", assets: shot("ast_shot_stats") }),
+      ...(opts.claimId ? [s("c3b", "proof", "slide-proof", "Rated 4.8 on the App Store", { body: "App Store rating", claimIds: [opts.claimId] })] : []),
+      s("c4", "cta", "slide-cta", "Try Focusly free", { body: "Plan tomorrow in two minutes." }),
+    ];
+  } else if (format === "thumbnail") {
+    aspectRatio = "16:9";
+    scenes = [s("t1", "hook", "thumbnail-bold", "Fix your mornings", { assets: shot("ast_shot_today") })];
+  } else {
+    aspectRatio = opts.store === "android" ? "9:16" : "9:19.5";
+    scenes = [
+      s("a1", "hook", "store-screenshot", "Plan your day in focus blocks", { body: "Your whole day, calmly laid out.", assets: shot("ast_shot_today") }),
+      s("a2", "feature", "store-screenshot", "See your best focus hours", { body: "Weekly stats, at a glance.", assets: shot("ast_shot_stats") }),
+      s("a3", "feature", "store-screenshot", "Add a block in one tap", { assets: shot("ast_shot_today") }),
+    ];
+  }
+  scenes.forEach((x, i) => (x.order = i));
+  return {
+    ...base(wid, opts.id ?? `sbd_still_${format}`),
+    appId,
+    campaignId: "cpg_sample",
+    variantId: "var_sample",
+    title: format === "carousel" ? "Focusly — mornings carousel" : format === "thumbnail" ? "Focusly — thumbnail" : "Focusly — App Store screenshots",
+    aspectRatio,
+    targetDurationSec: scenes.length * 3,
+    format,
+    ...(format === "store_screenshots" ? { store: opts.store ?? "ios" } : {}),
+    scenes,
+    voiceover: { source: "none" },
+    music: {},
+  } as Storyboard;
+}

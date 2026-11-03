@@ -4,12 +4,13 @@
  * Nothing is posted anywhere; this is the honest alternative while social OAuth is pending.
  */
 import { zipSync, strToU8, type Zippable } from "fflate";
-import { fillAppLink, type AttributionLink, type Composition, type CompositionDoc, type CopyPack, type MediaAsset } from "@muselaunch/contracts";
+import { AI_VOICE_CAPTION_LINE, fillAppLink, TEXT_POST_LIMITS, withAiVoiceLine, type AttributionLink, type Composition, type CompositionDoc, type CopyPack, type MediaAsset, type Storyboard } from "@muselaunch/contracts";
 import { collectAssetRefs, docHash } from "@muselaunch/compositions";
 import { getVersion } from "@muselaunch/compositions/store";
 import { AppError, assertKeyInWorkspace, safeFilename, trackedLinkUrl, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { renderCacheKey } from "./keys";
 import { extFor, shortHash, toSrt } from "./media";
+import { finalStillEncoding, stillKindOf, type StillKind } from "./stills";
 
 const CHANNEL_SPECS: Record<string, string> = {
   instagram: "Instagram Reels: 9:16 MP4, up to 90 s. Add the caption + hashtags from copy/instagram.txt. Upload the SRT or use auto-captions.",
@@ -22,6 +23,43 @@ const CHANNEL_SPECS: Record<string, string> = {
   producthunt: "Product Hunt: use the 16:9 video and stills in the gallery; tagline/description/maker comment are in copy/producthunt.txt.",
   reddit: "Reddit: follow each community's self-promotion rules; post text in copy/reddit.txt.",
 };
+
+/** Where each kind of still goes in the package, and what the folder's notes say. */
+const STORE_FOLDER: Record<"store_ios" | "store_android", { dir: string; readme: string }> = {
+  store_ios: {
+    dir: "app-store",
+    readme: [
+      "App Store screenshots (6.9-inch iPhone, 1290 x 2796 PNG, no transparency).",
+      "Upload them in App Store Connect: your app > the version > Previews and Screenshots > iPhone 6.9\" Display.",
+      "Drag the slides in this order (slide-01 first). Up to 10 per language.",
+    ].join("\n"),
+  },
+  store_android: {
+    dir: "google-play",
+    readme: [
+      "Google Play phone screenshots (1080 x 1920 PNG, no transparency).",
+      "Upload them in Play Console: Grow users > Store presence > Main store listing > Phone screenshots.",
+      "Add the slides in this order (slide-01 first). 2 to 8 screenshots; 4 or more at this size can be featured.",
+    ].join("\n"),
+  },
+};
+
+const CAROUSEL_NOTES = "Carousels: upload the slides in this order (slide-01 first). Instagram crops every slide to the first one's shape, and takes at most 10.";
+
+/** Channels a voiceover line is added to (X's 280-character limit is kept). */
+const CHANNEL_LIMIT: Record<string, number | undefined> = { x: TEXT_POST_LIMITS.x, threads: TEXT_POST_LIMITS.threads, linkedin: TEXT_POST_LIMITS.linkedin };
+
+/**
+ * Copy for a video whose voiceover is external TTS: the caption-like items (caption, description,
+ * thread) carry the AI-voice line once, kept within the channel's limit (X: 280).
+ */
+export function withAiVoiceCopy(pack: CopyPack): CopyPack {
+  const limit = CHANNEL_LIMIT[pack.channel];
+  return { ...pack, items: pack.items.map((it) => (it.kind === "caption" || it.kind === "description" || it.kind === "thread" ? { ...it, text: withAiVoiceLine(it.text, limit) } : it)) };
+}
+
+/** A doc whose voiceover is an external TTS voice (needs the AI-voice line in its posts). */
+export const usesAiVoice = (doc: CompositionDoc) => doc.audio.some((t) => t.kind === "voiceover" && t.sourceLabel === "external_tts");
 
 const slug = (s: string) => safeFilename(s.toLowerCase().replace(/[^a-z0-9]+/g, "-")).replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
 
@@ -65,14 +103,27 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
     return new Uint8Array(await p.storage.get(a.storagePath));
   };
 
+  const stillKinds = new Set<StillKind>();
+  const aiVoiceVariants = new Set<string>();
+  let aiVoiceCampaign = false;
   for (const [i, comp] of comps.entries()) {
     ctx.throwIfCancelled();
     await ctx.progress(5 + (i / comps.length) * 60, `packaging ${comp.title}`);
     const ver = await getVersion(ctx.ws, comp.id, comp.approvedVersion ?? comp.currentVersion);
     const doc: CompositionDoc = ver.doc;
     const isVideo = doc.kind === "video";
-    const key = renderCacheKey(docHash(doc), "final", isVideo ? "mp4" : "png");
-    const main = await ctx.ws.collection("mediaAssets").get(`ast_r_${key}`);
+    const storyboard = !isVideo && comp.storyboardId ? ((await ctx.ws.collection("storyboards").get(comp.storyboardId)) as Storyboard | null) : null;
+    // Stills are keyed by the encoding the render produced for their kind (./stills.ts); older still
+    // renders were PNG for every kind, so those are found too.
+    const keys = isVideo ? [renderCacheKey(docHash(doc), "final", "mp4")] : [...new Set([finalStillEncoding(doc, "png", storyboard), "png", "jpeg"])].map((f) => renderCacheKey(docHash(doc), "final", f));
+    let main: MediaAsset | null = null;
+    for (const key of keys) {
+      const a = await ctx.ws.collection("mediaAssets").get(`ast_r_${key}`);
+      if (a && a.status === "ready") {
+        main = a;
+        break;
+      }
+    }
     const name = `${slug(comp.title)}-${doc.aspectRatio.replace(":", "x")}`;
     if (!main || main.status !== "ready") {
       missing.push(`${comp.title} (${doc.aspectRatio}, v${ver.version})`);
@@ -91,10 +142,36 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
         if (poster) add(`thumbnails/${name}.jpg`, await fetchAsset(poster), 0);
       }
       if (doc.captions.cues.length) add(`captions/${name}.srt`, strToU8(toSrt(doc.captions.cues)));
+      if (usesAiVoice(doc)) {
+        entry.aiVoice = true;
+        if (comp.variantId) aiVoiceVariants.add(comp.variantId);
+        else aiVoiceCampaign = true;
+      }
     } else {
-      const slides = [main, ...((await ctx.ws.collection("mediaAssets").getMany(Array.from({ length: 30 }, (_, k) => `${main.id}_${k + 2}`))) as MediaAsset[])];
+      // Every slide, in order (slide n is `${main.id}_${n}`; the first gap ends the set).
+      const ids = Array.from({ length: 29 }, (_, k) => `${main!.id}_${k + 2}`);
+      const found = new Map(((await ctx.ws.collection("mediaAssets").getMany(ids)) as MediaAsset[]).map((a) => [a.id, a]));
+      const slides = [main];
+      for (const id of ids) {
+        const a = found.get(id);
+        if (!a || a.status !== "ready") break;
+        slides.push(a);
+      }
+      const kind = stillKindOf(doc, storyboard);
+      stillKinds.add(kind);
+      entry.still = kind;
+      entry.slides = slides.length;
+      const file = (k: number, s: MediaAsset) => `slide-${String(k + 1).padStart(2, "0")}.${extFor(s.mimeType, s.storagePath)}`;
       for (const [k, s] of slides.entries()) {
-        add(`images/${name}-${k + 1}.${extFor(s.mimeType, s.storagePath)}`, await fetchAsset(s), 0);
+        const path =
+          kind === "store_ios" || kind === "store_android"
+            ? `${STORE_FOLDER[kind].dir}/${slug(comp.title)}/${file(k, s)}`
+            : kind === "thumbnail"
+              ? `thumbnails/${name}${slides.length > 1 ? `-${k + 1}` : ""}.${extFor(s.mimeType, s.storagePath)}`
+              : kind === "carousel"
+                ? `carousels/${name}/${file(k, s)}`
+                : `images/${name}${slides.length > 1 ? `-${k + 1}` : ""}.${extFor(s.mimeType, s.storagePath)}`;
+        add(path, await fetchAsset(s), 0);
         included.push(s.id);
       }
     }
@@ -114,6 +191,8 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
     // pasted copy carries a measurable link. Without one the placeholder stays and the README says so.
     const links = (await ctx.ws.collection("attributionLinks").list({ where: [["campaignId", "==", campaignId]], limit: 100 })).items;
     packs = fillPackLinks(packs, links, (slug) => trackedLinkUrl(p.cfg, slug));
+    // Posts of a video with an AI (external TTS) voice say so in their copy.
+    packs = packs.map((pack) => (aiVoiceCampaign || (pack.variantId ? aiVoiceVariants.has(pack.variantId) : aiVoiceVariants.size > 0) ? withAiVoiceCopy(pack) : pack));
     for (const pack of packs) {
       const lines = pack.items.map((it) => `## ${it.kind}\n${it.text}\n`).join("\n");
       const status = pack.validation ? (pack.validation.ok ? "Claims check: passed" : `Claims check: ${pack.validation.issues.length} issue(s) — review before posting`) : "Claims check: not run";
@@ -130,20 +209,29 @@ export async function exportPackage(ctx: JobContext<"package.export">) {
     "",
     "## What's inside",
     "- videos/ — final MP4s (H.264), one per format",
-    "- thumbnails/ — poster frames you can use as covers",
+    "- thumbnails/ — poster frames you can use as covers, and YouTube thumbnails (JPEG, under 2 MB)",
     "- captions/ — SRT subtitle files (from the script or transcript)",
-    "- images/ — static slides / ads, if any",
+    "- images/ — single posts (JPEG), if any",
+    ...(stillKinds.has("carousel") ? ["- carousels/ — one folder per carousel, slides numbered in posting order (JPEG)"] : []),
+    ...(stillKinds.has("store_ios") ? ["- app-store/ — App Store screenshot sets (PNG, no transparency); see app-store/README.txt"] : []),
+    ...(stillKinds.has("store_android") ? ["- google-play/ — Google Play screenshot sets (PNG, no transparency); see google-play/README.txt"] : []),
     "- copy/ — captions, titles and descriptions per channel (with claim-check status). Links are the campaign's tracked links; a remaining [APP_LINK] means no tracked link exists yet: replace it with your link.",
     "- ATTRIBUTION.txt — where every piece of media came from and its licence",
     "",
     "## How to publish manually",
     ...(channels.length ? channels.map((c) => `- ${CHANNEL_SPECS[c] ?? `${c}: upload the matching aspect-ratio video and paste the copy for this channel.`}`) : ["- Upload the video that matches each platform's aspect ratio and paste the matching copy."]),
+    ...(stillKinds.has("carousel") ? [`- ${CAROUSEL_NOTES}`] : []),
+    ...(stillKinds.has("thumbnail") ? ["- YouTube: in YouTube Studio open the video > Details > Thumbnail > Upload file, and pick the JPEG in thumbnails/."] : []),
+    ...(stillKinds.has("store_ios") || stillKinds.has("store_android") ? ["- Store screenshots: see the README.txt in each store's folder for where to upload them."] : []),
+    ...(aiVoiceVariants.size || aiVoiceCampaign ? [`- A video here uses an AI voice: its copy already ends with "${AI_VOICE_CAPTION_LINE}". Keep it when you post.`] : []),
     "",
     "After posting, mark each post as \"manually posted\" in MuseLaunch (Calendar) and paste the post URL so results can be tracked.",
     ...(missing.length ? ["", "## Not included (no final render yet)", ...missing.map((m) => `- ${m}`)] : []),
     "",
   ].join("\n");
   files["README.md"] = [strToU8(readme), { level: 6 }];
+  for (const k of ["store_ios", "store_android"] as const) if (stillKinds.has(k)) files[`${STORE_FOLDER[k].dir}/README.txt`] = [strToU8(`${STORE_FOLDER[k].readme}\n`), { level: 6 }];
+  if (stillKinds.has("carousel")) files["carousels/README.txt"] = [strToU8(`${CAROUSEL_NOTES}\nPost them as one carousel with the caption from copy/.\n`), { level: 6 }];
   const attribution = [
     `Media used in ${campaign.name}`,
     "",
