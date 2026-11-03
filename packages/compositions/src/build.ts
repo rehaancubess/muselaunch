@@ -11,8 +11,11 @@
 import {
   ASPECT_DIMENSIONS,
   CompositionDoc,
+  docKindOf,
+  isStillTemplate,
   TEMPLATE_IDS,
   type App,
+  type OutputFormat,
   type AspectRatio,
   type AudioTrack,
   type BrandProfile,
@@ -362,6 +365,12 @@ class AssetPicker {
     for (const h of sb.assets) if (h.kind === "founder_clip" && h.assetId && this.byId.get(h.assetId)?.kind === "video") return this.take(this.byId.get(h.assetId));
     return this.take(this.pool((a) => a.role === "founder_clip" && a.kind === "video")[0]);
   }
+  /** Founder clips for a still (the scene's hinted clip first, then the app's others), without using them up. */
+  founderClips(sb: StoryboardScene): MediaAsset[] {
+    const hinted = sb.assets.map((h) => (h.kind === "founder_clip" && h.assetId ? this.byId.get(h.assetId) : undefined)).filter((a): a is MediaAsset => a?.kind === "video");
+    const rest = this.pool((a) => a.role === "founder_clip" && a.kind === "video" && !hinted.includes(a));
+    return [...hinted, ...rest];
+  }
   logo(): MediaAsset | undefined {
     const ids = [this.app.iconAssetId, ...(this.brand?.visual.logoAssetIds ?? [])].filter(Boolean) as string[];
     for (const id of ids) {
@@ -582,9 +591,20 @@ interface SceneCtx {
   /** Per-clip playback cursor so a presenter clip keeps playing across consecutive scenes. */
   clipCursor: Map<string, number>;
   durationSec: number;
+  /** Stills only: what the slide's set is (post, carousel, thumbnail, store screenshot set). */
+  still?: StillSet;
 }
 
-type Built = { template: TemplateId; layers: Layer[]; background: Scene["background"] };
+/** What a still slide knows about the set it belongs to. */
+interface StillSet {
+  format: OutputFormat;
+  /** A store screenshot set (App Store / Google Play): no page cues, no store pills, the app in use. */
+  store: boolean;
+  /** A carousel of more than one slide (not a store set): swipe cue on the cover, slide numbers after it. */
+  paged: boolean;
+}
+
+type Built ={ template: TemplateId; layers: Layer[]; background: Scene["background"] };
 
 const ENTER_HEAD = { preset: "mask-reveal", durationSec: 0.85, easing: "smooth" };
 
@@ -1337,6 +1357,537 @@ function carouselSlide(ctx: SceneCtx, textValue: string, m: ScreenMedia | undefi
 }
 
 // ---------------------------------------------------------------------------
+// Still slides (posts, carousels, thumbnails, store screenshot sets): one scene = one slide
+// ---------------------------------------------------------------------------
+
+/** Scene length of a still slide: only a slot on the Studio timeline (renders capture a 0.2 s slot). */
+export const STILL_SCENE_SEC = 3;
+
+/** Slide margins: the platform safe zone plus generous breathing room. */
+function stillMargins(f: Frame) {
+  const x = f.landscape ? Math.max(f.safe.left, 0.055) : Math.max(f.safe.left, 0.075);
+  const top = f.safe.top + (f.landscape ? 0.035 : 0.015);
+  const bottom = f.safe.bottom + 0.012;
+  return { x, top, bottom, w: 1 - 2 * x };
+}
+
+/** Text colours for a light (soft) slide or a deep brand-colour slide. */
+interface Tone {
+  deep: boolean;
+  text: string;
+  muted: string;
+  /** Emphasis colour for a headline's punch word. */
+  hl: string;
+  /** Eyebrow / page cue colour. */
+  eyebrow: string;
+  dot: string;
+  dotMuted: string;
+}
+
+function stillTone(ctx: SceneCtx, deep: boolean): Tone {
+  const t = ctx.theme;
+  if (!deep) return { deep, text: "theme.text", muted: "theme.textMuted", hl: "theme.accent", eyebrow: "theme.accent", dot: "theme.accent", dotMuted: `${norm(t.text)}2E` };
+  // A light brand colour keeps dark type (contrast first).
+  if (luminance(mix(t.accent, "#000000", 0.3)) > 0.32) return { deep, text: "#111113", muted: "#111113B3", hl: mix(t.accent, "#000000", 0.6), eyebrow: "#111113B3", dot: "#111113", dotMuted: "#1111134D" };
+  return { deep, text: "#FFFFFF", muted: "#FFFFFFC2", hl: mix(t.accent, "#FFFFFF", 0.58), eyebrow: "#FFFFFFB8", dot: "#FFFFFF", dotMuted: "#FFFFFF59" };
+}
+
+/**
+ * One background system for a whole set: inner slides are soft gradients from the brand colour that
+ * alternate subtly by slide (direction and tint), covers and end slides are the deep brand colour.
+ */
+function stillBackground(ctx: SceneCtx, deep: boolean): Scene["background"] {
+  const t = ctx.theme;
+  if (deep) return { kind: "gradient", colors: [mix(t.accent, "#000000", 0.04), mix(t.accent, "#000000", 0.52)], angle: 160, dim: 0 };
+  const odd = ctx.index % 2 === 1;
+  const tint = mix(t.accent, "#FFFFFF", odd ? 0.9 : 0.85);
+  return { kind: "gradient", colors: odd ? [t.background, tint] : [tint, t.background], angle: odd ? 200 : 160, dim: 0 };
+}
+
+/** A large soft light behind the content, on alternating sides of consecutive slides. */
+function stillGlow(ctx: SceneCtx, deep: boolean, at?: { x: number; y: number }, size = 0.95): Layer {
+  const odd = ctx.index % 2 === 1;
+  const p = at ?? { x: odd ? 0.16 : 0.84, y: odd ? 0.78 : 0.24 };
+  const l = glow(ctx, `${ctx.sceneId}_glow`, p.x, p.y, size, deep ? mix(ctx.theme.accent, "#FFFFFF", 0.4) : ctx.theme.accent);
+  l.box.opacity = deep ? 0.42 : 0.2;
+  l.animation = { loop: "none" };
+  return l;
+}
+
+/** Plain still text: no entrance (a still is captured as it stands). */
+function stillText(ctx: SceneCtx, suffix: string, value: string, b: ReturnType<typeof box>, o: Omit<TextOpts, "enter" | "exit" | "loop">): Layer {
+  return text(`${ctx.sceneId}_${suffix}`, value, b, o);
+}
+
+/** Small brand + page cues on inner carousel slides: the app name on the left, "2 / 6" on the right. */
+function pageHeader(ctx: SceneCtx, tone: Tone, opts: { name?: boolean } = {}): { layers: Layer[]; bottom: number } {
+  const { f, still } = ctx;
+  const m = stillMargins(f);
+  const size = Math.round(26 * f.u);
+  const h = (size * 1.5) / f.H;
+  const layers: Layer[] = [];
+  if (opts.name !== false) {
+    layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, m.top, m.w * 0.7, h, 4), { role: "label", size, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.1, uppercase: true }));
+  }
+  if (still?.paged) {
+    layers.push(stillText(ctx, "counter", `${ctx.index + 1} / ${ctx.count}`, box(1 - m.x - m.w * 0.25, m.top, m.w * 0.25, h, 4), { role: "label", size, weight: 600, font: "body", color: tone.muted, align: "right", letterSpacing: 0.02 }));
+  }
+  return { layers, bottom: layers.length ? m.top + h : m.top };
+}
+
+/** Page dots (the slide's place in the set). */
+function pageDots(ctx: SceneCtx, tone: Tone, x: number, y: number, align: "left" | "center" = "left", z = 4): Layer {
+  const { f } = ctx;
+  const d = Math.round(14 * f.u);
+  const w = Math.min(0.6, (ctx.count * d * 2.2 + d * 2) / f.W);
+  return {
+    id: `${ctx.sceneId}_dots`,
+    type: "block",
+    blockId: "page-dots",
+    params: { count: ctx.count, active: ctx.index + 1, color: tone.dot, inactive: tone.dotMuted, align },
+    box: box(align === "center" ? 0.5 - w / 2 : x, y, w, (d * 1.6) / f.H, z),
+    timing: { start: 0 },
+    animation: { loop: "none" },
+    locked: false,
+    hidden: false,
+  } as Layer;
+}
+
+/** The real screen in a device frame, sized by width (a phone may bleed past the bottom edge). */
+function stillDevice(ctx: SceneCtx, m: ScreenMedia, o: { cx: number; top: number; width: number; maxH?: number; rotation?: number; z?: number }): Layer {
+  const { f, app } = ctx;
+  const { device, aspect } = deviceFor(app, m.asset);
+  let b: ReturnType<typeof box>;
+  if (device === "tv" || device === "browser" || device === "macbook") {
+    b = centerTv(f, app, m.asset, deviceBox(f, app, m.asset, o.cx, o.top, o.maxH ?? 1 - o.top - f.safe.bottom, o.width, o.z ?? 2), 1 - f.safe.bottom);
+  } else {
+    let hFrac = (o.width * f.W) / aspect / f.H;
+    if (o.maxH && hFrac > o.maxH) hFrac = o.maxH;
+    b = deviceBox(f, app, m.asset, o.cx, o.top, hFrac, o.width, o.z ?? 2);
+  }
+  const l = screenLayer(ctx, `${ctx.sceneId}_device`, m, b, { loop: "none", rotation: o.rotation });
+  if (l.type === "device") l.name = "Device (real screen)";
+  return l;
+}
+
+/** A founder's SAM cut-out ready for a still: the clip, its person segmentation and where the person is in the frame. */
+interface FounderCut {
+  clip: MediaAsset;
+  seg: Segmentation;
+  /** The person's box in the clip (fractions). */
+  bbox: Region01;
+}
+
+function founderCutFor(ctx: SceneCtx): FounderCut | undefined {
+  for (const clip of ctx.picker.founderClips(ctx.sb)) {
+    const segs = ctx.segs
+      .filter((s) => s.sourceAssetId === clip.id && s.status === "succeeded" && !!s.cutoutAssetId && (s.trackingQuality ?? 1) >= 0.5)
+      // A phone-only cut-out is not the founder.
+      .filter((s) => PERSON.test(s.prompt) || !PHONE.test(s.prompt))
+      .sort((a, b) => Number(PERSON.test(b.prompt)) - Number(PERSON.test(a.prompt)));
+    const seg = segs[0];
+    if (!seg) continue;
+    const mean = ctx.analyses.flatMap((a) => (a.sourceAssetId === clip.id ? a.objects : [])).find((o) => o.segmentationId === seg.id)?.meanBbox;
+    const first = seg.objects.find((o) => o.bbox)?.bbox;
+    const raw = mean ?? first ?? { x: 0.2, y: 0.12, w: 0.6, h: 0.88 };
+    const bbox = { x: clamp01(raw.x), y: clamp01(raw.y), w: Math.max(0.05, Math.min(1, raw.w)), h: Math.max(0.1, Math.min(1, raw.h)) };
+    ctx.picker.take(clip);
+    return { clip, seg, bbox };
+  }
+  return undefined;
+}
+
+/**
+ * The founder cut-out placed by where the person is in their clip: the person is `height` of the
+ * frame tall, centred on `cx`, with their bottom edge at `bottom` (past 1 = cut by the slide's edge).
+ * The clip keeps its own aspect (never stretched); a mask that isn't usable at render hides the layer.
+ */
+function founderLayer(ctx: SceneCtx, cut: FounderCut, target: { cx: number; bottom: number; height: number; z?: number }): Layer {
+  const { f } = ctx;
+  const { clip, bbox: p } = cut;
+  const aspect = clip.width && clip.height ? clip.width / clip.height : 9 / 16;
+  const chPx = Math.min(2.9 * f.H, (target.height * f.H) / p.h);
+  const cwPx = Math.min(2.9 * f.W, chPx * aspect);
+  const top = (target.bottom * f.H - (p.y + p.h) * chPx) / f.H;
+  const left = (target.cx * f.W - (p.x + p.w / 2) * cwPx) / f.W;
+  const trimIn = clip.durationSec ? Math.min(1, clip.durationSec * 0.3) : 0;
+  return {
+    id: `${ctx.sceneId}_founder`,
+    name: "Founder (cut-out)",
+    type: "video",
+    assetId: clip.id,
+    fit: "cover",
+    trimInSec: r4(trimIn),
+    playbackRate: 1,
+    muted: true,
+    volume: 1,
+    radiusPx: 0,
+    mask: { segmentationId: cut.seg.id, mode: "cutout", objectIds: [], feather: 1, fallback: "hide" },
+    box: box(Math.max(-1, Math.min(2, left)), Math.max(-1, Math.min(2, top)), cwPx / f.W, chPx / f.H, target.z ?? 3),
+    timing: { start: 0 },
+    animation: { loop: "none" },
+    locked: false,
+    hidden: false,
+  } as Layer;
+}
+
+/** Headline + optional supporting line for a still (the storyboard's `body`, else "headline | body"). */
+function stillCopy(ctx: SceneCtx, value: string): { head: string; body: string } {
+  const parts = splitParts(value);
+  const head = parts[0] ?? value;
+  const body = (ctx.sb.body ?? parts.slice(1).join(" ")).trim();
+  return { head, body };
+}
+
+/** Thumbnail words: at most five (the first clause when it fits, else the first five words). */
+function thumbWords(t: string): string {
+  const words = t.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 5) return words.join(" ");
+  const clause = t.split(/(?<=[.!?:;—])\s+/)[0]!.trim();
+  if (clause.split(/\s+/).length <= 5) return clause;
+  return words.slice(0, 5).join(" ").replace(/[,;:—-]+$/, "");
+}
+
+/** Words carrying numbers in a claim ("4.8", "30%", "#1") get the accent colour. */
+const numberWords = (t: string) => t.split(/\s+/).filter((w) => /\d/.test(w)).slice(0, 6);
+
+/** Cover: the hook, big, with the founder's cut-out or the best real screen beside it; a swipe cue on carousels. */
+function slideCover(ctx: SceneCtx, value: string): Built {
+  const { f, sceneId, still } = ctx;
+  const { head, body } = stillCopy(ctx, value);
+  const tone = stillTone(ctx, true);
+  const m = stillMargins(f);
+  const cut = founderCutFor(ctx);
+  const screen = cut ? undefined : ctx.picker.screen(ctx.sb, "screenshot");
+  const media = !!(cut || screen);
+  const layers: Layer[] = [];
+  const eyeSize = Math.round(28 * f.u);
+  const eyeH = (eyeSize * 1.5) / f.H;
+  const paged = !!still?.paged;
+  const swipeSize = Math.round(28 * f.u);
+  const footH = paged ? (swipeSize * 1.5) / f.H + 0.012 + (14 * f.u * 1.6) / f.H : 0;
+  if (f.landscape) {
+    const tw = media ? 0.46 : m.w;
+    const fit = fitText(f, head, 116 * f.u, tw, { maxLines: 4, lineHeight: 1.02, min: 60 * f.u });
+    const bf = body ? fitText(f, body, 38 * f.u, tw, { maxLines: 2, lineHeight: 1.3 }) : null;
+    const blockH = eyeH + 0.025 + fit.h + (bf ? bf.h + 0.025 : 0);
+    let y = Math.max(m.top, 0.5 - blockH / 2);
+    layers.push(stillGlow(ctx, true, { x: 0.78, y: 0.4 }, 1.1));
+    layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
+    y += eyeH + 0.025;
+    layers.push(stillText(ctx, "headline", head, box(m.x, y, tw, fit.h, 5), { size: fit.size, weight: 790, color: tone.text, align: "left", lineHeight: 1.02, letterSpacing: -0.035, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+    y += fit.h + 0.025;
+    if (bf) layers.push(stillText(ctx, "body", body, box(m.x, y, tw, bf.h, 4), { role: "body", size: bf.size, weight: 500, font: "body", color: tone.muted, align: "left", lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    if (cut) layers.push(founderLayer(ctx, cut, { cx: 0.76, bottom: 1.03, height: 0.9 }));
+    else if (screen) layers.push(stillDevice(ctx, screen, { cx: 0.76, top: 0.12, width: 0.3, rotation: 6 }));
+    if (paged) {
+      const sy = 1 - m.bottom - footH;
+      layers.push(stillText(ctx, "swipe", "Swipe ›", box(m.x, sy, 0.3, (swipeSize * 1.5) / f.H, 4), { role: "label", size: swipeSize, weight: 600, font: "body", color: tone.muted, align: "left", letterSpacing: 0 }));
+      layers.push(pageDots(ctx, tone, m.x, sy + (swipeSize * 1.5) / f.H + 0.012));
+    }
+    return { template: "slide-cover", layers, background: stillBackground(ctx, true) };
+  }
+  // Portrait and square: eyebrow + headline at the top, the founder or a tilted phone bleeding off the bottom right.
+  const tall = f.H / f.W > 1.5;
+  const base = (tall ? 124 : f.portrait ? 112 : 100) * f.u;
+  const tw = m.w;
+  const fit = fitText(f, head, base, tw, { maxLines: media ? 3 : 4, lineHeight: 1.02, min: base * 0.6 });
+  const bf = body ? fitText(f, body, (tall ? 42 : 38) * f.u, media ? m.w * 0.62 : tw, { maxLines: 2, lineHeight: 1.3 }) : null;
+  let y = m.top;
+  if (!media) {
+    // Type only: the block sits a little above centre.
+    const blockH = eyeH + 0.03 + fit.h + (bf ? bf.h + 0.025 : 0);
+    y = Math.max(m.top, 0.46 - blockH / 2);
+  }
+  layers.push(stillGlow(ctx, true, { x: 0.82, y: media ? 0.7 : 0.3 }, 1.05));
+  layers.push(stillText(ctx, "eyebrow", ctx.app.name.slice(0, 40), box(m.x, y, tw, eyeH, 4), { role: "label", size: eyeSize, weight: 650, font: "body", color: tone.eyebrow, align: "left", letterSpacing: 0.12, uppercase: true }));
+  y += eyeH + (tall ? 0.018 : 0.025);
+  layers.push(stillText(ctx, "headline", head, box(m.x, y, tw, fit.h, 5), { size: fit.size, weight: 790, color: tone.text, align: "left", lineHeight: 1.02, letterSpacing: -0.035, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+  y += fit.h + (tall ? 0.015 : 0.022);
+  if (bf) {
+    layers.push(stillText(ctx, "body", body, box(m.x, y, media ? m.w * 0.62 : tw, bf.h, 4), { role: "body", size: bf.size, weight: 500, font: "body", color: tone.muted, align: "left", lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    y += bf.h;
+  }
+  const room = 1 - y;
+  if (cut) layers.push(founderLayer(ctx, cut, { cx: paged ? 0.64 : 0.6, bottom: 1.02, height: Math.max(0.42, Math.min(tall ? 0.6 : 0.66, room - 0.02)) }));
+  else if (screen) {
+    const top = y + (tall ? 0.04 : 0.055);
+    const width = tall ? 0.6 : f.portrait ? 0.5 : 0.42;
+    layers.push(stillDevice(ctx, screen, { cx: paged ? 0.66 : 0.6, top, width, rotation: 7 }));
+  }
+  if (paged) {
+    const sy = 1 - m.bottom - footH;
+    layers.push(stillText(ctx, "swipe", "Swipe ›", box(m.x, sy, 0.3, (swipeSize * 1.5) / f.H, 6), { role: "label", size: swipeSize, weight: 600, font: "body", color: tone.muted, align: "left", letterSpacing: 0 }));
+    layers.push(pageDots(ctx, tone, m.x, sy + (swipeSize * 1.5) / f.H + 0.012, "left", 6));
+  }
+  void sceneId;
+  return { template: "slide-cover", layers, background: stillBackground(ctx, true) };
+}
+
+/** One feature: headline + supporting line + the REAL screen in a device frame. */
+function slideFeature(ctx: SceneCtx, value: string, m: ScreenMedia | undefined): Built {
+  const { f } = ctx;
+  const { head, body } = stillCopy(ctx, value);
+  const tone = stillTone(ctx, false);
+  const mg = stillMargins(f);
+  const layers: Layer[] = [stillGlow(ctx, false)];
+  const header = pageHeader(ctx, tone);
+  layers.push(...header.layers);
+  if (f.landscape) {
+    const tw = m ? 0.42 : mg.w;
+    const fit = fitText(f, head, 92 * f.u, tw, { maxLines: 3, lineHeight: 1.04 });
+    const bf = body ? fitText(f, body, 36 * f.u, tw, { maxLines: 3, lineHeight: 1.32 }) : null;
+    const blockH = fit.h + (bf ? bf.h + 0.03 : 0);
+    let y = Math.max(header.bottom + 0.04, 0.5 - blockH / 2);
+    layers.push(stillText(ctx, "headline", head, box(mg.x, y, tw, fit.h, 5), { size: fit.size, weight: 760, align: "left", lineHeight: 1.04, letterSpacing: -0.03, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+    y += fit.h + 0.03;
+    if (bf) layers.push(stillText(ctx, "body", body, box(mg.x, y, tw, bf.h, 4), { role: "body", size: bf.size, weight: 500, font: "body", color: tone.muted, align: "left", lineHeight: 1.32, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    if (m) layers.push(stillDevice(ctx, m, { cx: 0.73, top: Math.max(0.1, header.bottom + 0.04), width: 0.4 }));
+    return { template: "slide-feature", layers, background: stillBackground(ctx, false) };
+  }
+  const tall = f.H / f.W > 1.5;
+  const fit = fitText(f, head, (tall ? 96 : f.portrait ? 84 : 76) * f.u, mg.w, { maxLines: tall ? 3 : 2, lineHeight: 1.04, min: 50 * f.u });
+  const bf = body ? fitText(f, body, (tall ? 42 : 36) * f.u, mg.w * 0.92, { maxLines: 2, lineHeight: 1.32 }) : null;
+  let y = header.layers.length ? header.bottom + (f.portrait ? 0.035 : 0.03) : mg.top + 0.01;
+  if (!m) {
+    const blockH = fit.h + (bf ? bf.h + 0.025 : 0);
+    y = Math.max(y, 0.47 - blockH / 2);
+  }
+  layers.push(stillText(ctx, "headline", head, box(mg.x, y, mg.w, fit.h, 5), { size: fit.size, weight: 760, lineHeight: 1.04, letterSpacing: -0.03, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+  y += fit.h + 0.012;
+  if (bf) {
+    layers.push(stillText(ctx, "body", body, box(0.5 - (mg.w * 0.92) / 2, y, mg.w * 0.92, bf.h, 4), { role: "body", size: bf.size, weight: 500, font: "body", color: tone.muted, lineHeight: 1.32, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    y += bf.h;
+  }
+  if (m) layers.push(stillDevice(ctx, m, { cx: 0.5, top: y + (f.portrait ? 0.04 : 0.035), width: tall ? 0.62 : f.portrait ? 0.5 : 0.42 }));
+  return { template: "slide-feature", layers, background: stillBackground(ctx, false) };
+}
+
+/** One VERIFIED claim, large, with where it comes from. No media; never an invented number. */
+function slideProof(ctx: SceneCtx, value: string): Built {
+  const { f } = ctx;
+  const tone = stillTone(ctx, false);
+  const mg = stillMargins(f);
+  const parts = value.split(/\s+[—–]\s+|\s*\|\s*/);
+  const claim = (parts[0] ?? value).trim();
+  const source = (ctx.sb.body ?? parts.slice(1).join(" — ")).trim();
+  const layers: Layer[] = [stillGlow(ctx, false, { x: 0.5, y: 0.45 }, 1.1)];
+  const header = pageHeader(ctx, tone);
+  layers.push(...header.layers);
+  const tw = f.landscape ? 0.74 : mg.w;
+  const tall = f.H / f.W > 1.5;
+  const fit = fitText(f, claim, (tall ? 104 : f.portrait ? 92 : f.landscape ? 96 : 84) * f.u, tw, { maxLines: 5, lineHeight: 1.1, min: 48 * f.u });
+  const srcSize = Math.round(30 * f.u);
+  const sf = source ? fitText(f, source, srcSize, tw, { maxLines: 2, lineHeight: 1.3 }) : null;
+  const barH = (10 * f.u) / f.H;
+  const blockH = barH + 0.045 + fit.h + (sf ? sf.h + 0.035 : 0);
+  let y = Math.max(header.bottom + 0.04, 0.48 - blockH / 2);
+  const barW = (110 * f.u) / f.W;
+  layers.push({ ...shape(`${ctx.sceneId}_mark`, "pill", box(0.5 - barW / 2, y, barW, barH, 4), "theme.accent"), name: "Accent mark" } as Layer);
+  y += barH + 0.045;
+  layers.push(stillText(ctx, "claim", claim, box(0.5 - tw / 2, y, tw, fit.h, 5), { role: "headline", size: fit.size, weight: 740, lineHeight: 1.1, letterSpacing: -0.028, highlight: { words: numberWords(claim), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+  y += fit.h + 0.035;
+  if (sf) layers.push(stillText(ctx, "source", source, box(0.5 - tw / 2, y, tw, sf.h, 4), { role: "label", size: sf.size, weight: 560, font: "body", color: tone.muted, lineHeight: 1.3, letterSpacing: 0.01, claimIds: ctx.sb.claimIds }));
+  return { template: "slide-proof", layers, background: stillBackground(ctx, false) };
+}
+
+/** Last slide: app icon, name, the call to action and plain-text store pills (none inside a store set). */
+function slideCta(ctx: SceneCtx, value: string): Built {
+  const { f, app, picker, brand, still } = ctx;
+  const deep = !still?.store;
+  const tone = stillTone(ctx, deep);
+  const mg = stillMargins(f);
+  const logo = picker.logo();
+  const cta = (value || brand?.preferredCtas[0] || "Download now").slice(0, 60);
+  const sub = (ctx.sb.body ?? "").trim();
+  const tall = f.H / f.W > 1.5;
+  const icon = Math.round((tall ? 300 : f.portrait ? 250 : 220) * f.u);
+  const nameSize = Math.round((tall ? 92 : f.portrait ? 80 : 72) * f.u);
+  const nameFit = fitText(f, app.name, nameSize, mg.w, { maxLines: 2, lineHeight: 1.08 });
+  const subFit = sub ? fitText(f, sub, (tall ? 42 : 36) * f.u, mg.w * 0.86, { maxLines: 2, lineHeight: 1.3 }) : null;
+  const ctaSize = Math.round((tall ? 46 : 40) * f.u);
+  const ctaFit = fitText(f, cta, ctaSize, 0.7, { maxLines: 1, lineHeight: 1.1, min: ctaSize * 0.75 });
+  const pad = Math.round(28 * f.u);
+  const ios = app.platforms.includes("ios") || !!app.storeUrls.ios;
+  const android = app.platforms.includes("android") || !!app.storeUrls.android;
+  const web = !ios && !android && !app.platforms.includes("tv") && (app.platforms.includes("web") || !!app.websiteUrl);
+  const pills = !still?.store && (ios || android || web);
+  const stack = pills && f.portrait && [ios, android, web].filter(Boolean).length > 1;
+  const pillsH = pills ? ((stack ? 230 : 118) * f.u) / f.H : 0;
+  const ctaH = ctaFit.h + (pad * 2) / f.H;
+  const gap = (44 * f.u) / f.H;
+  const blockH = (logo ? (icon * (deep ? 1.08 : 1)) / f.H + gap : 0) + nameFit.h + (subFit ? subFit.h + 0.01 : 0) + gap + ctaH + (pills ? gap * 1.2 + pillsH : 0);
+  const header = pageHeader(ctx, tone, { name: false });
+  const layers: Layer[] = [stillGlow(ctx, deep, { x: 0.5, y: 0.36 }, 1.15), ...header.layers];
+  let y = Math.max(header.bottom + 0.03, 0.49 - blockH / 2);
+  if (logo) {
+    if (deep) {
+      // A frosted plate behind the icon: an icon in the brand's own colour still stands off the slide.
+      const plate = Math.round(icon * 1.16);
+      layers.push({
+        ...shape(`${ctx.sceneId}_plate`, "rect", box(0.5 - plate / f.W / 2, y - (plate - icon) / 2 / f.H, plate / f.W, plate / f.H, 3), "#FFFFFF3D", { gradientTo: "#FFFFFF14", radiusPx: Math.round(plate * 0.25) }),
+        name: "Icon plate",
+      } as Layer);
+    }
+    layers.push({
+      id: `${ctx.sceneId}_icon`,
+      type: "image",
+      assetId: logo.id,
+      fit: "cover",
+      radiusPx: Math.round(icon * 0.225),
+      shadow: true,
+      box: box(0.5 - icon / f.W / 2, y, icon / f.W, icon / f.H, 4),
+      timing: { start: 0 },
+      animation: { loop: "none" },
+      locked: false,
+      hidden: false,
+    } as Layer);
+    y += icon / f.H + gap;
+  }
+  layers.push(stillText(ctx, "name", app.name, box(mg.x, y, mg.w, nameFit.h, 5), { size: nameFit.size, weight: 780, color: tone.text, lineHeight: 1.08, letterSpacing: -0.03 }));
+  y += nameFit.h;
+  if (subFit) {
+    y += 0.01;
+    layers.push(stillText(ctx, "sub", sub, box(0.5 - (mg.w * 0.86) / 2, y, mg.w * 0.86, subFit.h, 5), { role: "subhead", size: subFit.size, weight: 520, font: "body", color: tone.muted, lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    y += subFit.h;
+  }
+  y += gap;
+  const ctaW = Math.min(0.84, (Math.min(cta.length, 30) * ctaFit.size * 0.56 + pad * 3) / f.W);
+  const onDeep = tone.deep && tone.text === "#FFFFFF";
+  layers.push(
+    stillText(ctx, "cta", cta, box(0.5 - ctaW / 2, y, ctaW, ctaH, 5), {
+      role: "cta",
+      size: ctaFit.size,
+      weight: 660,
+      font: "body",
+      color: onDeep ? norm(mix(ctx.theme.accent, "#000000", 0.15)) : luminance(ctx.theme.accent) > 0.45 ? "#000000" : "#FFFFFF",
+      lineHeight: 1.1,
+      letterSpacing: -0.01,
+      background: { color: onDeep ? "#FFFFFF" : "theme.accent", paddingPx: pad, radiusPx: 200 },
+      claimIds: ctx.sb.claimIds,
+    }),
+  );
+  y += ctaH;
+  if (pills) {
+    y += gap * 1.2;
+    layers.push({
+      id: `${ctx.sceneId}_stores`,
+      type: "block",
+      blockId: "store-badges",
+      params: { ios, android, web, full: true, stack },
+      box: box(0.1, Math.min(y, 1 - mg.bottom - pillsH), 0.8, pillsH, 4),
+      timing: { start: 0 },
+      animation: { loop: "none" },
+      locked: false,
+      hidden: false,
+    } as Layer);
+  }
+  return { template: "slide-cta", layers, background: stillBackground(ctx, deep) };
+}
+
+/**
+ * YouTube thumbnail: at most five huge, heavy words in white on the deep brand colour (reads at
+ * 160 px wide), a bold accent disc, and the founder's cut-out or a real screen on the other half.
+ */
+function thumbnailBold(ctx: SceneCtx, value: string): Built {
+  const { f, theme } = ctx;
+  const words = thumbWords(splitParts(value)[0] ?? value);
+  const cut = founderCutFor(ctx);
+  const screen = cut ? undefined : ctx.picker.screen(ctx.sb, "screenshot");
+  const media = !!(cut || screen);
+  const mg = stillMargins(f);
+  const dark = mix(theme.accent, "#05050A", 0.8);
+  const darker = mix(theme.accent, "#000000", 0.93);
+  const pop = mix(theme.accent, "#FFFFFF", 0.12);
+  const hl = luminance(theme.accent) > 0.2 ? mix(theme.accent, "#FFFFFF", 0.2) : mix(theme.accent, "#FFFFFF", 0.45);
+  const layers: Layer[] = [];
+  const disc = (cx: number, cy: number, d: number) => {
+    const s = d * Math.min(f.W, f.H);
+    return { ...shape(`${ctx.sceneId}_accent`, "circle", box(cx - s / f.W / 2, cy - s / f.H / 2, s / f.W, s / f.H, 2), pop, { gradientTo: mix(theme.accent, "#000000", 0.25) }), name: "Accent disc" } as Layer;
+  };
+  if (f.landscape) {
+    const tw = media ? 0.47 : mg.w;
+    const fit = fitText(f, words, 196 * f.u, tw, { maxLines: 3, lineHeight: 0.98, min: 110 * f.u });
+    if (media) layers.push(disc(0.8, 0.56, 0.9));
+    layers.push(stillText(ctx, "headline", words, box(mg.x, 0.5 - fit.h / 2, tw, fit.h, 6), { size: fit.size, weight: 900, color: "#FFFFFF", align: "left", lineHeight: 0.98, letterSpacing: -0.04, shadow: true, highlight: { words: ctx.emphasis(words), color: hl }, claimIds: ctx.sb.claimIds }));
+    if (cut) layers.push(founderLayer(ctx, cut, { cx: 0.79, bottom: 1.02, height: 0.92, z: 4 }));
+    else if (screen) layers.push(stillDevice(ctx, screen, { cx: 0.79, top: 0.1, width: 0.27, rotation: 8, z: 4 }));
+  } else {
+    const fit = fitText(f, words, (f.portrait ? 170 : 150) * f.u, mg.w, { maxLines: 3, lineHeight: 0.98, min: 90 * f.u });
+    const y = mg.top + 0.01;
+    layers.push(stillText(ctx, "headline", words, box(mg.x, y, mg.w, fit.h, 6), { size: fit.size, weight: 900, color: "#FFFFFF", align: "left", lineHeight: 0.98, letterSpacing: -0.04, shadow: true, highlight: { words: ctx.emphasis(words), color: hl }, claimIds: ctx.sb.claimIds }));
+    const top = y + fit.h + 0.03;
+    if (media) layers.push(disc(0.6, Math.min(0.85, top + (1 - top) * 0.55), 0.95));
+    if (cut) layers.push(founderLayer(ctx, cut, { cx: 0.6, bottom: 1.02, height: Math.max(0.4, 1 - top), z: 4 }));
+    else if (screen) layers.push(stillDevice(ctx, screen, { cx: 0.6, top, width: f.portrait ? 0.52 : 0.42, rotation: 7, z: 4 }));
+  }
+  return { template: "thumbnail-bold", layers, background: { kind: "gradient", colors: [dark, darker], angle: 150, dim: 0 } };
+}
+
+/**
+ * App Store / Google Play screenshot: a short benefit headline (2 lines at most) on top, an optional
+ * supporting line, and the REAL screen very large below it in a device that may bleed off the bottom.
+ */
+function storeScreenshot(ctx: SceneCtx, value: string, m: ScreenMedia | undefined): Built {
+  const { f } = ctx;
+  const { head, body } = stillCopy(ctx, value);
+  const tone = stillTone(ctx, false);
+  const mg = stillMargins(f);
+  const layers: Layer[] = [];
+  if (f.landscape) {
+    const built = slideFeature(ctx, value, m);
+    return { ...built, template: "store-screenshot" };
+  }
+  const tall = f.H / f.W > 1.5;
+  const fit = fitText(f, head, (tall ? 100 : f.portrait ? 84 : 76) * f.u, mg.w, { maxLines: 2, lineHeight: 1.04, min: 54 * f.u });
+  const bf = body ? fitText(f, body, (tall ? 44 : 36) * f.u, mg.w * 0.9, { maxLines: 2, lineHeight: 1.3 }) : null;
+  let y = mg.top + (tall ? 0.025 : 0.02);
+  layers.push(stillGlow(ctx, false, { x: 0.5, y: tall ? 0.5 : 0.58 }, 1.1));
+  layers.push(stillText(ctx, "headline", head, box(mg.x, y, mg.w, fit.h, 5), { size: fit.size, weight: 770, lineHeight: 1.04, letterSpacing: -0.032, highlight: { words: ctx.emphasis(head), color: tone.hl }, claimIds: ctx.sb.claimIds }));
+  y += fit.h + 0.008;
+  if (bf) {
+    layers.push(stillText(ctx, "body", body, box(0.5 - (mg.w * 0.9) / 2, y, mg.w * 0.9, bf.h, 4), { role: "body", size: bf.size, weight: 500, font: "body", color: tone.muted, lineHeight: 1.3, letterSpacing: -0.005, claimIds: ctx.sb.claimIds }));
+    y += bf.h;
+  }
+  if (m) {
+    const top = y + (tall ? 0.03 : 0.035);
+    const aspect = deviceFor(ctx.app, m.asset).aspect;
+    // As large as the frame allows: the phone reaches just past the bottom edge, never wider than 86%.
+    const width = Math.min(tall ? 0.86 : 0.8, ((1.06 - top) * f.H * aspect) / f.W);
+    layers.push(stillDevice(ctx, m, { cx: 0.5, top, width: Math.max(0.5, width) }));
+  }
+  return { template: "store-screenshot", layers, background: stillBackground(ctx, false) };
+}
+
+/** The template a still slide uses: an explicit still template, else one chosen by the scene's purpose. */
+function stillTemplateFor(sb: StoryboardScene, set: StillSet, index: number): TemplateId {
+  const hasClaim = sb.claimIds.length > 0;
+  if (set.format === "thumbnail") return "thumbnail-bold";
+  if (isStillTemplate(sb.template)) {
+    const t = sb.template;
+    // Never a proof slide without a verified claim behind it.
+    if (t === "slide-proof" && !hasClaim) return set.store ? "store-screenshot" : "slide-feature";
+    // A store set shows the app in use on every slide (covers and features use the store layout).
+    if (set.store && (t === "slide-cover" || t === "slide-feature" || t === "thumbnail-bold" || t === "carousel-slide")) return "store-screenshot";
+    return t;
+  }
+  if (sb.purpose === "proof" && hasClaim) return "slide-proof";
+  if (sb.purpose === "cta") return "slide-cta";
+  if (set.store) return "store-screenshot";
+  switch (sb.purpose) {
+    case "hook":
+      return "slide-cover";
+    case "feature":
+    case "demo":
+    case "problem":
+    case "proof":
+      return "slide-feature";
+    default:
+      return index === 0 ? "slide-cover" : "slide-feature";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
 
@@ -1390,27 +1941,45 @@ function audioLabel(a: MediaAsset | undefined, kind: "music" | "voiceover", vo: 
   return "user_upload";
 }
 
+/**
+ * Storyboard → CompositionDoc. A still storyboard (`storyboard.format` other than "video": a post,
+ * carousel, thumbnail or store screenshot set) becomes a still doc: its kind from the format
+ * (`docKindOf`), the storyboard's frame, one still template per scene (by purpose when the scene's
+ * template isn't a still one), fixed short scene slots, no transitions, captions or audio.
+ * `kind` / `aspectRatio` override (aspect variants, older callers).
+ */
 export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRatio; kind?: CompositionDoc["kind"] }): CompositionDoc {
   const { storyboard, app, brand } = input;
+  const format: OutputFormat = storyboard.format ?? "video";
   const ar = input.aspectRatio ?? storyboard.aspectRatio;
   const f = frameFor(ar);
   const theme = themeFromBrand(brand);
   const picker = new AssetPicker(input.assets, brand, app, input.recordingSegments ?? []);
   const segs = input.segmentations ?? [];
-  const kind = input.kind ?? "video";
+  const kind = input.kind ?? (format !== "video" ? docKindOf(format) : "video");
   const ordered = [...storyboard.scenes].sort((a, b) => a.order - b.order);
+  // Stills: what the set is. A store set is a store_screenshots storyboard (or a still doc in the store frame).
+  const stillFormat: OutputFormat | null = kind === "video" ? null : format !== "video" ? format : kind === "static" ? "post" : "carousel";
+  const set: StillSet | undefined = stillFormat
+    ? { format: stillFormat, store: stillFormat === "store_screenshots" || ar === "9:19.5", paged: stillFormat !== "store_screenshots" && ar !== "9:19.5" && kind === "carousel" && ordered.length > 1 }
+    : undefined;
+  // A store set shows the phone of its store: an Android phone for Google Play, an iPhone for the
+  // App Store (deviceFor picks the phone from the app's platforms).
+  const storePhone = set?.store ? (storyboard.store === "android" || (!storyboard.store && ar === "9:16") ? "android" : "ios") : null;
+  const frameApp: App =
+    storePhone === "android" ? { ...app, platforms: [...app.platforms.filter((x) => x !== "ios"), ...(app.platforms.includes("android") ? [] : ["android" as const])] } : storePhone === "ios" && !app.platforms.includes("ios") ? { ...app, platforms: [...app.platforms, "ios"] } : app;
   const clipCursor = new Map<string, number>();
   const scenes: Scene[] = [];
   let prevTemplate: TemplateId | undefined;
   ordered.forEach((sb, index) => {
     const sceneId = `sc_${sb.id}`.slice(0, 100);
-    const ctx: SceneCtx = { f, theme, app, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords, analyses: input.clipAnalyses ?? [], clipCursor, durationSec: Math.max(0.5, Math.min(60, sb.durationSec)) };
+    const ctx: SceneCtx = { f, theme, app: frameApp, brand, picker, segs, sb, sceneId, index, count: ordered.length, emphasis: emphasisWords, analyses: input.clipAnalyses ?? [], clipCursor, durationSec: Math.max(0.5, Math.min(60, sb.durationSec)), still: set };
     const requested = ((TEMPLATE_IDS as readonly string[]).includes(sb.template) ? sb.template : null) as TemplateId | null;
     const fallbackText = sb.onScreenText.trim() || (sb.purpose === "cta" ? "" : app.tagline || app.name);
-    const t = kind === "video" ? (requested ?? defaultTemplate(sb)) : "carousel-slide";
+    const t = kind === "video" ? (requested ?? defaultTemplate(sb)) : stillTemplateFor(sb, set!, index);
     const built = buildScene(ctx, t, fallbackText);
     for (const l of built.layers) if (!l.name) l.name = layerName(l.id.slice(sceneId.length + 1), l);
-    const durationSec = Math.max(0.5, Math.min(60, kind === "video" ? sb.durationSec : Math.max(1, sb.durationSec)));
+    const durationSec = Math.max(0.5, Math.min(60, kind === "video" ? sb.durationSec : STILL_SCENE_SEC));
     scenes.push({
       id: sceneId,
       name: `${index + 1}. ${sb.purpose[0]!.toUpperCase()}${sb.purpose.slice(1)}`.slice(0, 80),
@@ -1461,7 +2030,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   return v.doc;
 }
 
-const NAMES: Record<string, string> = { glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", media1: "Media 1", media2: "Media 2", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", sub: "Subline", cta: "Call to action", stores: "Store badges", body: "Body", caption: "Caption" };
+const NAMES: Record<string, string> = { plate: "Icon plate", counter: "Slide number", dots: "Slide dots", swipe: "Swipe cue", claim: "Claim", accent: "Accent shape", glow: "Glow", glow1: "Glow", glow2: "Glow 2", eyebrow: "Eyebrow", headline: "Headline", device: "Device", device1: "Device (before)", device2: "Device (after)", media: "Background media", media1: "Media 1", media2: "Media 2", scrim: "Scrim", founder: "Founder", tap: "Tap hint", mark: "Quote mark", quote: "Quote", source: "Source", stat: "Stat", label: "Label", label1: "Label 1", label2: "Label 2", icon: "App icon", name: "App name", sub: "Subline", cta: "Call to action", stores: "Store badges", body: "Body", caption: "Caption" };
 
 function layerName(suffix: string, l: Layer): string {
   if (NAMES[suffix]) return NAMES[suffix]!;
@@ -1564,13 +2133,19 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
     case "store-cta":
       return ctaEndcard(ctx, txt, true);
     case "carousel-slide":
-    case "slide-cover":
-    case "slide-feature":
-    case "slide-proof":
-    case "slide-cta":
-    case "thumbnail-bold":
-    case "store-screenshot":
       return carouselSlide(ctx, textOr(ctx.app.name), picker.screen(sb));
+    case "slide-cover":
+      return slideCover(ctx, textOr(ctx.app.tagline || ctx.app.name));
+    case "slide-feature":
+      return slideFeature(ctx, textOr(ctx.app.name), picker.screen(sb, "screenshot"));
+    case "slide-proof":
+      return slideProof(ctx, textOr(ctx.app.name));
+    case "slide-cta":
+      return slideCta(ctx, txt);
+    case "thumbnail-bold":
+      return thumbnailBold(ctx, textOr(ctx.app.tagline || ctx.app.name));
+    case "store-screenshot":
+      return storeScreenshot(ctx, textOr(ctx.app.name), picker.screen(sb, "screenshot"));
     case "presenter-depth":
     case "object-spotlight":
     case "product-in-hand":
