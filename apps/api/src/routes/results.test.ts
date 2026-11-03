@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { handlers as analyticsHandlers, installAnalyticsHooks, installMemoryApi } from "@muselaunch/analytics";
+import * as agentsT from "@muselaunch/agents/testing";
 import { createTestPlatform } from "@muselaunch/platform";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app";
+import experimentResultsFixture from "../fixture-routes/experiment-results";
+import type { FixtureHelpers } from "../fixture-routes/_types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type J = any;
@@ -151,5 +154,53 @@ describe("Results (GET /insights/results)", () => {
     const narrow = await ctx.alice.get(`${ctx.R}?from=2026-10-22&to=2026-10-22`);
     expect(narrow.body.postsPublished.value).toBe(1);
     expect(narrow.body.bestPost).toMatchObject({ publicationId: a.pub.id, value: 2400 });
+  });
+
+  it("fixture mode: a test where every version has its number gets a measured, validated sentence (what the Results tip reads)", async () => {
+    const ctx = await setup();
+    const helpers = { ...agentsT, idsIn: () => [], loopRoute: () => () => undefined } as unknown as FixtureHelpers;
+    const routes = experimentResultsFixture(helpers).meta!;
+    const fake = agentsT.installFakeMeta(ctx.p, routes);
+    const pubs: string[] = [];
+    for (const [i, v] of [30, 40, 100, 60].entries()) {
+      const { pub } = await publishedPost(ctx, { caption: `Post ${i + 1}`, publishedAt: `2026-10-2${i}T10:00:00.000Z` });
+      const add = await ctx.alice.post(`${ctx.W}/apps/${ctx.appId}/observations`, {
+        metric: "clicks",
+        value: v,
+        windowStart: `2026-10-2${i}T00:00:00.000Z`,
+        windowEnd: `2026-10-2${i + 1}T00:00:00.000Z`,
+        publicationId: pub.id,
+        attribution: "platform_reported",
+        definition: "Link-in-bio clicks from post insights",
+      });
+      expect(add.status).toBe(201);
+      pubs.push(pub.id);
+    }
+    const exp = await ctx.alice.post(`${ctx.W}/apps/${ctx.appId}/experiments`, {
+      title: "Feature demo vs problem hook",
+      hypothesis: "Showing one feature gets more link clicks",
+      variants: [
+        { key: "a", label: "Problem hook", publicationIds: pubs.slice(0, 2), isControl: true },
+        { key: "b", label: "Feature demo", publicationIds: pubs.slice(2) },
+      ],
+      primaryMetric: "clicks",
+      status: "running",
+    });
+    expect(exp.status).toBe(201);
+    await ctx.alice.post(`${ctx.W}/experiments/${exp.body.experiment.id}/analyze`);
+    await ctx.p.inline!.drain();
+    expect(fake.requests).toHaveLength(1);
+    const result = (await ctx.alice.get(`${ctx.W}/experiments/${exp.body.experiment.id}`)).body.results[0];
+    expect(result).toMatchObject({ confidence: "low", measured: [{ text: "Fixture: Feature demo got 160 link clicks; Problem hook got 70." }] });
+    expect(result.measured[0].observationIds).toHaveLength(4);
+    expect(result.validation).toMatchObject({ droppedMeasured: 0, movedToHypotheses: 0 });
+    // Without every version's number the route steps aside (the built-in "insufficient data" fixture answers).
+    const totals = JSON.stringify([
+      { key: "a", metrics: [{ metric: "clicks", value: 3 }] },
+      { key: "b", metrics: [{ metric: "clicks", value: null }] },
+    ]);
+    const text = ["Primary metric: clicks (Link clicks)", "Variants: a (control): A; b: B", `Per-variant totals computed by MuseLaunch (x):\n${totals}`].join("\n\n");
+    const partial = { text: { format: { name: "ExperimentAnalysis" } }, input: [{ content: [{ type: "input_text", text }] }] };
+    expect(routes[0]!(partial, 0)).toBeUndefined();
   });
 });
