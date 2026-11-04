@@ -1,5 +1,5 @@
 import { ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type AspectRatio, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
-import { CTA_TEMPLATES, DEVICE_TEMPLATES, isLandscapeMedia, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT } from "@muselaunch/compositions";
+import { BUNDLED_FONTS, CTA_TEMPLATES, DEVICE_TEMPLATES, isLandscapeMedia, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT, TYPEFACE_NAMES } from "@muselaunch/compositions";
 import { AppError, assertKeyInWorkspace, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { imagePart, runSam, untrusted, type InputPart } from "@muselaunch/providers";
 import sharp from "sharp";
@@ -41,14 +41,15 @@ export const StoryboardOutput = z.object({
           .max(4)
           .default([]),
         claimIds: z.array(z.string()).max(5).default([]),
-        focus: Box01.optional().describe("focus-zoom / tap-demo: the UI element to push in on; fullscreen-recording: the action to keep in view. As fractions (0-1) of the attached image of this scene's media"),
-        focusQuery: z.string().max(120).optional().describe("focus-zoom / tap-demo when you cannot point precisely: a short noun phrase naming the element, e.g. 'save button'"),
+        focus: Box01.optional().describe("focus-zoom / tap-demo: the UI element to push in on; ui-popout: the element that lifts off the screen; fullscreen-recording: the action to keep in view. As fractions (0-1) of the attached image of this scene's media"),
+        focusQuery: z.string().max(120).optional().describe("focus-zoom / tap-demo / ui-popout when you cannot point precisely: a short noun phrase naming the element, e.g. 'save button'"),
       }),
     )
     .min(2)
     .max(18),
   voiceover: z.object({ source: z.enum(["none", "founder_recording", "tts"]), script: z.string().max(4000).optional() }),
   music: z.object({ mood: z.string().max(120).optional() }).default({}),
+  typeface: z.enum(TYPEFACE_NAMES).optional().describe("Headline typeface for this video, from the list given"),
 });
 type StoryboardOutput = z.infer<typeof StoryboardOutput>;
 type OutScene = StoryboardOutput["scenes"][number];
@@ -59,7 +60,7 @@ const SUPPORT_KINDS = new Set(["generated_image", "stock_video", "stock_image"])
 const PROOF_TEMPLATES = new Set<TemplateId>(["quote-proof", "stat-card"]);
 /** Object-aware templates need real presenter footage (SAM tracks it); never generated media. */
 const OBJECT_TEMPLATES = new Set<TemplateId>(["presenter-depth", "object-spotlight", "product-in-hand"]);
-const FOCUS_TEMPLATES = new Set<TemplateId>(["focus-zoom", "tap-demo"]);
+const FOCUS_TEMPLATES = new Set<TemplateId>(["focus-zoom", "tap-demo", "ui-popout"]);
 const TEXT_TEMPLATES = new Set<TemplateId>(["hook-title", "kinetic-type"]);
 /** Cards with no app on screen. */
 const TYPE_ONLY = new Set<TemplateId>(["hook-title", "kinetic-type", "icon-reveal"]);
@@ -406,7 +407,18 @@ function pacingProblems(scenes: OutScene[], target: number, long: boolean, hasPr
   return out;
 }
 
-type PolishContext = Pick<StoryboardCheckContext, "targetDurationSec" | "aspectRatio"> & { assets?: StoryboardCheckContext["assets"] };
+type PolishContext = Pick<StoryboardCheckContext, "targetDurationSec" | "aspectRatio"> & { assets?: StoryboardCheckContext["assets"]; segments?: StoryboardCheckContext["segments"] };
+
+/** The opening that stops the scroll: the walkthrough segment (or raw screenshot) most worth showing first. */
+export function openingMedia(c: PolishContext): Hint | undefined {
+  const segs = [...(c.segments?.values() ?? [])].filter((s) => !c.assets || c.assets.has(s.assetId));
+  // A clear, high-quality moment where something happens (not a wait, not personal info to blur).
+  const score = (s: RecordingSegment) => s.quality + (s.action === "wait" || s.action === "other" ? -0.3 : 0) + (s.privacy.flagged ? -0.15 : 0) + (s.featureIds.length ? 0.1 : 0);
+  const best = segs.sort((a, b) => score(b) - score(a))[0];
+  if (best && best.quality >= 0.5) return { kind: "app_recording", assetId: best.assetId, segmentId: best.id, featureId: best.featureIds[0] };
+  const shot = [...(c.assets?.values() ?? [])].find((a) => isTruth(a) && a.kind === "image" && !isMarketing(a));
+  return shot ? { kind: "screenshot", assetId: shot.id } : undefined;
+}
 
 /**
  * Landscape footage in a tall or square frame: a TV or browser there is small in a lot of empty space,
@@ -455,6 +467,15 @@ export function polishStoryboard(input: StoryboardOutput["scenes"], c: PolishCon
   const target = c.targetDurationSec ?? scenes.reduce((n, s) => n + s.durationSec, 0);
   const long = target >= 30;
   const hook = scenes[0];
+  // Open on real footage, not a text card, when there is real product media to show.
+  if (hook && TEXT_TEMPLATES.has(hook.template) && !hook.assets.some((h) => SUPPORT_KINDS.has(h.kind))) {
+    const media = openingMedia(c);
+    if (media) {
+      fixes.push(`Scene 1: ${hook.template} → hook-footage (opens on real footage: ${media.segmentId ?? media.assetId})`);
+      hook.template = "hook-footage";
+      hook.assets = [media, ...hook.assets.filter((h) => !PRODUCT_KINDS.has(h.kind))].slice(0, 4);
+    }
+  }
   if (hook && countWords(hook.onScreenText) > HOOK_MAX_WORDS) {
     const clause = hook.onScreenText.split(/(?<=[.!?:;—])\s+/)[0]!.trim();
     const short = countWords(clause) <= HOOK_MAX_WORDS ? clause : hook.onScreenText.split(/\s+/).slice(0, HOOK_MAX_WORDS).join(" ").replace(/[,;:—-]+$/, "");
@@ -603,12 +624,15 @@ Story arc, in this order: hook → problem → demo (the app solving it) → fea
 
 Editing rules:
 - Scene 1 is also the thumbnail: its hook text and key visual are on screen from the very first frame.
-- Vary shot sizes like an editor: wide device shots (device-demo, phone-tilt, feature-callout), close-ups (focus-zoom, tap-demo), type (kinetic-type, hook-title) and full-bleed (fullscreen-showcase, text-over-media, fullscreen-recording). Never use the same template more than twice in a row; a video of 30 s or more uses at least 5 different templates and at least one close-up.
+- Open on real footage: scene 1 uses hook-footage with the most striking real moment (a walkthrough segment where something visibly happens or a result appears; else the best raw screenshot) and the hook text over it. Use hook-title only when there is no real product media.
+- Typeface: pick one headline typeface for the whole video from the list (match the app's category and the concept's mood; Inter when unsure).
+- Vary shot sizes like an editor: wide device shots (device-demo, phone-tilt, feature-callout), close-ups (focus-zoom, tap-demo, ui-popout), type (kinetic-type, hook-title) and full-bleed (fullscreen-showcase, text-over-media, fullscreen-recording). Never use the same template more than twice in a row; a video of 30 s or more uses at least 5 different templates and at least one close-up.
 - Landscape footage (TV, desktop and web apps and games; marked "landscape" in the media list): in a tall 9:16 or square frame a TV or browser is small with a lot of empty space around it. Mix fullscreen-recording scenes (the footage itself fills the frame, cropped around the action; give focus on the attached image to keep the action in view) with device scenes, and keep at least one device scene for the "it runs on your TV / computer" moment. Footage is cropped, never stretched. Phone apps (portrait media) never use fullscreen-recording.
 - Reading pace: about 3 words per second of on-screen text, after a ~0.6 s entrance (a 6-word line needs at least 2.6 s). onScreenText ≤ 8 words per scene (hook ≤ 5); put anything longer in the narration.
 - Scene lengths 2–5 s (hook 1.5–2.5 s, CTA 2.5–4 s); durations should add up to the target.
 - Use each real media item at most once per video. Only when there are fewer items than demo scenes, reuse one with a different focus region (focus-zoom on another part of the screen).
 - focus-zoom / tap-demo: look at the attached image of the media item and give focus {x,y,w,h} as fractions (0–1) of that image, tight around the UI element that proves the point (a button, a list row, a result). If you cannot point precisely, give focusQuery (a short noun phrase such as "save button") instead.
+- ui-popout: the same focus box, around ONE self-contained element worth lifting toward the viewer (an analytics card, a chart, a stat tile, a pricing card, a floating nav bar). It must be readable on its own and not cut by the screen edge; at most one ui-popout per video, ideally on a screenshot or a calm walkthrough segment.
 - Walkthrough segments: hint {kind:"app_recording", segmentId:"<ref>"}. Screenshots and cut-outs: {kind:"screenshot", assetId:"<ref>"}.
 - Marketing screenshots (FULL SCREEN ONLY) already have their own phone frame and headline: only in fullscreen-showcase, never inside a device template. Their app-screen cut-outs go in device templates.
 - generated_image / stock_* hints are only for supporting visuals (moods, people, settings) and need a query; they never depict the app UI.
@@ -785,6 +809,9 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       "Allowlisted templates:",
       templateGuide(),
       "",
+      "Typefaces (headline face for this video):",
+      ...BUNDLED_FONTS.map((f) => `- ${f.name}: ${f.mood}`),
+      "",
       `Real product media (ref | kind | what it shows | features | where it may appear | attached image). ${demoMedia} item(s) can go in a device frame: use each at most once.`,
       options.length ? options.map((o) => optionLine(o, imageNo.get(o.ref), crops, landscapeOf(o))).join("\n") : "- (no product media uploaded; avoid device and close-up templates)",
       parts.length ? "\nImages attached, in order (point focus boxes into these):" : "",
@@ -817,6 +844,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: claimTexts(check.scenes), onFallback: fallbackTo(rec) });
     }
     const polished = polishStoryboard(check.scenes, checkCtx, brief?.cta || dna.preferredCtas[0] || `Get ${app.app.name}`);
+    const typeface = out.data.typeface && (TYPEFACE_NAMES as readonly string[]).includes(out.data.typeface) ? out.data.typeface : undefined;
     const fixes = [...check.fixes, ...polished.fixes];
     if (fixes.length) await rec.step({ kind: "decision", title: "Deterministic storyboard fixes", output: fixes });
     await rec.step({ kind: "decision", title: claimCheck.ok ? "Claim check passed" : `Claim check: ${claimCheck.issues.length} issue(s) for review`, status: claimCheck.ok ? "succeeded" : "failed", output: claimCheck.issues });
@@ -869,7 +897,7 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
     if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: `No AI voice for this video (${noAiVoice || "no narration lines were written"}): narration kept in the storyboard, not spoken` });
     const storyboard = (
       await ws.collection("storyboards").createIfAbsent(
-        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music, generatedByRunId: rec.id },
+        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music, ...(typeface ? { typeface } : {}), generatedByRunId: rec.id },
         { actor: ctx.actor },
       )
     ).entity;

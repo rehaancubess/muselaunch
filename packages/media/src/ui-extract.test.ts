@@ -72,7 +72,12 @@ describe("media.extract_ui (Muse Spark sorts screenshots, SAM 3.1 cuts out the a
       // Spark sees each image with its pixel hint; this fake follows the hint (the real model decides from the image).
       spark: (body) => {
         expect(schemaOf(body)).toBe("ScreenshotKinds");
-        const images = [...textOf(body).matchAll(/^Image \d+: asset (\S+) .* Heuristic: (.*)$/gm)].map((m) => ({ assetId: m[1]!, kind: /device frame/.test(m[2]!) ? "marketing" : "raw_ui", reason: "Fixture" }));
+        // The store image shows a secret key inside its app screen (100..250 × 400..430 px of 393×852).
+        const secret = { flagged: true, notes: "Stripe secret key", regions: [{ x: 100 / 393, y: 400 / 852, w: 150 / 393, h: 30 / 852 }] };
+        const images = [...textOf(body).matchAll(/^Image \d+: asset (\S+) .* Heuristic: (.*)$/gm)].map((m) => {
+          const store = /device frame/.test(m[2]!);
+          return { assetId: m[1]!, kind: store ? "marketing" : "raw_ui", reason: "Fixture", privacy: store ? secret : { flagged: false, regions: [] } };
+        });
         return { images };
       },
       samOutput: (body) => {
@@ -119,6 +124,12 @@ describe("media.extract_ui (Muse Spark sorts screenshots, SAM 3.1 cuts out the a
     const ws = p.db.ws(wid).collection("mediaAssets");
     expect((await ws.getOrThrow(raw.id)).screenshotKind).toBe("raw_ui");
     expect((await ws.getOrThrow(marketing.id)).screenshotKind).toBe("marketing");
+    // The same Spark look checked both for private details (the prompt names secrets explicitly).
+    expect(textOf(sparkCalls[0]!.json!).length).toBeGreaterThan(0);
+    expect(JSON.stringify(sparkCalls[0]!.json!.instructions)).toContain("API keys and tokens");
+    expect((await ws.getOrThrow(raw.id)).privacy).toMatchObject({ flagged: false, regions: [], scannedBy: "muse-spark-1.3" });
+    expect((await ws.getOrThrow(marketing.id)).privacy).toMatchObject({ flagged: true, notes: "Stripe secret key", regions: [{ x: 0.2545 }] });
+    expect(done.output?.data).toMatchObject({ privacyFlagged: 1 });
     const crops = (await ws.list({ where: [["appId", "==", appId]], limit: 50 })).items.filter((a) => a.sourceLabel === "sam_ui_crop");
     expect(crops).toHaveLength(1);
     const crop = crops[0]!;
@@ -135,6 +146,12 @@ describe("media.extract_ui (Muse Spark sorts screenshots, SAM 3.1 cuts out the a
       width: 238, // the lavfi test image is 392 px wide (yuv420p rounding); SAM boxes are scaled from its 393 px frame
       height: 548,
     });
+    // The cut-out inherits the secret's region, re-expressed in its own frame.
+    expect(crop.privacy?.flagged).toBe(true);
+    const cr = crop.privacy!.regions[0]!;
+    expect(cr.x).toBeCloseTo(0.1, 1);
+    expect(cr.y).toBeCloseTo(0.25, 1);
+    expect(cr.w).toBeCloseTo(150 / 238, 1);
     // The cut-out holds the app screen (light UI), with transparent rounded corners and no bezel or background.
     const file = join(dir, "crop.png");
     await p.storage.downloadToFile(crop.storagePath, file);

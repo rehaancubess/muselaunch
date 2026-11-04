@@ -23,6 +23,8 @@ const SHOT_NOTES: Partial<Record<TemplateId, string>> = {
   "focus-zoom": "push-in on one element of the real screen",
   "tap-demo": "finger tap with ripple on the real screen",
   "phone-tilt": "3D phone turn over a parallax background",
+  "ui-popout": "one real UI card lifts off the screen in 3D (parallax depth)",
+  "hook-footage": "opens on the app's most striking real moment, full screen",
   "kinetic-type": "word-by-word typography",
   "icon-reveal": "app icon scale-in with glow",
   "fullscreen-showcase": "designed store screenshot, full-bleed slow push",

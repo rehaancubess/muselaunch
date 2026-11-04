@@ -407,3 +407,22 @@ describe("storyboard.generate (30–60 s)", () => {
     expect(requestText(req)).not.toContain("SECRET other tenant segment");
   });
 });
+
+describe("footage-first opening and typeface", () => {
+  it("turns a text-card hook into hook-footage on the strongest real moment, and keeps text cards without media", () => {
+    const c = ctx(30);
+    c.segments = new Map([seg("rsg_wait", { quality: 0.95, action: "wait" }), seg("rsg_best", { quality: 0.85, action: "tap", featureIds: ["feat_a"] }), seg("rsg_low", { quality: 0.3 })].map((s) => [s.id, s]));
+    const r = checkStoryboard(out([sc("kinetic-type", { purpose: "hook", onScreenText: "Receipts, sorted" }), sc("device-demo", { assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }), sc("store-cta", { purpose: "cta", onScreenText: "Get it" })]), c);
+    const pol = polishStoryboard(r.scenes, c, "Get it");
+    expect(pol.scenes[0]).toMatchObject({ template: "hook-footage", onScreenText: "Receipts, sorted", assets: [{ kind: "app_recording", segmentId: "rsg_best" }] });
+    expect(pol.fixes.some((f) => f.includes("hook-footage"))).toBe(true);
+
+    const bare = polishStoryboard(out([sc("hook-title", { purpose: "hook", onScreenText: "Receipts, sorted" }), sc("store-cta", { purpose: "cta" })]).scenes, { targetDurationSec: 10 }, "Get it");
+    expect(bare.scenes[0]!.template).toBe("hook-title");
+  });
+
+  it("accepts a typeface from the bundled list only", () => {
+    expect(StoryboardOutput.parse({ title: "T", scenes: [sc("hook-title"), sc("store-cta", { purpose: "cta" })], voiceover: { source: "none" }, typeface: "Fraunces" }).typeface).toBe("Fraunces");
+    expect(() => StoryboardOutput.parse({ title: "T", scenes: [sc("hook-title"), sc("store-cta", { purpose: "cta" })], voiceover: { source: "none" }, typeface: "Papyrus" })).toThrow();
+  });
+});

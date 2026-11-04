@@ -7,7 +7,7 @@ import { brandReviewHandler } from "./guardian";
 import { appImportHandler } from "./import/handler";
 import { memoryIngestHandler } from "./memory";
 import { researchRunHandler } from "./research/handler";
-import { videoReviewHandler } from "./review";
+import { videoAutofixHandler, videoReviewHandler } from "./review";
 import { storyboardHandler } from "./storyboard";
 import { strategyRunHandler } from "./strategy";
 
@@ -46,4 +46,5 @@ export const handlers: HandlerRegistry = {
   "memory.ingest": memoryIngestHandler,
   "brand.review": brandReviewHandler,
   "video.review": videoReviewHandler,
+  "video.autofix": videoAutofixHandler,
 };

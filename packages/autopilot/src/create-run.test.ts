@@ -76,6 +76,14 @@ describe("Create runs: where a run stands (stored records only)", () => {
     expect(view).toMatchObject({ stage: "check", pct: 75 });
     expect(view.next).toEqual({ kind: "final", compositionId: "cmp_v", version: 2 });
     expect(stepKeyOf(view.next!)).toBe("final:cmp_v:v2");
+    // Muse Spark's automatic preview check (review / fix / its step job): the final render waits for the fixed version.
+    for (const type of ["video.autofix", "video.review", "composition.edit"]) {
+      const checking = deriveRun({ ...base, variants: chosen, compositions: [comp], jobs: [job("c", type, "running", { compositionId: "cmp_v" })] });
+      expect(checking).toMatchObject({ stage: "make", working: true, next: null, detail: "Muse Spark is checking the preview" });
+    }
+    // Another video's check doesn't hold this one; a finished check doesn't either.
+    expect(deriveRun({ ...base, variants: chosen, compositions: [comp], jobs: [job("c", "video.review", "running", { compositionId: "cmp_other" })] }).next?.kind).toBe("final");
+    expect(deriveRun({ ...base, variants: chosen, compositions: [comp], jobs: [job("c", "video.autofix", "succeeded", { compositionId: "cmp_v" })] }).next?.kind).toBe("final");
     const rendering = job("f", "render.final", "running", { compositionId: "cmp_v" }, { progress: { pct: 50, stage: "rendering video" } });
     expect(deriveRun({ ...base, variants: chosen, compositions: [comp], jobs: [rendering] })).toMatchObject({ stage: "finish", pct: 90, detail: "rendering video" });
     const finals = [{ id: "ast_r", status: "ready", kind: "video", role: "render", render: { compositionId: "cmp_v", quality: "final", version: 2 } }];

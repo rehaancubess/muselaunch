@@ -344,6 +344,7 @@ function toUserContent(input: string | InputPart[]): { content: string | ChatPar
       text += `${part.text}\n`;
       continue;
     }
+    if (part.type === "input_file") throw new AppError("BAD_REQUEST", "Muse Spark Open does not read documents; PDFs go to Muse Spark");
     if (part.file_id || !part.image_url) throw new AppError("BAD_REQUEST", "Muse Spark Open takes images as URLs or data URLs, not Meta file ids");
     images++;
     parts.push({ type: "image_url", image_url: { url: part.image_url, ...(part.detail ? { detail: part.detail } : {}) } });

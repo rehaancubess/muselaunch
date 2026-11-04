@@ -43,16 +43,17 @@ function describeLayerBase(l: Layer): string {
       return `${head} role=${l.role} text=${q(l.text)} ${box(l)} ${t} style[${style}]${l.claimIds.length ? ` claims=${l.claimIds.join(",")}` : ""}${anim(l)}${flags}`;
     }
     case "image":
-      return `${head} asset=${l.assetId} fit=${l.fit}${pos(l.objectPosition)}${l.radiusPx ? ` radius=${l.radiusPx}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
+      return `${head} asset=${l.assetId} fit=${l.fit}${pos(l.objectPosition)}${l.radiusPx ? ` radius=${l.radiusPx}` : ""}${l.lift ? ` lift(from x=${f(l.lift.from.x)},y=${f(l.lift.from.y)} @${f(l.lift.atSec)}s)` : ""}${l.blurRegions?.length ? ` privacy-blur=${l.blurRegions.length}` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "video":
       return `${head} asset=${l.assetId}${l.fit === "cover" && l.objectPosition ? ` fit=cover${pos(l.objectPosition)}` : ""} trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)} rate=${l.playbackRate}${l.muted ? " muted" : ""}${l.mask ? ` mask=${l.mask.mode}(seg ${l.mask.segmentationId}, fallback ${l.mask.fallback})` : ""} ${box(l)} ${t}${anim(l)}${flags}`;
     case "device": {
       const extra = [
         l.screenKind === "video" ? ` trim=${f(l.trimInSec)}–${l.trimOutSec === undefined ? "end" : f(l.trimOutSec)}${l.playbackRate && l.playbackRate !== 1 ? ` rate=${l.playbackRate}` : ""}` : "",
-        l.focus ? ` focus(x=${f(l.focus.x)},y=${f(l.focus.y)},w=${f(l.focus.w)},h=${f(l.focus.h)}${l.focus.zoom ? `,zoom=${f(l.focus.zoom)}` : ""} @${f(l.focus.atSec)}s${l.focus.ring ? " ring" : ""})` : "",
+        l.focus ? ` focus(x=${f(l.focus.x)},y=${f(l.focus.y)},w=${f(l.focus.w)},h=${f(l.focus.h)}${l.focus.zoom ? `,zoom=${f(l.focus.zoom)}` : ""} @${f(l.focus.atSec)}s${l.focus.ring ? " ring" : ""}${l.focus.path ? " follows-element" : ""})` : "",
+        l.lift ? ` lift-socket(x=${f(l.lift.x)},y=${f(l.lift.y)},w=${f(l.lift.w)},h=${f(l.lift.h)} @${f(l.lift.atSec)}s)` : "",
         l.tap ? ` tap(x=${f(l.tap.x)},y=${f(l.tap.y)} @${f(l.tap.atSec)}s)` : "",
         l.tilt ? ` tilt(x=${f(l.tilt.x, 1)}°,y=${f(l.tilt.y, 1)}°${l.tilt.swing ? " swing" : ""})` : "",
-        l.blurRegions?.length ? ` privacy-blur=${l.blurRegions.length}` : "",
+        l.blurRegions?.length ? ` privacy-blur=${l.blurRegions.length}${l.blurRegions.some((r) => r.path) ? " (tracked)" : ""}` : "",
       ].join("");
       return `${head} ${l.device}/${l.frameColor} screen=${l.screenKind}:${l.screenAssetId} (REAL product media)${extra} ${box(l)} ${t}${anim(l)}${flags}`;
     }

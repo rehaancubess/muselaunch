@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime, Percent01 } from "./common";
+import { AspectRatio, BaseEntity, HexColor, Id, IsoDateTime, Percent01, RegionPath } from "./common";
 import { MusicMood, SfxKind, SpeechRange, VoiceoverCheck } from "./sound";
 
 /**
@@ -41,6 +41,8 @@ export const TEMPLATE_IDS = [
   "store-cta", // end card with plain-text store pills ("Download on the App Store"; no third-party logos)
   "fullscreen-showcase", // a designed marketing screenshot full-bleed with a slow push (never inside a device frame)
   "fullscreen-recording", // real LANDSCAPE footage (TV, desktop, web apps/games) filling the frame, cover-cropped around the action (never stretched)
+  "ui-popout", // one real UI element (card, chart, button) lifts off the device screen toward the viewer: shadow, 3D tilt, parallax
+  "hook-footage", // opening on the most striking REAL footage, full-bleed, with the hook in big type (also the thumbnail)
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -184,6 +186,29 @@ export const MediaFit = z.enum(["cover", "contain"]);
  */
 export const ObjectPosition = z.object({ x: Percent01, y: Percent01 });
 
+/** A normalised region (fractions 0..1 of the media or screen it belongs to). */
+export const Region01 = z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 });
+export type Region01 = z.infer<typeof Region01>;
+
+/** A blurred privacy patch; `path` (SAM-tracked, `t` = seconds into the source media) moves it with the content. */
+export const BlurRegion = Region01.extend({ path: RegionPath.optional() });
+export type BlurRegion = z.infer<typeof BlurRegion>;
+
+/**
+ * A UI element lifted off a device screen (ui-popout): the layer starts exactly over the element on
+ * the screen (`from`, frame fractions) and at `atSec` rises to its own box toward the viewer, growing
+ * a soft shadow and tilting in 3D, then floats with a little parallax. Before `atSec` it is
+ * indistinguishable from the screen under it.
+ */
+export const ImageLift = z.object({
+  from: z.object({ x: z.number().min(-1).max(2), y: z.number().min(-1).max(2), w: z.number().min(0).max(3), h: z.number().min(0).max(3) }),
+  atSec: z.number().min(0).max(60).default(0.9),
+  durationSec: z.number().min(0.2).max(3).default(0.9),
+  /** Final 3D orientation in degrees (x tips the top away, y turns it). */
+  tilt: z.object({ x: z.number().min(-30).max(30).default(6), y: z.number().min(-30).max(30).default(-8) }).default({ x: 6, y: -8 }),
+});
+export type ImageLift = z.infer<typeof ImageLift>;
+
 export const ImageLayer = LayerBase.extend({
   type: z.literal("image"),
   assetId: Id,
@@ -193,6 +218,10 @@ export const ImageLayer = LayerBase.extend({
   /** Crop in source pixels fractions. */
   crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
   objectPosition: ObjectPosition.optional(),
+  /** Regions of the layer box (fractions) blurred for privacy, e.g. an API key on a real screenshot. */
+  blurRegions: z.array(BlurRegion).max(8).optional(),
+  /** ui-popout: this (cropped) element rises off the device screen under it. */
+  lift: ImageLift.optional(),
 });
 
 /** Use of a SAM segmentation on a video/image layer. */
@@ -207,10 +236,6 @@ export const MaskUse = z.object({
 });
 export type MaskUse = z.infer<typeof MaskUse>;
 
-/** A normalised region (fractions 0..1 of the media or screen it belongs to). */
-export const Region01 = z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 });
-export type Region01 = z.infer<typeof Region01>;
-
 export const VideoLayer = LayerBase.extend({
   type: z.literal("video"),
   assetId: Id,
@@ -223,7 +248,7 @@ export const VideoLayer = LayerBase.extend({
   radiusPx: z.number().min(0).max(400).default(0),
   mask: MaskUse.optional(),
   /** Regions of the frame (fractions of the layer box) blurred for privacy, e.g. personal info in a recording. */
-  blurRegions: z.array(Region01).max(8).optional(),
+  blurRegions: z.array(BlurRegion).max(8).optional(),
   /** With fit "cover": the part of the footage kept in view (e.g. the action in a full-bleed recording). */
   objectPosition: ObjectPosition.optional(),
 });
@@ -237,8 +262,17 @@ export const DeviceFocus = Region01.extend({
   /** When the push-in starts (seconds into the layer). */
   atSec: z.number().min(0).max(60).default(0.6),
   ring: z.boolean().default(true),
+  /**
+   * Video screens: the region tracked by SAM 3.1 through the footage (fractions of the visible
+   * screen; `t` = seconds into the recording). After the push-in, the camera and ring follow it.
+   */
+  path: RegionPath.optional(),
 });
 export type DeviceFocus = z.infer<typeof DeviceFocus>;
+
+/** ui-popout: the hole a lifted element leaves on the screen (fractions of the visible screen), and when. */
+export const DeviceLiftSocket = Region01.extend({ atSec: z.number().min(0).max(60).default(0.9), recede: z.boolean().default(true) });
+export type DeviceLiftSocket = z.infer<typeof DeviceLiftSocket>;
 
 /** A finger tap (dot + ripple) at a point of the device SCREEN (fractions of the visible screen). */
 export const DeviceTap = z.object({ x: Percent01, y: Percent01, atSec: z.number().min(0).max(60).default(1) });
@@ -265,7 +299,9 @@ export const DeviceLayer = LayerBase.extend({
   tap: DeviceTap.optional(),
   tilt: DeviceTilt.optional(),
   /** Regions of the SCREEN (fractions of the visible screen) blurred for privacy. */
-  blurRegions: z.array(Region01).max(8).optional(),
+  blurRegions: z.array(BlurRegion).max(8).optional(),
+  /** ui-popout: an element of this screen is lifted off it (an image layer with `lift`). */
+  lift: DeviceLiftSocket.optional(),
 });
 
 export const ShapeLayer = LayerBase.extend({
@@ -275,6 +311,8 @@ export const ShapeLayer = LayerBase.extend({
   gradientTo: ColorValue.optional(),
   radiusPx: z.number().min(0).max(1000).default(0),
   blurPx: z.number().min(0).max(200).default(0),
+  /** Blend with the layers below (colour grade over supporting footage); omitted = normal. */
+  blend: z.enum(["soft-light", "overlay", "color", "multiply", "screen"]).optional(),
 });
 
 /** An allowlisted HyperFrames catalog block (e.g. a follow overlay) with validated params. */
@@ -321,7 +359,12 @@ export const Background = z.object({
 export type Background = z.infer<typeof Background>;
 
 export const Transition = z.object({
-  kind: z.enum(["cut", "fade", "slide-left", "slide-up", "zoom", "blur", "flash", "wipe"]),
+  /**
+   * whip: fast lateral camera pan with motion blur. zoom-through: the previous scene zooms into its
+   * focused element and the next scene lands out of it. match: the phone stays where it was while the
+   * scene around it changes (consecutive device shots).
+   */
+  kind: z.enum(["cut", "fade", "slide-left", "slide-up", "zoom", "blur", "flash", "wipe", "whip", "zoom-through", "match"]),
   durationSec: z.number().min(0).max(2).default(0.4),
 });
 
@@ -384,6 +427,7 @@ export type CaptionCue = z.infer<typeof CaptionCue>;
 
 export const Captions = z.object({
   enabled: z.boolean().default(false),
+  /** `word-pop`: karaoke style, short phrases with the word being spoken highlighted (timed inside each cue). */
   preset: z.enum(["bold-center", "minimal-bottom", "boxed", "word-pop"]).default("boxed"),
   position: z.enum(["top", "center", "bottom"]).default("bottom"),
   /** `transcript` = from Muse Voice Transcribe turns (turn-level timing, not word-level). */
@@ -426,6 +470,11 @@ export const CompositionDoc = z.object({
   /** Music + voiceover + automatically placed sound effects (one short track per effect). */
   audio: z.array(AudioTrack).max(48).default([]),
   captions: Captions.default({ enabled: false, preset: "boxed", position: "bottom", source: "script", cues: [] }),
+  /**
+   * The music's beat grid the scene cuts were placed on (beat sync): beat k is at offsetSec + k·60/bpm.
+   * Kept so regenerated music keeps the tempo and the cuts stay on the beat. Omitted = no beat sync.
+   */
+  beat: z.object({ bpm: z.number().min(40).max(220), offsetSec: z.number().min(0).max(10).default(0) }).optional(),
   meta: z
     .object({ storyboardId: Id.optional(), generatedByRunId: Id.optional(), brandProfileVersion: z.number().int().optional() })
     .default({}),

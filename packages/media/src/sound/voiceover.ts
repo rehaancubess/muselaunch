@@ -23,6 +23,7 @@ import {
   type Transcript,
   type VoiceoverCheck,
 } from "@muselaunch/contracts";
+import type { BeatGrid } from "@muselaunch/compositions";
 import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { assertBuiltinVoice, synthesizeSpeech, TTS_DISCLOSURE } from "@muselaunch/providers";
 import { transcriptToCaptionCues } from "../captions";
@@ -349,6 +350,8 @@ export async function produceSceneVoiceover(
     tone?: string;
     keywords?: string[];
     maxTotalSec: number;
+    /** Beat sync: scene cuts are placed on this grid while each scene still holds its line. */
+    beat?: BeatGrid;
     progress?: (pct: number, msg: string) => Promise<void> | void;
   },
 ): Promise<SceneVoiceoverResult> {
@@ -390,7 +393,7 @@ export async function produceSceneVoiceover(
       if (synthesized) ttsCalls++;
       // 2. Scenes hold their lines; over the plan's length → speak a little faster (≤ MAX_VOICE_TEMPO), fit again.
       const durations = () => new Map(lines.map((l, i) => [l.sceneId, raw[i]!.sec]));
-      let fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec });
+      let fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec, beat: input.beat });
       let tempo = 1;
       if (fit.overflowSec > 0) {
         const spoken = raw.reduce((n, r) => n + r.sec, 0);
@@ -400,7 +403,7 @@ export async function produceSceneVoiceover(
           r.sec = (await normalizeVoice(r.file, sped, { tempo, signal: ctx.signal })).durationSec;
           r.file = sped;
         }
-        fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec });
+        fit = fitScenesToVoice(input.doc, durations(), { maxTotalSec: input.maxTotalSec, beat: input.beat });
       }
       // 3. One track: each line at its scene.
       const track = new Float32Array(Math.ceil(fit.totalSec * SR));

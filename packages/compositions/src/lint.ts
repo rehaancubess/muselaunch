@@ -1,4 +1,7 @@
 import type { Claim, CompositionDoc, Layer, MediaAsset, Segmentation, TracksFile } from "@muselaunch/contracts";
+import { BUNDLED_FONTS, bundledFont, fontWidthFactor } from "./fonts";
+
+const BUNDLED_NAMES = BUNDLED_FONTS.map((f) => f.name).join(", ");
 import { trackUsable } from "./objects";
 import { totalDuration } from "./validate";
 
@@ -20,7 +23,7 @@ export interface LintContext {
 }
 
 const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
-const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-recording"]);
+const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-recording", "ui-popout", "hook-footage"]);
 /** Comfortable on-screen reading pace (words per second) before we warn. */
 const MAX_WORDS_PER_SEC = 3.5;
 const READY = new Set(["ready", "uploaded"]);
@@ -29,8 +32,8 @@ const READY = new Set(["ready", "uploaded"]);
 const GLYPH_W = 0.54;
 
 /** Rough line-wrap estimate for a text layer: returns needed height in px. */
-export function estimateTextHeight(text: string, sizePx: number, lineHeight: number, boxWidthPx: number, uppercase = false): { lines: number; heightPx: number } {
-  const glyph = sizePx * (uppercase ? GLYPH_W * 1.12 : GLYPH_W);
+export function estimateTextHeight(text: string, sizePx: number, lineHeight: number, boxWidthPx: number, uppercase = false, widthFactor = 1): { lines: number; heightPx: number } {
+  const glyph = sizePx * (uppercase ? GLYPH_W * 1.12 : GLYPH_W) * widthFactor;
   const maxChars = Math.max(1, Math.floor(boxWidthPx / glyph));
   let lines = 0;
   for (const para of text.split(/\n/)) {
@@ -60,6 +63,9 @@ export function estimateTextHeight(text: string, sizePx: number, lineHeight: num
  */
 export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
   const out: LintIssue[] = [];
+  for (const [what, name] of [["heading", doc.theme.headingFont], ["body", doc.theme.bodyFont]] as const) {
+    if (name && !bundledFont(name)) out.push({ level: "warning", message: `The ${what} font "${name}" isn't bundled for rendering, so the video uses Inter. Bundled faces: ${BUNDLED_NAMES}.` });
+  }
   const { width: W, height: H, safeZone: sz } = doc;
   const total = totalDuration(doc);
 
@@ -96,7 +102,8 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
           words += layer.text.split(/\s+/).filter(Boolean).length;
           const b = layer.box;
           const bg = layer.style.background ? layer.style.background.paddingPx * 2 : 0;
-          const est = estimateTextHeight(layer.text, layer.style.sizePx, layer.style.lineHeight, Math.max(1, b.w * W - bg), layer.style.uppercase);
+          const wf = fontWidthFactor(layer.style.font === "heading" ? doc.theme.headingFont : layer.style.font === "body" ? doc.theme.bodyFont : undefined);
+          const est = estimateTextHeight(layer.text, layer.style.sizePx, layer.style.lineHeight, Math.max(1, b.w * W - bg), layer.style.uppercase, wf);
           if (est.heightPx > b.h * H * 1.08 + 4) out.push({ level: "warning", ...where, message: `Text likely overflows its box (${est.lines} lines need ${Math.round(est.heightPx)}px, box is ${Math.round(b.h * H)}px)` });
           if (layer.style.sizePx < 28 && layer.role !== "label") out.push({ level: "warning", ...where, message: `Text at ${layer.style.sizePx}px may be unreadable on a phone` });
           const outside = b.x < sz.left - 0.005 || b.x + b.w > 1 - sz.right + 0.005 || b.y < sz.top - 0.005 || b.y + b.h > 1 - sz.bottom + 0.005;
@@ -122,7 +129,7 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
         }
         case "video": {
           const a = checkAsset(layer.assetId, ["video"], where, "Video layer");
-          if (a && scene.template === "fullscreen-recording" && (!a.isProductTruth || a.origin === "generated"))
+          if (a && (scene.template === "fullscreen-recording" || scene.template === "hook-footage") && (!a.isProductTruth || a.origin === "generated"))
             out.push({ level: "error", ...where, message: "A full-screen recording may only show real footage of the product" });
           if (a?.durationSec !== undefined) {
             const avail = ((layer.trimOutSec ?? a.durationSec) - layer.trimInSec) / layer.playbackRate;

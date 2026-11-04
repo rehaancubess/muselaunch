@@ -1,15 +1,15 @@
 "use client";
 import type { MediaRole } from "@muselaunch/contracts";
 import { Button, Checkbox, IconButton, ProgressBar, Select, cn, useToast } from "@muselaunch/ui";
-import { CheckCircle2, FileAudio, FileImage, FileVideo, RotateCcw, Upload, X } from "lucide-react";
+import { CheckCircle2, FileAudio, FileImage, FileText, FileVideo, RotateCcw, Upload, X } from "lucide-react";
 import { useCallback, useRef, useState, type DragEvent } from "react";
 import { api, errorMessage, uploadToSignedUrl, wsPath } from "@/lib/api";
 import type { CompleteUploadResponse, UploadResponse } from "@/lib/api-types";
 import { ROLE_LABEL, formatBytes } from "@/lib/labels";
 import { useInvalidate } from "@/lib/query";
 
-const ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/webm,audio/aac";
-const UPLOAD_ROLES: MediaRole[] = ["screenshot", "app_recording", "founder_clip", "logo", "icon", "product_photo", "voiceover", "music", "other"];
+const ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/webm,audio/aac,application/pdf,.pdf";
+const UPLOAD_ROLES: MediaRole[] = ["screenshot", "app_recording", "founder_clip", "logo", "icon", "product_photo", "document", "voiceover", "music", "other"];
 const NEEDS_CONSENT = new Set<MediaRole>(["founder_clip", "voiceover"]);
 
 type ItemState = "ready" | "uploading" | "finishing" | "done" | "error";
@@ -24,7 +24,10 @@ interface Item {
   abort?: AbortController;
 }
 
+const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+
 function guessRole(f: File): MediaRole {
+  if (isPdf(f)) return "document";
   if (f.type.startsWith("video/")) return /founder|me|selfie|intro|talk/i.test(f.name) ? "founder_clip" : "app_recording";
   if (f.type.startsWith("audio/")) return "voiceover";
   if (/logo/i.test(f.name)) return "logo";
@@ -36,6 +39,7 @@ function FileGlyph({ type }: { type: string }) {
   const cls = "size-4";
   if (type.startsWith("video/")) return <FileVideo className={cls} aria-hidden />;
   if (type.startsWith("audio/")) return <FileAudio className={cls} aria-hidden />;
+  if (type === "application/pdf") return <FileText className={cls} aria-hidden />;
   return <FileImage className={cls} aria-hidden />;
 }
 
@@ -69,7 +73,7 @@ export function Uploader({ workspaceId, appId, onUploaded }: { workspaceId: stri
     try {
       const created = await api.post<UploadResponse>(wsPath(workspaceId, "/uploads"), {
         filename: it.file.name,
-        mimeType: it.file.type || "application/octet-stream",
+        mimeType: it.file.type || (isPdf(it.file) ? "application/pdf" : "application/octet-stream"),
         bytes: it.file.size,
         role: it.role,
         appId,
@@ -114,8 +118,8 @@ export function Uploader({ workspaceId, appId, onUploaded }: { workspaceId: stri
           <Upload className="size-5" aria-hidden />
         </span>
         <div className="space-y-1">
-          <p className="text-body-sm font-medium">Drop screenshots, screen recordings or founder clips</p>
-          <p className="text-footnote text-ink-2">PNG, JPEG, HEIC, MP4, MOV, WebM and audio. Real product media is used as proof in About your app and in videos.</p>
+          <p className="text-body-sm font-medium">Drop screenshots, screen recordings, founder clips or PDFs</p>
+          <p className="text-footnote text-ink-2">PNG, JPEG, HEIC, MP4, MOV, WebM, audio and PDF (pitch deck, spec, press kit). Real product media is used as proof in About your app and in videos; Muse Spark reads PDFs into About your app the next time it updates.</p>
         </div>
         <Button size="sm" variant="secondary" onClick={() => inputRef.current?.click()}>
           Choose files

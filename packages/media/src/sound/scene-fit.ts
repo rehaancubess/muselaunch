@@ -1,5 +1,5 @@
 import type { CompositionDoc, Scene } from "@muselaunch/contracts";
-import { totalDuration } from "@muselaunch/compositions";
+import { readableSec, snapDurations, totalDuration, type BeatGrid } from "@muselaunch/compositions";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -32,7 +32,7 @@ export interface SceneFit {
   changed: [string, number, number][];
 }
 
-export function fitScenesToVoice(doc: CompositionDoc, lineSec: ReadonlyMap<string, number>, o: { maxTotalSec: number; leadSec?: number; tailSec?: number }): SceneFit {
+export function fitScenesToVoice(doc: CompositionDoc, lineSec: ReadonlyMap<string, number>, o: { maxTotalSec: number; leadSec?: number; tailSec?: number; beat?: BeatGrid }): SceneFit {
   const lead = o.leadSec ?? VOICE_LEAD_SEC;
   const tail = o.tailSec ?? VOICE_TAIL_SEC;
   const need = doc.scenes.map((s) => {
@@ -51,6 +51,11 @@ export function fitScenesToVoice(doc: CompositionDoc, lineSec: ReadonlyMap<strin
   };
   giveBack(doc.scenes.map((s, i) => (need[i] ? 0 : Math.max(0, dur[i]! - Math.min(s.durationSec, SILENT_SCENE_FLOOR_SEC)))));
   giveBack(doc.scenes.map((_, i) => (need[i] ? Math.max(0, dur[i]! - need[i]!) : 0)));
+  // Beat sync: the cuts move onto the music's beats; a narrated scene never gets shorter than its line.
+  if (o.beat) {
+    const min = doc.scenes.map((s, i) => (need[i] ? need[i]! : Math.min(readableSec(s, i), dur[i]!)));
+    snapDurations(dur, o.beat, { min }).forEach((d, i) => (dur[i] = d));
+  }
 
   const changed: [string, number, number][] = [];
   const scenes = doc.scenes.map((s, i) => {

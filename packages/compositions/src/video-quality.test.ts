@@ -81,7 +81,9 @@ describe("the first frame shows the hook (it is the thumbnail on Reels, Shorts a
         }
       }
       // Scene 1 itself never transitions in.
-      expect(lines.some((x) => x.includes(`q("s-${s0.id}"), {`) && /opacity:0|xPercent:100|yPercent:100|clipPath/.test(x))).toBe(false);
+      // (Its exit into scene 2 may fade or zoom it out: only the starting state is checked.)
+      const fromOf = (x: string) => x.slice(x.indexOf(`q("s-${s0.id}"), {`) + `q("s-${s0.id}"), `.length).split("}")[0]!;
+      expect(lines.some((x) => x.includes(`q("s-${s0.id}"), {`) && /opacity:0|xPercent:100|yPercent:100|clipPath/.test(fromOf(x)))).toBe(false);
       // The poster frame still parks once the hook has settled.
       expect(posterTimeSec(doc)).toBeLessThan(s0.durationSec);
     }

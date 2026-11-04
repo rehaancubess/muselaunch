@@ -167,6 +167,13 @@ function AssetSheet({
           <ScreenKindBadge asset={asset} />
           {asset.status !== "ready" ? <StatusPill status={statusKindOf(asset.status)}>{asset.status === "uploaded" ? "Waiting for processing" : humanizeStatus(asset.status)}</StatusPill> : null}
           {asset.license?.consent ? <Badge tone="success">Consent recorded</Badge> : null}
+          {asset.privacy?.flagged && asset.privacy.regions.length ? (
+            <Badge tone="warning" title={asset.privacy.notes ?? "Checked by Muse Spark"}>
+              {asset.privacy.regions.length} private detail{asset.privacy.regions.length === 1 ? "" : "s"} blurred in videos
+            </Badge>
+          ) : asset.privacy && !asset.privacy.flagged ? (
+            <Badge tone="neutral">No private details found</Badge>
+          ) : null}
         </div>
         <ScreenCutoutSection asset={asset} items={items} workspaceId={workspaceId} canEdit={canEdit} onOpen={onOpen} />
         {asset.kind === "video" && asset.role === "app_recording" && asset.appId && asset.status === "ready" ? (

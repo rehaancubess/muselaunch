@@ -1,3 +1,4 @@
+import { installVideoAutofixHooks } from "@muselaunch/agents";
 import { can, type Autopilot, type Job } from "@muselaunch/contracts";
 import { toAppError, type Platform } from "@muselaunch/platform";
 import { advanceCreateRunsForJob, sweepCreateRuns } from "./create-runner";
@@ -70,6 +71,9 @@ export async function autoRecommendOnNewData(p: Platform, workspaceId: string, j
 export function installAutopilotHooks(p: Platform): () => void {
   if (installed.has(p)) return () => {};
   installed.add(p);
+  // Spark's automatic preview check first: when a preview finishes, its next step is queued before the
+  // Create runner below looks at the run (so the run waits for the check instead of finishing v1).
+  const offAutofix = installVideoAutofixHooks(p);
   const off = p.jobs.addHooks({
     onStatus: async ({ workspaceId, job, to }) => {
       if (job.type === "autopilot.step" || !job.appId) return;
@@ -85,6 +89,7 @@ export function installAutopilotHooks(p: Platform): () => void {
   return () => {
     installed.delete(p);
     off();
+    offAutofix();
   };
 }
 

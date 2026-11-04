@@ -37,6 +37,18 @@ export const WorkspaceAutopilotSettings = z.object({
 export type WorkspaceAutopilotSettings = z.infer<typeof WorkspaceAutopilotSettings>;
 export const DEFAULT_AUTOPILOT_SETTINGS: WorkspaceAutopilotSettings = { enabled: true, autoApproveRenders: true };
 
+/**
+ * Muse Spark's automatic preview check: after a new video's first preview render, Spark watches it
+ * and fixes the scenes it flags (at most 2 rounds, each re-rendered and watched again) before the
+ * person sees it. Each round spends credits (the edit, the preview render and the review), so
+ * changing it needs billing.manage. Absent = on.
+ */
+export const WorkspaceVideoReviewSettings = z.object({
+  autoFix: z.boolean().default(true),
+});
+export type WorkspaceVideoReviewSettings = z.infer<typeof WorkspaceVideoReviewSettings>;
+export const DEFAULT_VIDEO_REVIEW_SETTINGS: WorkspaceVideoReviewSettings = { autoFix: true };
+
 /** `workspaces/{workspaceId}`. `workspaceId` equals `id`. */
 export const Workspace = BaseEntity.extend({
   name: z.string().min(1).max(120),
@@ -58,6 +70,8 @@ export const Workspace = BaseEntity.extend({
        * labelled AI voiceover on). Additive; read through `soundSettings()` (@muselaunch/media).
        */
       sound: WorkspaceSoundSettings.optional(),
+      /** Spark's automatic preview check and fixes (absent = `DEFAULT_VIDEO_REVIEW_SETTINGS`: on). */
+      videoReview: WorkspaceVideoReviewSettings.optional(),
     })
     .default({ defaultTimezone: "UTC", defaultLocale: "en", metaDataMode: "standard", autopilot: { ...DEFAULT_AUTOPILOT_SETTINGS } }),
 });

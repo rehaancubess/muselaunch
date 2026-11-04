@@ -18,7 +18,7 @@ import {
 import { round3, sceneStarts, totalDuration } from "./validate";
 
 /** Transitions that move the frame get a whoosh; zooms get the rising swoosh. */
-const WHOOSH_TRANSITIONS = new Set(["slide-left", "slide-up", "wipe"]);
+const WHOOSH_TRANSITIONS = new Set(["slide-left", "slide-up", "wipe", "whip", "zoom-through"]);
 const SWOOSH_TRANSITIONS = new Set(["zoom"]);
 /** Tap moments come from tap blocks (Track 2's tap-demo uses them too) or the tap-demo template. */
 const TAP_TEMPLATE = "tap-demo";

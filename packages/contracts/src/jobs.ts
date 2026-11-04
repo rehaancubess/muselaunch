@@ -72,6 +72,21 @@ export const JobPayloads = {
   /** Muse Spark watches frames of a rendered MP4 and reviews what a viewer sees (VideoReview). */
   "video.review": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), renderAssetId: Id, reviewId: Id.optional() }),
   /**
+   * Spark's automatic preview check, one step per job (chained from job-status hooks): `preview` =
+   * a preview render of a new video (or of a version this loop made) finished → watch it; `review` =
+   * Spark watched it → fix the flagged scenes (auto-applied) or stop; `edit` = the fix applied →
+   * re-render the preview. At most 2 fix rounds.
+   */
+  "video.autofix": z.object({
+    appId: Id,
+    compositionId: Id,
+    trigger: z.enum(["preview", "review", "edit"]),
+    version: z.number().int().min(1).optional(),
+    renderAssetId: Id.optional(),
+    reviewId: Id.optional(),
+    patchId: Id.optional(),
+  }),
+  /**
    * Walkthrough breakdown: shot detection + Muse Spark labels on sampled frames (+ narration via Muse
    * Voice Transcribe when consent is recorded) → RecordingSegments for one app_recording (replaces earlier ones).
    */
@@ -145,6 +160,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "brand.review": "agents",
   "autopilot.step": "agents",
   "video.review": "agents",
+  "video.autofix": "agents",
   "media.analyze_recording": "media",
   "media.extract_ui": "media",
   "media.music": "media",
