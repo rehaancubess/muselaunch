@@ -148,6 +148,18 @@ export const TEMPLATE_CATALOG: Record<TemplateId, TemplateInfo> = {
     purposes: ["demo", "feature", "hook", "proof", "other"],
     needs: ["app_recording", "screenshot"],
   },
+  "hook-footage": {
+    label: "Footage-first hook",
+    description: "The opening: the most striking REAL moment of the app (a walkthrough segment where something visibly happens, or the best raw screenshot) fills the whole frame with the hook (≤ 5 words) in big type over a dark fade. Stops the scroll better than a text card and is the thumbnail. Use it for scene 1 whenever there is real product media.",
+    purposes: ["hook"],
+    needs: ["app_recording", "screenshot"],
+  },
+  "ui-popout": {
+    label: "UI pop-out",
+    description: "The real screen in a device, then ONE element of it (a card, chart, stat tile or button that proves the point) lifts off the screen toward the viewer: it grows, tilts in 3D and casts a soft shadow while the device recedes behind it (parallax depth). Give `focus` {x,y,w,h} tight around that element on the attached image (or a short `focusQuery`). Best on screenshots or calm walkthrough segments; the element must be readable on its own.",
+    purposes: ["demo", "feature", "proof"],
+    needs: ["screenshot", "app_recording"],
+  },
 };
 
 /** Shot size, used to vary pacing like an editor (wide device shots, close-ups, type, full-bleed). */
@@ -176,13 +188,15 @@ export const TEMPLATE_SHOT: Record<TemplateId, ShotSize> = {
   "store-cta": "text",
   "fullscreen-showcase": "full",
   "fullscreen-recording": "full",
+  "ui-popout": "close",
+  "hook-footage": "full",
 };
 
 /** Templates that put product media inside a device frame (raw screenshots, SAM cut-outs, recordings only). */
-export const DEVICE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "split-screen", "carousel-slide", "focus-zoom", "tap-demo", "phone-tilt", "founder-cutout", "presenter-depth"]);
+export const DEVICE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "split-screen", "carousel-slide", "focus-zoom", "tap-demo", "phone-tilt", "founder-cutout", "presenter-depth", "ui-popout"]);
 
 /** Templates that show the real app (need a screenshot, cut-out, recording segment or marketing screenshot). */
-export const PRODUCT_SCENE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-showcase", "fullscreen-recording"]);
+export const PRODUCT_SCENE_TEMPLATES = new Set<TemplateId>(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-showcase", "fullscreen-recording", "ui-popout", "hook-footage"]);
 
 /** End cards. */
 export const CTA_TEMPLATES = new Set<TemplateId>(["cta-endcard", "store-cta"]);

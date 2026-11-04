@@ -38,6 +38,12 @@ export const MusicParams = z.object({
   seed: z.string().min(1).max(120),
   /** Timeline times (s) that get a riser into a soft hit, snapped to the nearest beat. */
   accents: z.array(z.number().min(0).max(180)).max(12).default([]),
+  /**
+   * Fixed tempo (beats per minute). Set when the video's cuts were placed on this tempo's beats
+   * (beat sync): the arrangement keeps it and fills whole bars, the last chord rings out. Omitted =
+   * the tempo is fitted to the length inside the mood's range.
+   */
+  bpm: z.number().min(40).max(220).optional(),
 });
 export type MusicParams = z.infer<typeof MusicParams>;
 

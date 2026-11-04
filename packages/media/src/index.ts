@@ -46,4 +46,7 @@ export { findOrCreateSegmentation, findOrCreateTranscript, lookupSegmentation, l
 export { MAX_OBJECT_OUTPUTS } from "./segment";
 export { detectShots, keyframeTimes, sampleFrameChanges, SHOT_RULES, type Shot, type FrameChanges } from "./frames";
 export { requestRecordingAnalysis, estimateRecordingAnalysis, recordingProblem, autoAnalyzeRecording, MAX_RECORDING_SEC } from "./recording";
-export { requestUiExtraction, estimateUiExtraction, appScreenshots, pendingScreens, isUiCrop, isOriginalScreenshot, pickPhoneScreen, UI_SCREEN_PROMPTS } from "./ui-extract";
+export { requestUiExtraction, estimateUiExtraction, appScreenshots, pendingScreens, isUiCrop, isOriginalScreenshot, pickPhoneScreen, autoExtractUi, UI_SCREEN_PROMPTS } from "./ui-extract";
+export { trackRegions, pathFromBoxes, boxesByObject, clipSize, TRACK_FPS, MAX_TRACK_SEC, type RegionToTrack, type TrackResult } from "./region-track";
+export { PRIVACY_RULES, cleanPrivacy, regionsInCrop } from "./privacy";
+export { trackStoryboardFocus, keyframeTime, FOLLOW_TEMPLATES, MAX_FOCUS_TRACKS } from "./focus-track";

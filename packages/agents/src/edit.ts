@@ -24,7 +24,7 @@ export const EditOutput = z.object({
 type EditOutput = z.infer<typeof EditOutput>;
 
 const OP_REFERENCE = `PatchOp reference (return JSON objects exactly in these shapes; reuse existing ids; new ids must be unique, e.g. "ly_<scene>_<word>"):
-- {"op":"update_scene","sceneId":ID,"set":{"name"?,"template"?,"purpose"?,"durationSec"?(0.5-60),"background"?:{"kind":"solid"|"gradient"|"image"|"video"|"blur","color"?,"colors"?:[2-4 colors],"angle"?,"assetId"?,"dim"?},"transitionIn"?:{"kind":"cut"|"fade"|"slide-left"|"slide-up"|"zoom"|"blur"|"flash"|"wipe","durationSec"?},"notes"?}}
+- {"op":"update_scene","sceneId":ID,"set":{"name"?,"template"?,"purpose"?,"durationSec"?(0.5-60),"background"?:{"kind":"solid"|"gradient"|"image"|"video"|"blur","color"?,"colors"?:[2-4 colors],"angle"?,"assetId"?,"dim"?},"transitionIn"?:{"kind":"cut"|"fade"|"slide-left"|"slide-up"|"zoom"|"blur"|"flash"|"wipe"|"whip"|"zoom-through"|"match","durationSec"?},"notes"?}}
 - {"op":"add_layer","sceneId":ID,"layer":LAYER,"index"?:n}
 - {"op":"update_layer","sceneId":ID,"layerId":ID,"set":{partial layer fields; nested box/style/animation/timing merge one level deep; null removes an optional field; never change id/type}}
 - {"op":"remove_layer","sceneId":ID,"layerId":ID} · {"op":"reorder_layer","sceneId":ID,"layerId":ID,"toIndex":n}

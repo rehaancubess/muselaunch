@@ -165,6 +165,46 @@ function YourApps() {
 }
 
 /**
+ * Spark's automatic preview check (on by default): after a new video's first preview, Muse Spark
+ * watches it and fixes the scenes it flags, at most two rounds. Each round spends credits, so
+ * switching it needs billing.manage (the API enforces it).
+ */
+function VideoCheckSettings() {
+  const { workspace, workspaceId, can, refetch } = useWorkspace();
+  const toast = useToast();
+  const invalidate = useInvalidate();
+  const on = (workspace?.settings as { videoReview?: { autoFix?: boolean } } | undefined)?.videoReview?.autoFix ?? true;
+  const [busy, setBusy] = useState(false);
+  const money = can("workspace.manage") && can("billing.manage");
+  const save = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await api.patch(wsPath(workspaceId), { settings: { videoReview: { autoFix: v } } });
+      refetch();
+      await invalidate("/v1/me", wsPath(workspaceId));
+      toast.success(v ? "Muse Spark checks and fixes new previews" : "New previews are left for you to check");
+    } catch (err) {
+      toast.error("Couldn’t save", errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="divide-y divide-line rounded-xl bg-surface shadow-raised">
+      <label className="flex items-start justify-between gap-4 p-5 sm:p-6" htmlFor="vc-autofix">
+        <span className="min-w-0 space-y-1">
+          <span className="block text-body font-medium text-ink">Spark fixes the video before you see it</span>
+          <span className="block text-footnote text-ink-2 text-pretty">
+            {`After a new video’s first preview, Muse Spark watches it and fixes the scenes it flags (unreadable text, empty frames, clipped UI), then watches the fixed preview again. At most two rounds; it stops when the review is clean or a fix doesn’t help, and never touches a video you’ve edited. Each round uses credits for the edit, the preview and the review.${money ? "" : " Only members who manage billing can change this."}`}
+          </span>
+        </span>
+        <Switch id="vc-autofix" label="Automatic video check" checked={on} disabled={!money || busy} onCheckedChange={(v) => void save(v)} />
+      </label>
+    </div>
+  );
+}
+
+/**
  * Video sound defaults (Track 3): original music and effects on by default; AI voiceover (external
  * TTS, labelled, checked with Muse Voice Transcribe) off by default. AI voice spends credits on
  * every new video with narration, so switching it needs billing.manage (the API enforces it).
@@ -260,6 +300,9 @@ export default function WorkspaceSettingsPage() {
           </MoreSection>
           <MoreSection id="sound" title="Sound" summary="Music, sound effects, AI voiceover and voice for new videos">
             <SoundSettings />
+          </MoreSection>
+          <MoreSection id="video-checks" title="Video checks" summary="Muse Spark watches new previews and fixes what it flags">
+            <VideoCheckSettings />
           </MoreSection>
           <MoreSection id="apps" title="Your apps" summary="What MuseLaunch knows about each app, its facts and brand kit">
             <YourApps />

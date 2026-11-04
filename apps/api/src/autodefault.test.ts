@@ -124,6 +124,12 @@ describe("Autopilot by default (apps.ts, autopilot.ts, needs-you.ts, workspace.t
     const on = await alice.patch(W(), { settings: { defaultTimezone: "Europe/Berlin", autopilot: { enabled: true, maxCreditsPerRun: null } } });
     expect(on.body.workspace.settings).toMatchObject({ defaultTimezone: "Europe/Berlin", autopilot: { enabled: true, autoApproveRenders: true } });
     expect(on.body.workspace.settings.autopilot.maxCreditsPerRun).toBeUndefined();
+    // Spark's automatic preview check (Settings → Video checks): spends credits, so billing.manage; kept beside the rest.
+    expect((await eddie.patch(W(), { settings: { videoReview: { autoFix: false } } })).status).toBe(403);
+    expect((await alice.patch(W(), { settings: { videoReview: { autoFix: false, extra: 1 } } })).status).toBe(422);
+    const noCheck = await alice.patch(W(), { settings: { videoReview: { autoFix: false } } });
+    expect(noCheck.status).toBe(200);
+    expect(noCheck.body.workspace.settings).toMatchObject({ defaultTimezone: "Europe/Berlin", autopilot: { enabled: true }, videoReview: { autoFix: false } });
   });
 
   it("one-tap start: viewers can see the plan but not start; editors start without pre-approved renders; short credits → 402 with a smaller run", async () => {

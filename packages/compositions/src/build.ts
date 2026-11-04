@@ -22,6 +22,7 @@ import {
   type MediaAsset,
   type RecordingSegment,
   type Region01,
+  type RegionPath,
   type Scene,
   type Segmentation,
   type Storyboard,
@@ -30,6 +31,7 @@ import {
   type Theme,
 } from "@muselaunch/contracts";
 import { deviceGeometry, isWideDevice, luminance, screenAlign, TV } from "./compile";
+import { bundledFont, fontWidthFactor, TYPEFACE_NAMES } from "./fonts";
 import { estimateTextHeight } from "./lint";
 import { validateDoc } from "./validate";
 
@@ -124,6 +126,16 @@ export function themeFromBrand(brand: BrandProfile | null): Theme {
   };
 }
 
+/**
+ * The headline face: the brand kit's own heading font when it set one, else the face Muse Spark picked
+ * for this video (storyboard `typeface`, one of the bundled faces), else Inter.
+ */
+export function withTypeface(theme: Theme, brand: BrandProfile | null, typeface: string | undefined): Theme {
+  if (brand?.visual.headingFont) return theme;
+  const pick = bundledFont(typeface);
+  return pick && (TYPEFACE_NAMES as readonly string[]).includes(pick.name) ? { ...theme, headingFont: pick.name } : theme;
+}
+
 // ---------------------------------------------------------------------------
 // Frame & layout helpers
 // ---------------------------------------------------------------------------
@@ -155,15 +167,18 @@ const r4 = (v: number) => Math.round(v * 10000) / 10000;
 const box = (x: number, y: number, w: number, h: number, z = 1) => ({ x: r4(x), y: r4(y), w: r4(w), h: r4(h), rotation: 0, opacity: 1, z });
 
 /** Fit a headline in `maxLines` within width fraction `w`; returns size + box height fraction. */
+/** Width of the headline face relative to Inter, for the build in progress (buildFromStoryboard is synchronous). */
+let FIT_WIDTH = 1;
+
 function fitText(f: Frame, text: string, size: number, w: number, opts: { lineHeight?: number; maxLines?: number; min?: number; uppercase?: boolean } = {}) {
   const lh = opts.lineHeight ?? 1.05;
   const maxLines = opts.maxLines ?? 3;
   let s = size;
   const min = opts.min ?? size * 0.55;
-  let est = estimateTextHeight(text, s, lh, w * f.W, opts.uppercase);
+  let est = estimateTextHeight(text, s, lh, w * f.W, opts.uppercase, FIT_WIDTH);
   while (est.lines > maxLines && s > min) {
     s = Math.max(min, s * 0.92);
-    est = estimateTextHeight(text, s, lh, w * f.W, opts.uppercase);
+    est = estimateTextHeight(text, s, lh, w * f.W, opts.uppercase, FIT_WIDTH);
   }
   return { size: Math.round(s), h: r4(Math.min(0.9, (est.heightPx * 1.12 + s * 0.2) / f.H)), lines: est.lines };
 }
@@ -470,6 +485,63 @@ export function mediaToScreen(r: Region01, mediaAspect: number, screenAspect: nu
   return { x: r4(x0), y: r4(y0), w: r4(Math.max(0, clamp01(x + w) - x0)), h: r4(Math.max(0, clamp01(y + h) - y0)) };
 }
 
+/** Inverse of `mediaToScreen`: a region of the visible screen → fractions of the media it shows. */
+export function screenToMedia(r: Region01, mediaAspect: number, screenAspect: number, align: "top" | "center" = "top"): Region01 {
+  let { x, y, w, h } = r;
+  if (mediaAspect < screenAspect) {
+    const k = mediaAspect / screenAspect;
+    y = align === "center" ? y * k + (1 - k) / 2 : y * k;
+    h *= k;
+  } else if (mediaAspect > screenAspect) {
+    const k = screenAspect / mediaAspect;
+    x = x * k + (1 - k) / 2;
+    w *= k;
+  }
+  const x0 = clamp01(x);
+  const y0 = clamp01(y);
+  return { x: r4(x0), y: r4(y0), w: r4(Math.max(0, clamp01(x + w) - x0)), h: r4(Math.max(0, clamp01(y + h) - y0)) };
+}
+
+/** A media region → fractions of a layer box showing the media with `fit` (centred). */
+export function mediaToBox(r: Region01, mediaAspect: number, boxAspect: number, fit: "cover" | "contain"): Region01 {
+  if (fit === "cover") return mediaToScreen(r, mediaAspect, boxAspect, "center");
+  // contain: the media is letterboxed inside the box.
+  if (mediaAspect > boxAspect) {
+    const k = boxAspect / mediaAspect;
+    return { x: r.x, y: r4((1 - k) / 2 + r.y * k), w: r.w, h: r4(r.h * k) };
+  }
+  const k = mediaAspect / boxAspect;
+  return { x: r4((1 - k) / 2 + r.x * k), y: r.y, w: r4(r.w * k), h: r.h };
+}
+
+/** A region of an image re-expressed inside a crop of it (both fractions of the image); null when outside. */
+export function regionInCrop(r: Region01, crop: Region01): Region01 | null {
+  const x0 = clamp01((r.x - crop.x) / crop.w);
+  const y0 = clamp01((r.y - crop.y) / crop.h);
+  const x1 = clamp01((r.x + r.w - crop.x) / crop.w);
+  const y1 = clamp01((r.y + r.h - crop.y) / crop.h);
+  return x1 - x0 > 0.005 && y1 - y0 > 0.005 ? { x: r4(x0), y: r4(y0), w: r4(x1 - x0), h: r4(y1 - y0) } : null;
+}
+
+type BlurOut = Region01 & { path?: RegionPath };
+
+/**
+ * Privacy blur for real media on screen: a walkthrough segment's regions (moving with SAM's track
+ * when there is one) or a screenshot's regions. Mapped through `map` (media fractions → layer/screen).
+ */
+export function privacyBlur(m: Pick<ScreenMedia, "asset" | "segment">, map: (r: Region01) => Region01): BlurOut[] {
+  const usable = (r: Region01) => r.w >= 0.02 && r.h >= 0.01;
+  const regions: (Region01 & { path?: RegionPath })[] = m.segment ? (m.segment.privacy.flagged ? m.segment.privacy.regions : []) : m.asset.privacy?.flagged ? m.asset.privacy.regions : [];
+  const out: BlurOut[] = [];
+  for (const r of regions) {
+    const at = map(r);
+    const path = r.path?.map((p) => ({ t: p.t, ...map(p) }));
+    // A region outside the visible screen at its anchor may still scroll in: keep it when it has a path.
+    if (usable(at) || (path && path.some(usable))) out.push({ ...at, ...(path && path.length >= 2 ? { path } : {}) });
+  }
+  return out.slice(0, 8);
+}
+
 /** Different crops of the same screen when an item has to appear more than once. */
 const DEFAULT_FOCUS: Region01[] = [
   { x: 0.06, y: 0.14, w: 0.88, h: 0.3 },
@@ -477,7 +549,7 @@ const DEFAULT_FOCUS: Region01[] = [
   { x: 0.06, y: 0.66, w: 0.88, h: 0.24 },
 ];
 
-type FocusOpt = Region01 & { zoom?: number; atSec?: number; ring?: boolean };
+type FocusOpt = Region01 & { zoom?: number; atSec?: number; ring?: boolean; path?: RegionPath };
 
 /**
  * Device layer for real product media: walkthrough segments are trimmed into the screen (sped up to at
@@ -504,24 +576,51 @@ function footageTiming(ctx: SceneCtx, m: ScreenMedia, start = 0): { trimIn: numb
   return { trimIn };
 }
 
-function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<typeof box>, o: { enter?: TextOpts["enter"]; loop?: string; start?: number; rotation?: number; focus?: FocusOpt; tap?: { x: number; y: number; atSec?: number }; tilt?: { x: number; y: number; swing?: boolean } } = {}): Layer {
+function screenLayer(
+  ctx: SceneCtx,
+  id: string,
+  m: ScreenMedia,
+  b: ReturnType<typeof box>,
+  o: {
+    enter?: TextOpts["enter"];
+    loop?: string;
+    start?: number;
+    rotation?: number;
+    focus?: FocusOpt;
+    tap?: { x: number; y: number; atSec?: number };
+    tilt?: { x: number; y: number; swing?: boolean };
+    /** ui-popout: the element lifted off this screen (fractions of the MEDIA), and when. */
+    lift?: Region01 & { atSec: number };
+    /** Video: play from this recording time at 1× (ui-popout lines the keyframe up with the lift). */
+    trimIn?: number;
+  } = {},
+): Layer {
   const { f, app } = ctx;
   const asset = m.asset;
   const { device } = deviceFor(app, asset);
   const video = asset.kind === "video";
-  const { trimIn, trimOut, rate } = footageTiming(ctx, m, o.start ?? 0);
+  const timing = footageTiming(ctx, m, o.start ?? 0);
+  const { trimIn, trimOut, rate } = o.trimIn !== undefined && video ? { trimIn: Math.max(0, o.trimIn), trimOut: timing.trimOut, rate: undefined } : timing;
   const g = deviceGeometry(device, b.w * f.W, b.h * f.H);
   const screenAspect = g.screen.width / Math.max(1, g.screen.height);
   const mediaAspect = asset.width && asset.height ? asset.width / asset.height : screenAspect;
   const align = screenAlign(device);
   const toScreen = (r: Region01) => mediaToScreen(r, mediaAspect, screenAspect, align);
   const usable = (r: Region01) => r.w >= 0.02 && r.h >= 0.01;
-  const blur = m.segment?.privacy.flagged ? m.segment.privacy.regions.map(toScreen).filter(usable) : [];
+  // Personal / secret details: a segment's regions (moving with SAM's track) or a screenshot's.
+  const blur = privacyBlur(m, toScreen);
   let focus: Extract<Layer, { type: "device" }>["focus"];
   if (o.focus) {
     const r = toScreen(o.focus);
     const region = usable(r) ? r : DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!;
-    focus = { ...region, ...(o.focus.zoom ? { zoom: o.focus.zoom } : {}), atSec: r4(o.focus.atSec ?? 0.6), ring: o.focus.ring ?? true };
+    // A tracked focus (video): the push-in and ring follow the element through the footage.
+    const path = video && usable(r) && o.focus.path && o.focus.path.length >= 2 ? o.focus.path.map((p) => ({ t: p.t, ...toScreen(p) })) : undefined;
+    focus = { ...region, ...(o.focus.zoom ? { zoom: o.focus.zoom } : {}), atSec: r4(o.focus.atSec ?? 0.6), ring: o.focus.ring ?? true, ...(path ? { path } : {}) };
+  }
+  let lift: Extract<Layer, { type: "device" }>["lift"];
+  if (o.lift) {
+    const r = toScreen(o.lift);
+    if (usable(r)) lift = { ...r, atSec: r4(o.lift.atSec), recede: true };
   }
   let tap: Extract<Layer, { type: "device" }>["tap"];
   if (o.tap) {
@@ -543,6 +642,7 @@ function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<ty
     ...(tap ? { tap } : {}),
     ...(o.tilt ? { tilt: { x: o.tilt.x, y: o.tilt.y, swing: o.tilt.swing ?? true } } : {}),
     ...(blur.length ? { blurRegions: blur.slice(0, 8) } : {}),
+    ...(lift ? { lift } : {}),
     box: { ...b, rotation: o.rotation ?? 0 },
     timing: { start: o.start ?? 0 },
     animation: {
@@ -554,9 +654,11 @@ function screenLayer(ctx: SceneCtx, id: string, m: ScreenMedia, b: ReturnType<ty
   } as Layer;
 }
 
-/** The scene's focus region (Spark's box) or a different default crop per reuse of the item. */
-function sceneFocus(ctx: SceneCtx, m: ScreenMedia): Region01 {
-  return ctx.sb.focus ?? DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!;
+/** The scene's focus region (Spark's box, with SAM's track through a walkthrough segment) or a different default crop per reuse of the item. */
+function sceneFocus(ctx: SceneCtx, m: ScreenMedia): Region01 & { path?: RegionPath } {
+  const f = ctx.sb.focus;
+  if (!f) return DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!;
+  return m.segment && ctx.sb.focusPath?.length ? { ...f, path: ctx.sb.focusPath } : f;
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +746,17 @@ function hookTitle(ctx: SceneCtx, textValue: string): Built {
   return { template: "hook-title", layers, background: { kind: "gradient", colors: [dark, darker], angle: 160, dim: 0 } };
 }
 
+/**
+ * Colour grade for SUPPORTING footage (stock, generated, uploaded photos; never the app's own UI): a
+ * soft-light wash of the app's accent pulls b-roll into the video's palette, so every scene reads as
+ * one piece. Same box, radius and entrance as the media it grades.
+ */
+function gradeLayer(ctx: SceneCtx, id: string, b: ReturnType<typeof box>, o: { radiusPx?: number; enter?: TextOpts["enter"]; loop?: string } = {}): Layer {
+  const l = shape(id, "rect", b, ctx.theme.accent, { gradientTo: mix(ctx.theme.accent, "#000000", 0.55), radiusPx: o.radiusPx ?? 0, enter: o.enter, loop: o.loop });
+  l.box.opacity = 0.42;
+  return { ...l, name: "Colour grade", blend: "soft-light" } as Layer;
+}
+
 function textOverMedia(ctx: SceneCtx, textValue: string, media: MediaAsset): Built {
   const { f, sceneId, theme } = ctx;
   const w = 1 - f.safe.left - f.safe.right - 0.02;
@@ -653,6 +766,7 @@ function textOverMedia(ctx: SceneCtx, textValue: string, media: MediaAsset): Bui
     media.kind === "video"
       ? ({ id: `${sceneId}_media`, type: "video", assetId: media.id, fit: "cover", trimInSec: 0, playbackRate: 1, muted: true, volume: 1, radiusPx: 0, box: box(0, 0, 1, 1, 1), timing: { start: 0 }, animation: { loop: "slow-zoom" }, locked: false, hidden: false } as Layer)
       : ({ id: `${sceneId}_media`, type: "image", assetId: media.id, fit: "cover", radiusPx: 0, shadow: false, box: box(0, 0, 1, 1, 1), timing: { start: 0 }, animation: { loop: "ken-burns" }, locked: false, hidden: false } as Layer),
+    gradeLayer(ctx, `${sceneId}_grade`, box(0, 0, 1, 1, 2)),
     shape(`${sceneId}_scrim`, "rect", box(0, 0.45, 1, 0.56, 2), "#00000000", { gradientTo: "#000000B3" }),
     text(`${sceneId}_headline`, textValue, box(0.5 - w / 2, y, w, fit.h, 3), {
       size: fit.size,
@@ -669,7 +783,10 @@ function textOverMedia(ctx: SceneCtx, textValue: string, media: MediaAsset): Bui
 
 interface ShotOpts {
   template?: TemplateId;
-  focus?: FocusOpt;
+  /** null = no push-in at all (not even the default crop of a reused item). */
+  focus?: FocusOpt | null;
+  lift?: Region01 & { atSec: number };
+  trimIn?: number;
   tap?: { x: number; y: number; atSec?: number };
   /** Background-coloured band behind the headline so a pushed-in screen never runs under the text. */
   scrim?: boolean;
@@ -686,9 +803,9 @@ function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpt
   const bgTop = (bg.colors?.[0] ?? theme.background).slice(0, 7);
   const bgBottom = (bg.colors?.[1] ?? theme.background).slice(0, 7);
   // An item shown again gets a different crop (a gentle push-in on another part of the screen).
-  const focus = o.focus ?? (m.use > 0 ? { ...DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!, zoom: 1.55, ring: false, atSec: 0.2 } : undefined);
+  const focus = o.focus === null ? undefined : (o.focus ?? (m.use > 0 ? { ...DEFAULT_FOCUS[m.use % DEFAULT_FOCUS.length]!, zoom: 1.55, ring: false, atSec: 0.2 } : undefined));
   const scrim = o.scrim ?? !!focus;
-  const devOpts = { enter: o.deviceEnter ?? { preset: "slide-up", durationSec: 1.1, delaySec: 0.15, easing: "smooth" }, loop: o.loop ?? (focus ? "none" : "float"), focus, tap: o.tap };
+  const devOpts = { enter: o.deviceEnter ?? { preset: "slide-up", durationSec: 1.1, delaySec: 0.15, easing: "smooth" }, loop: o.loop ?? (focus ? "none" : "float"), focus, tap: o.tap, lift: o.lift, trimIn: o.trimIn };
   const scrimIn = { preset: "fade", durationSec: 0.5, delaySec: r4(Math.max(0, Math.min(ctx.durationSec - 0.6, focus?.atSec ?? 0.6))), easing: "smooth" };
   let headBox: ReturnType<typeof box>;
   if (f.landscape) {
@@ -728,18 +845,98 @@ function deviceDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia, o: ShotOpt
 function focusZoom(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
   const d = ctx.durationSec;
   const region = sceneFocus(ctx, m);
-  const ring = !(m.asset.kind === "video" && isWideDevice(deviceFor(ctx.app, m.asset).device));
+  // A ring that follows the element (SAM track) is safe on moving footage too.
+  const ring = !!region.path || !(m.asset.kind === "video" && isWideDevice(deviceFor(ctx.app, m.asset).device));
   return deviceDemo(ctx, textValue, m, { template: "focus-zoom", focus: { ...region, atSec: Math.max(0.3, Math.min(0.9, d * 0.28)), ring }, deviceEnter: { preset: "fade", durationSec: 0.6, delaySec: 0, easing: "smooth" } });
 }
 
 /** The action: a finger dot taps the control (centre of the focus region), with a gentle push-in. */
 function tapDemo(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
   const d = ctx.durationSec;
-  const region = ctx.sb.focus;
+  const region = ctx.sb.focus ? sceneFocus(ctx, m) : undefined;
   const point = region ? { x: region.x + region.w / 2, y: region.y + region.h / 2 } : { x: 0.5, y: 0.5 };
   const atSec = Math.max(0.9, Math.min(1.6, d * 0.45));
   const focus = region ? { ...region, zoom: 1.3, ring: false, atSec: 0.25 } : undefined;
   return deviceDemo(ctx, textValue, m, { template: "tap-demo", focus, tap: { ...point, atSec }, scrim: !!focus, loop: "none" });
+}
+
+/**
+ * UI pop-out: the real screen in a device, then ONE element of it (Spark's focus box: a card, a chart,
+ * a button) lifts off the screen toward the viewer — it grows, tilts in 3D and casts a soft shadow
+ * while the device recedes and dims behind it, leaving a shallow socket where it was; it then floats
+ * with a little parallax. The element is a crop of the same real still (the screenshot, or the
+ * walkthrough keyframe, which the footage is lined up with at the lift), so nothing is redrawn.
+ * Without a focus box (or a still to crop) it falls back to a focus zoom.
+ */
+function uiPopout(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const { f, sceneId, app } = ctx;
+  const region = ctx.sb.focus;
+  if (!region || region.w < 0.04 || region.h < 0.02) return focusZoom(ctx, textValue, m);
+  let still: MediaAsset | undefined = m.asset.kind === "image" ? m.asset : undefined;
+  let keyAt: number | undefined;
+  if (!still && m.segment?.keyframeAssetId && m.segment.keyframeAtSec !== undefined) {
+    const kf = ctx.picker.byId.get(m.segment.keyframeAssetId);
+    if (kf?.kind === "image") {
+      still = kf;
+      keyAt = m.segment.keyframeAtSec;
+    }
+  }
+  if (!still) return focusZoom(ctx, textValue, m);
+  const d = ctx.durationSec;
+  let atSec = r4(Math.max(0.6, Math.min(1.2, d * 0.3)));
+  // Footage plays at 1× so the keyframe is on screen exactly when the element lifts off it.
+  let trimIn: number | undefined;
+  if (keyAt !== undefined) {
+    atSec = r4(Math.max(0.3, Math.min(atSec, keyAt)));
+    trimIn = r4(Math.max(0, keyAt - atSec));
+  }
+  const built = deviceDemo(ctx, textValue, m, { template: "ui-popout", focus: null, scrim: false, loop: "none", deviceEnter: { preset: "fade", durationSec: 0.5, delaySec: 0, easing: "smooth" }, lift: { ...region, atSec }, trimIn });
+  const dev = built.layers.find((l) => l.type === "device") as Extract<Layer, { type: "device" }> | undefined;
+  if (!dev?.lift) return focusZoom(ctx, textValue, m);
+  const head = built.layers.find((l) => l.type === "text");
+  // Where the element sits on the screen, in frame fractions.
+  const g = deviceGeometry(dev.device, dev.box.w * f.W, dev.box.h * f.H);
+  const sock = dev.lift;
+  const from = {
+    x: r4(dev.box.x + (g.screen.left + sock.x * g.screen.width) / f.W),
+    y: r4(dev.box.y + (g.screen.top + sock.y * g.screen.height) / f.H),
+    w: r4((sock.w * g.screen.width) / f.W),
+    h: r4((sock.h * g.screen.height) / f.H),
+  };
+  // The crop shows exactly the visible part of the element (the screen may cut the media).
+  const mediaAspect = m.asset.width && m.asset.height ? m.asset.width / m.asset.height : g.screen.width / Math.max(1, g.screen.height);
+  const crop = screenToMedia(sock, mediaAspect, g.screen.width / Math.max(1, g.screen.height), screenAlign(dev.device));
+  // Lifted: bigger (≈1.35–1.9×, at most 84% of the frame width / 30% of its height), centred, a little higher.
+  const wPx = from.w * f.W;
+  const hPx = from.h * f.H;
+  const k = Math.max(1.2, Math.min(1.9, (0.84 * f.W) / wPx, (0.3 * f.H) / hPx));
+  const w = (wPx * k) / f.W;
+  const h = (hPx * k) / f.H;
+  const top = Math.max(head ? head.box.y + head.box.h + 0.03 : f.safe.top, f.safe.top);
+  const bottom = 1 - f.safe.bottom - 0.02;
+  const cy = Math.max(top + h / 2, Math.min(bottom - h / 2, from.y + from.h / 2 - 0.05));
+  const cx = f.landscape ? Math.max(f.safe.left + w / 2, Math.min(1 - f.safe.right - w / 2, from.x + from.w / 2)) : 0.5;
+  // Private details inside the element stay blurred on the lifted copy.
+  const blurRegions = (still.privacy?.flagged ? still.privacy.regions : m.segment?.privacy.flagged ? m.segment.privacy.regions : []).map((r) => regionInCrop(r, crop)).filter((r): r is Region01 => !!r);
+  const lifted: Layer = {
+    id: `${sceneId}_popout`,
+    name: "Lifted element (real UI)",
+    type: "image",
+    assetId: still.id,
+    fit: "cover",
+    radiusPx: Math.round(Math.min(w * f.W, h * f.H) * 0.08),
+    shadow: false,
+    crop,
+    ...(blurRegions.length ? { blurRegions: blurRegions.slice(0, 8) } : {}),
+    lift: { from, atSec, durationSec: 0.85, tilt: { x: 6, y: from.x + from.w / 2 < 0.5 ? 9 : -9 } },
+    box: box(cx - w / 2, cy - h / 2, w, h, 4),
+    timing: { start: 0 },
+    animation: { enter: { preset: "fade", durationSec: 0.5, delaySec: 0, easing: "smooth" }, loop: "none" },
+    locked: false,
+    hidden: false,
+  } as Layer;
+  void app;
+  return { ...built, template: "ui-popout", layers: [...built.layers, lifted] };
 }
 
 function featureCallout(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
@@ -927,6 +1124,7 @@ function beforeAfter(ctx: SceneCtx, textValue: string, before: Pane, after: Pane
       const b = box(cx - wFrac / 2, y, wFrac, hFrac, 2);
       const common = { id: `${sceneId}_media${i + 1}`, assetId: pane.media.id, fit: "cover", radiusPx: Math.round(36 * f.u), box: b, timing: { start: 0 }, animation: { enter: { ...enter, durationSec: 0.9 }, loop: "slow-zoom" }, locked: false, hidden: false };
       layers.push((pane.media.kind === "video" ? { ...common, type: "video", trimInSec: 0, playbackRate: 1, muted: true, volume: 1 } : { ...common, type: "image", shadow: true }) as Layer);
+      layers.push(gradeLayer(ctx, `${sceneId}_grade${i + 1}`, b, { radiusPx: common.radiusPx, enter: { ...enter, durationSec: 0.9 }, loop: "slow-zoom" }));
     }
   });
   return { template, layers, background: softBackground(ctx, ctx.index) };
@@ -1200,6 +1398,7 @@ function fullscreenShowcase(ctx: SceneCtx, textValue: string, m: ScreenMedia): B
   const a = m.asset;
   const ma = a.width && a.height ? a.width / a.height : f.W / f.H;
   const cover = Math.abs(ma - f.W / f.H) / (f.W / f.H) < 0.08;
+  const blur = privacyBlur(m, (r) => mediaToBox(r, ma, f.W / f.H, cover ? "cover" : "contain"));
   const layers: Layer[] = [
     {
       id: `${sceneId}_media`,
@@ -1208,6 +1407,7 @@ function fullscreenShowcase(ctx: SceneCtx, textValue: string, m: ScreenMedia): B
       fit: cover ? "cover" : "contain",
       radiusPx: 0,
       shadow: !cover,
+      ...(blur.length ? { blurRegions: blur.map(({ path: _p, ...r }) => r) } : {}),
       box: box(0, 0, 1, 1, 2),
       timing: { start: 0 },
       animation: { enter: { preset: "fade", durationSec: 0.5, delaySec: 0, easing: "smooth" }, loop: m.use % 2 ? "ken-burns" : "slow-zoom" },
@@ -1316,6 +1516,74 @@ function fullscreenRecording(ctx: SceneCtx, textValue: string, m: ScreenMedia): 
   return { template: "fullscreen-recording", layers, background: { kind: "solid", color: "#000000", angle: 180, dim: 0 } };
 }
 
+/**
+ * Footage-first opening: the most striking real moment (a walkthrough segment, else a raw screenshot)
+ * fills the frame at its own aspect, cover-cropped around the action, with a slow push and the hook
+ * in big type over a dark fade in the lower third. Scene 1 is also the thumbnail: everything is on
+ * screen from frame 0 (opening rules). Private details stay blurred (moving with SAM's track).
+ */
+function hookFootage(ctx: SceneCtx, textValue: string, m: ScreenMedia): Built {
+  const { f, sceneId, theme, app } = ctx;
+  const a = m.asset;
+  const ma = a.width && a.height ? a.width / a.height : f.W / f.H;
+  const focus = ctx.sb.focus;
+  // Phone recordings: keep the middle of the screen (status bar and home bar matter least).
+  const center = focus ? { x: focus.x + focus.w / 2, y: focus.y + focus.h / 2 } : { x: 0.5, y: ma < 1 ? 0.45 : 0.5 };
+  const crop = coverCrop(ma, f.W / f.H, center);
+  const v = crop.visible;
+  const toFrame = (r: Region01): Region01 => {
+    const x0 = clamp01((r.x - v.x) / v.w);
+    const y0 = clamp01((r.y - v.y) / v.h);
+    return { x: r4(x0), y: r4(y0), w: r4(clamp01((r.x + r.w - v.x) / v.w) - x0), h: r4(clamp01((r.y + r.h - v.y) / v.h) - y0) };
+  };
+  const blur = privacyBlur(m, toFrame);
+  const common = { id: `${sceneId}_media`, name: "Real footage (full screen)", assetId: a.id, fit: "cover", objectPosition: crop.position, radiusPx: 0, box: box(0, 0, 1, 1, 1), timing: { start: 0 }, locked: false, hidden: false };
+  const media: Layer =
+    a.kind === "video"
+      ? (() => {
+          const t = footageTiming(ctx, m);
+          return { ...common, type: "video", trimInSec: r4(t.trimIn), ...(t.trimOut !== undefined ? { trimOutSec: r4(t.trimOut) } : {}), playbackRate: t.rate ?? 1, muted: true, volume: 1, ...(blur.length ? { blurRegions: blur } : {}), animation: { loop: "slow-zoom" } } as Layer;
+        })()
+      : ({ ...common, type: "image", shadow: false, ...(blur.length ? { blurRegions: blur.map(({ path: _p, ...r }) => r) } : {}), animation: { loop: "ken-burns" } } as Layer);
+  const tw = 1 - f.safe.left - f.safe.right - 0.02;
+  const fit = fitText(f, textValue, (f.portrait ? 118 : f.landscape ? 96 : 104) * f.u, f.landscape ? 0.62 : tw, { maxLines: 3, lineHeight: 1.0 });
+  const bottom = 1 - f.safe.bottom - 0.03;
+  const headY = bottom - fit.h;
+  const eyeSize = Math.round(28 * f.u);
+  const eyeH = (eyeSize * 1.6) / f.H;
+  const fadeTop = Math.max(0.25, headY - eyeH - 0.2);
+  const x0 = f.landscape ? f.safe.left + 0.01 : 0.5 - tw / 2;
+  const layers: Layer[] = [
+    media,
+    { ...shape(`${sceneId}_scrimtop`, "rect", box(0, 0, 1, 0.16, 2), "#00000066", { gradientTo: "#00000000" }), name: "Top shade" } as Layer,
+    { ...shape(`${sceneId}_scrim`, "rect", box(0, fadeTop, 1, 1 - fadeTop, 2), "#00000000", { gradientTo: "#000000D9" }), name: "Headline fade" } as Layer,
+    text(`${sceneId}_eyebrow`, app.name.slice(0, 60), box(x0, headY - eyeH - 0.008, f.landscape ? 0.62 : tw, eyeH, 3), {
+      role: "label",
+      size: eyeSize,
+      weight: 650,
+      color: mix(theme.accent, "#FFFFFF", 0.55),
+      uppercase: true,
+      letterSpacing: 0.14,
+      font: "body",
+      align: f.landscape ? "left" : "center",
+      enter: { preset: "fade", durationSec: 0.5 },
+    }),
+    text(`${sceneId}_headline`, textValue, box(x0, headY, f.landscape ? 0.62 : tw, fit.h, 4), {
+      size: fit.size,
+      weight: 800,
+      color: "#FFFFFF",
+      lineHeight: 1.0,
+      letterSpacing: -0.03,
+      align: f.landscape ? "left" : "center",
+      shadow: true,
+      enter: { preset: "words", durationSec: 0.9 },
+      highlight: { words: ctx.emphasis(textValue), color: mix(theme.accent, "#FFFFFF", 0.3) },
+      claimIds: ctx.sb.claimIds,
+    }),
+  ];
+  return { template: "hook-footage", layers, background: { kind: "solid", color: "#000000", angle: 180, dim: 0 } };
+}
+
 function carouselSlide(ctx: SceneCtx, textValue: string, m: ScreenMedia | undefined): Built {
   const { f, sceneId, app } = ctx;
   const parts = splitParts(textValue);
@@ -1357,11 +1625,39 @@ function transitionFor(prev: TemplateId | undefined, next: TemplateId, durationS
   if (next === "icon-reveal") return { kind: "zoom", durationSec: cap(0.5) };
   // Into full-screen footage: like diving into the screen.
   if (next === "fullscreen-recording") return { kind: "zoom", durationSec: cap(0.45) };
+  // Out of a close-up: dive into the element it was showing.
+  if ((prev === "focus-zoom" || prev === "tap-demo" || prev === "ui-popout") && next !== "focus-zoom" && next !== "tap-demo") return { kind: "zoom-through", durationSec: cap(0.55) };
   if (next === "focus-zoom" || next === "tap-demo") return { kind: "cut", durationSec: 0 };
   if (next === "stat-card" || next === "quote-proof") return { kind: "blur", durationSec: cap(0.45) };
   if (next === "founder-cutout" || next === "text-over-media" || next === "fullscreen-showcase") return { kind: "fade", durationSec: cap(0.4) };
-  if (next === "phone-tilt") return { kind: "slide-left", durationSec: cap(0.55) };
-  return { kind: index % 2 ? "slide-left" : "slide-up", durationSec: cap(0.55) };
+  // Out of the footage-first opening: dive into the product.
+  if (prev === "hook-footage") return { kind: "zoom", durationSec: cap(0.45) };
+  // Phone to phone: a match cut (checked against the real layouts in buildFromStoryboard).
+  if (MATCHABLE.has(prev) && MATCHABLE.has(next)) return { kind: "match", durationSec: cap(0.6) };
+  if (next === "phone-tilt") return { kind: "whip", durationSec: cap(0.45) };
+  return { kind: index % 2 ? "whip" : "slide-up", durationSec: cap(index % 2 ? 0.45 : 0.55) };
+}
+
+/** Templates whose phone sits in a similar place, so a match cut can hold it while the scene changes. */
+const MATCHABLE = new Set<TemplateId>(["device-demo", "feature-callout", "ui-popout"]);
+
+/**
+ * A match cut only works when the two phones are close in place and size; otherwise a whip. The next
+ * phone then has no entrance of its own (it is already on screen, moving into place).
+ */
+function settleMatchCuts(scenes: Scene[]) {
+  for (let i = 1; i < scenes.length; i++) {
+    const s = scenes[i]!;
+    if (s.transitionIn.kind !== "match") continue;
+    const a = scenes[i - 1]!.layers.find((l) => l.type === "device");
+    const b = s.layers.find((l) => l.type === "device");
+    const close = a && b && Math.hypot(a.box.x + a.box.w / 2 - (b.box.x + b.box.w / 2), a.box.y + a.box.h / 2 - (b.box.y + b.box.h / 2)) < 0.15 && a.box.h / b.box.h > 0.7 && a.box.h / b.box.h < 1.43 && a.device === b.device;
+    if (!close || !b || b.anchor || !!b.box.rotation) {
+      s.transitionIn = { kind: "whip", durationSec: Math.min(0.45, s.transitionIn.durationSec) };
+      continue;
+    }
+    b.animation = { ...b.animation, enter: undefined };
+  }
 }
 
 function captionCues(storyboard: Storyboard, starts: number[]): CaptionCue[] {
@@ -1392,7 +1688,8 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
   const { storyboard, app, brand } = input;
   const ar = input.aspectRatio ?? storyboard.aspectRatio;
   const f = frameFor(ar);
-  const theme = themeFromBrand(brand);
+  const theme = withTypeface(themeFromBrand(brand), brand, storyboard.typeface);
+  FIT_WIDTH = fontWidthFactor(theme.headingFont);
   const picker = new AssetPicker(input.assets, brand, app, input.recordingSegments ?? []);
   const segs = input.segmentations ?? [];
   const kind = input.kind ?? "video";
@@ -1424,6 +1721,7 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
     prevTemplate = built.template;
   });
 
+  settleMatchCuts(scenes);
   const starts: number[] = [];
   scenes.reduce((t, s) => (starts.push(t), t + s.durationSec), 0);
   const audio: AudioTrack[] = [];
@@ -1451,7 +1749,8 @@ export function buildFromStoryboard(input: BuildInput & { aspectRatio?: AspectRa
     safeZone: f.safe,
     scenes,
     audio,
-    captions: { enabled: kind === "video" && storyboard.voiceover.source !== "none" && cues.length > 0, preset: "boxed", position: "bottom", source: "script", cues },
+    // A spoken video gets karaoke captions (the word being said lights up); otherwise the quiet boxed style.
+    captions: { enabled: kind === "video" && storyboard.voiceover.source !== "none" && cues.length > 0, preset: storyboard.voiceover.source !== "none" ? "word-pop" : "boxed", position: "bottom", source: "script", cues },
     meta: { storyboardId: storyboard.id, generatedByRunId: storyboard.generatedByRunId, brandProfileVersion: brand?.version },
   };
   const v = validateDoc(doc);
@@ -1513,6 +1812,14 @@ function buildScene(ctx: SceneCtx, t: TemplateId, txt: string): Built {
     case "tap-demo": {
       const a = picker.screen(sb, sb.assets.some((h) => h.kind === "app_recording") ? "app_recording" : "any");
       return a ? tapDemo(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "ui-popout": {
+      const a = picker.screen(sb, "screenshot");
+      return a ? uiPopout(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
+    }
+    case "hook-footage": {
+      const a = picker.screen(sb, sb.assets.some((h) => h.kind === "screenshot") ? "screenshot" : "app_recording");
+      return a ? hookFootage(ctx, textOr(ctx.app.name), a) : hookTitle(ctx, textOr(ctx.app.name));
     }
     case "phone-tilt": {
       const a = picker.screen(sb);

@@ -44,7 +44,7 @@ import {
 } from "@muselaunch/contracts";
 import { newId, type WorkspaceDb } from "@muselaunch/db";
 import { AppError, toAppError, type Platform } from "@muselaunch/platform";
-import { deriveRun, MAX_GLITCH_WAITS, overspend, problemFromError, runSettings, stepKeyOf, waitMs, type Derived, type JobLike, type NextStep, type StepProblem } from "./create-run";
+import { CHECK_JOBS, deriveRun, MAX_GLITCH_WAITS, overspend, problemFromError, runSettings, stepKeyOf, waitMs, type Derived, type JobLike, type NextStep, type StepProblem } from "./create-run";
 import { nowMs } from "./state";
 
 type Member = Pick<WorkspaceMember, "role" | "canPublish" | "canManageAccounts" | "status">;
@@ -56,7 +56,7 @@ export const CREATE_RUN_STALE_MS = 24 * 3_600_000;
 /** How long one hook / sweep / decision may hold a run. */
 const LEASE_MS = 3 * 60_000;
 /** Job types of a Create run's own chain. */
-export const CREATE_RUN_JOBS: ReadonlySet<Job["type"]> = new Set(["campaign.generate_concepts", "storyboard.generate", "storyboard.resolve_media", "composition.build", "render.preview", "render.final"]);
+export const CREATE_RUN_JOBS: ReadonlySet<Job["type"]> = new Set(["campaign.generate_concepts", "storyboard.generate", "storyboard.resolve_media", "composition.build", "render.preview", "render.final", ...CHECK_JOBS]);
 const FOOTAGE_JOBS: ReadonlySet<Job["type"]> = new Set(["media.extract_ui", "media.analyze_recording"]);
 const ACTOR = "system";
 

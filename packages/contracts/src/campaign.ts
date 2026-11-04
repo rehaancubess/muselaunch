@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale } from "./common";
+import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale, RegionPath } from "./common";
 import { TEMPLATE_IDS } from "./composition";
 import { CreateRunState } from "./create-run";
 import { MusicMood } from "./sound";
@@ -222,6 +222,12 @@ export const StoryboardScene = z.object({
   focus: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
   /** What to focus on when no box was given (resolved to `focus` with SAM 3.1 on the real image). */
   focusQuery: z.string().max(120).optional(),
+  /**
+   * Walkthrough segments: `focus` tracked through the footage by SAM 3.1 (storyboard.resolve_media),
+   * so the zoom and ring follow the element as it moves. Fractions of the recording frame; `t` =
+   * seconds into the recording.
+   */
+  focusPath: RegionPath.optional(),
 });
 export type StoryboardScene = z.infer<typeof StoryboardScene>;
 
@@ -237,6 +243,8 @@ export const Storyboard = BaseEntity.extend({
     .object({ source: z.enum(["none", "founder_recording", "tts"]), assetId: Id.optional(), script: z.string().max(4000).optional() })
     .default({ source: "none" }),
   music: z.object({ mood: z.string().max(120).optional(), assetId: Id.optional() }).default({}),
+  /** Headline typeface Muse Spark picked for this video (one of the bundled faces; the brand kit's own font wins). */
+  typeface: z.string().max(60).optional(),
   generatedByRunId: Id.optional(),
 });
 export type Storyboard = z.infer<typeof Storyboard>;

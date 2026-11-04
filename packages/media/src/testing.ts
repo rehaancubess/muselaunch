@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MediaAsset, MediaRole } from "@muselaunch/contracts";
@@ -246,3 +247,60 @@ export async function storeUpload(
     { actor },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Synthetic SAM 3.1 tracking output for box prompts (documented wire format; masks encoded with the
+// codec shipped in @meta-sam/parser, so the real decoder parses them). NOT live output.
+// ---------------------------------------------------------------------------
+
+const providersPkg = join(dirname(fileURLToPath(import.meta.url)), "../../providers/package.json");
+let encoder: ((raster: Uint8Array, width: number, height: number) => { payload: string }) | undefined;
+function encodeMask(w: number, h: number): string {
+  if (!encoder) {
+    const req = createRequire(providersPkg);
+    const codec = join(dirname(req.resolve("@meta-sam/parser")), "mask-codec.js");
+    encoder = (createRequire(import.meta.url)(codec) as { encodeSegmentationMask: typeof encoder }).encodeSegmentationMask;
+  }
+  const r = new Uint8Array(w * h).fill(1);
+  return encoder!(r, w, h).payload;
+}
+
+/** Box prompts of a recorded SAM request: `<Nf>id<|box;x1;y1;x2;y2;w;h|>` → per object id. */
+export function promptBoxes(text: string): { id: number; frame: number; x1: number; y1: number; x2: number; y2: number; w: number; h: number }[] {
+  const out: { id: number; frame: number; x1: number; y1: number; x2: number; y2: number; w: number; h: number }[] = [];
+  for (const block of text.split(/(?=<\d+f>)/)) {
+    const frame = Number(/^<(\d+)f>/.exec(block)?.[1] ?? 0);
+    for (const m of block.matchAll(/(?:^<\d+f>|,|-)(\d+)<\|box;x1=(\d+);y1=(\d+);x2=(\d+);y2=(\d+);w=(\d+);h=(\d+)\|>/g)) {
+      out.push({ id: Number(m[1]), frame, x1: Number(m[2]), y1: Number(m[3]), x2: Number(m[4]), y2: Number(m[5]), w: Number(m[6]), h: Number(m[7]) });
+    }
+  }
+  return out;
+}
+
+/**
+ * SAM output that follows every prompted box through `frames` frames, moved by `move(frame)` pixels
+ * relative to its prompt frame (clamped to the frame).
+ */
+export function samTrackOutput(promptText: string, frames: number, move: (frame: number) => { dx: number; dy: number }): string {
+  const boxes = promptBoxes(promptText);
+  const lines: string[] = [];
+  for (let f = 0; f < frames; f++) {
+    const recs: string[] = [];
+    for (const b of boxes) {
+      const d0 = move(b.frame);
+      const d = move(f);
+      const ox = Math.round(d.dx - d0.dx);
+      const oy = Math.round(d.dy - d0.dy);
+      const x1 = Math.max(0, Math.min(b.w - 2, b.x1 + ox));
+      const y1 = Math.max(0, Math.min(b.h - 2, b.y1 + oy));
+      const x2 = Math.max(x1 + 1, Math.min(b.w - 1, b.x2 + ox));
+      const y2 = Math.max(y1 + 1, Math.min(b.h - 1, b.y2 + oy));
+      const mw = x2 - x1 + 1;
+      const mh = y2 - y1 + 1;
+      recs.push(`${b.id}<|box;x1=${x1};y1=${y1};x2=${x2};y2=${y2};w=${b.w};h=${b.h};c=0.95|><|mask;x=0;y=0;c=0.95;data=${mh},${mw},${encodeMask(mw, mh)}|>`);
+    }
+    lines.push(`<${f}f>${recs.join(",")}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+

@@ -3,11 +3,12 @@ import { join } from "node:path";
 import type { Job, MediaAsset } from "@muselaunch/contracts";
 import type { WorkspaceDb } from "@muselaunch/db";
 import { AppError, toAppError, workspaceKey, type JobContext, type Platform } from "@muselaunch/platform";
-import { decodeMaskToRaster, generateJson, imagePart, runSam, type InputPart, type SamDetection } from "@muselaunch/providers";
+import { decodeMaskToRaster, generateJson, imagePart, metaClient, runSam, type InputPart, type SamDetection } from "@muselaunch/providers";
 import { z } from "zod";
 import { ffmpeg, ffmpegWriter, probeMedia } from "./ffmpeg";
 import { downscaleImage, grayThumbnail } from "./frames";
 import { samFrameSize, type FrameSize } from "./masks";
+import { cleanPrivacy, PRIVACY_RULES, PrivacyOut, regionsInCrop } from "./privacy";
 import { callCtx, derivedId, EXT_BY_MIME, sha256, withWorkdir } from "./util";
 
 /**
@@ -21,6 +22,9 @@ import { callCtx, derivedId, EXT_BY_MIME, sha256, withWorkdir } from "./util";
  *    "screen"), picks the detection that is plausibly a phone screen (portrait, big enough, most
  *    confident) and crops it (small inset, rounded corners from the mask) into a derived product-truth
  *    asset with `sourceLabel: "sam_ui_crop"`. Idempotent: originals that already have a cut-out are skipped.
+ * The same Spark look also checks each screenshot for personal or secret information (names, emails,
+ * API keys, revenue figures…): `privacy` regions on the asset are blurred wherever it appears in a
+ * video, and a cut-out inherits the regions that fall inside it.
  */
 
 export const UI_SCREEN_PROMPTS = ["phone screen", "smartphone display", "screen"];
@@ -43,10 +47,38 @@ export async function appScreenshots(ws: WorkspaceDb, appId: string): Promise<{ 
   return { originals: items.filter(isOriginalScreenshot), crops };
 }
 
-/** Screenshots that still need work: not yet classified, or a store image without a cut-out. */
+/** Screenshots that still need work: not yet classified or privacy-checked, or a store image without a cut-out. */
 export function pendingScreens(originals: MediaAsset[], crops: Map<string, MediaAsset>, assetIds?: string[]): MediaAsset[] {
   const only = assetIds?.length ? new Set(assetIds) : null;
-  return originals.filter((a) => (!only || only.has(a.id)) && (!a.screenshotKind || (a.screenshotKind === "marketing" && !crops.has(a.id))));
+  return originals.filter((a) => (!only || only.has(a.id)) && (needsLook(a) || (a.screenshotKind === "marketing" && !crops.has(a.id))));
+}
+
+/** Spark has not looked at this screenshot yet (kind or privacy). */
+const needsLook = (a: MediaAsset) => !a.screenshotKind || !a.privacy;
+
+/**
+ * A screenshot uploaded after App DNA exists is checked right away (kind, privacy, cut-out), like a
+ * walkthrough recording. Never fails the probe: missing keys or credits are logged on it.
+ */
+export async function autoExtractUi(ctx: JobContext, asset: MediaAsset): Promise<string | undefined> {
+  if (!isOriginalScreenshot(asset) || !asset.appId) return undefined;
+  if (!metaClient(ctx.platform).configured) return undefined;
+  const app = await ctx.ws.collection("apps").get(asset.appId);
+  // Before App DNA, the DNA job queues the check for every screenshot at once.
+  if (!app?.brandProfileId) return undefined;
+  try {
+    const job = await ctx.enqueue("media.extract_ui", { appId: asset.appId, assetIds: [asset.id] }, {
+      appId: asset.appId,
+      idempotencyKey: `extract_ui:auto:${asset.id}`,
+      credits: { operation: "media.extract_ui", amount: estimateUiExtraction(ctx.platform, 1) },
+    });
+    return job.id;
+  } catch (raw) {
+    const err = toAppError(raw);
+    if (err.code !== "INSUFFICIENT_CREDITS" && err.code !== "QUOTA_EXCEEDED") ctx.log.warn({ err, assetId: asset.id }, "could not queue the screenshot check");
+    await ctx.log_event(`Screenshot not checked yet: ${err.opts.userMessage ?? err.message}`);
+    return undefined;
+  }
 }
 
 export function estimateUiExtraction(p: Platform, pending: number): number {
@@ -128,6 +160,7 @@ export const ScreenshotKinds = z.object({
         assetId: z.string().max(128).describe("The asset id given for the image"),
         kind: z.enum(["raw_ui", "marketing"]),
         reason: z.string().max(300).optional(),
+        privacy: PrivacyOut,
       }),
     )
     .max(CLASSIFY_PER_CALL),
@@ -136,11 +169,15 @@ export const ScreenshotKinds = z.object({
 const CLASSIFY_INSTRUCTIONS = `You are Muse Spark sorting an app's store screenshots for MuseLaunch's video editor. For each attached image decide:
 - raw_ui: the image IS the app's screen exactly as captured on the device: edge-to-edge app UI (often with the status bar), no added headline, decorative background or device frame.
 - marketing: a designed store image: a headline or caption added around the UI, a drawn device frame or bezel, a decorative or gradient background, several screens composed together, or the UI shown smaller inside the canvas.
-The heuristic note for each image comes from simple pixel statistics and may be wrong: decide from what you see. Use the exact asset id given for each image.`;
+The heuristic note for each image comes from simple pixel statistics and may be wrong: decide from what you see. Use the exact asset id given for each image.
+
+Also check every image for private details MuseLaunch must blur before it appears in a public video:
+- ${PRIVACY_RULES}`;
 
 interface Classified {
   kind: "raw_ui" | "marketing";
   reason?: string;
+  privacy: MediaAsset["privacy"];
 }
 
 async function classifyBatch(ctx: JobContext, app: { name: string }, batch: { asset: MediaAsset; jpeg: Buffer; hint: string }[]): Promise<Map<string, Classified>> {
@@ -160,13 +197,14 @@ async function classifyBatch(ctx: JobContext, app: { name: string }, batch: { as
     input: [{ type: "input_text", text }, ...parts],
     schema: ScreenshotKinds,
     schemaName: "ScreenshotKinds",
-    maxOutputTokens: 1500,
+    maxOutputTokens: 3000,
     reasoningEffort: "low",
     cacheKey: "media.screenshot_kinds",
   });
   const ids = new Set(batch.map((b) => b.asset.id));
   const res = new Map<string, Classified>();
-  for (const x of out.data.images) if (ids.has(x.assetId) && !res.has(x.assetId)) res.set(x.assetId, { kind: x.kind, reason: x.reason });
+  const at = new Date().toISOString();
+  for (const x of out.data.images) if (ids.has(x.assetId) && !res.has(x.assetId)) res.set(x.assetId, { kind: x.kind, reason: x.reason, privacy: { ...cleanPrivacy(x.privacy), scannedBy: out.model, scannedAt: at } });
   return res;
 }
 
@@ -257,7 +295,7 @@ export function roundedAlpha(w: number, h: number, r: number): Uint8Array {
   return out;
 }
 
-export async function cropScreen(src: string, out: string, pick: ScreenPick, dir: string, signal?: AbortSignal): Promise<{ width: number; height: number; radius: number }> {
+export async function cropScreen(src: string, out: string, pick: ScreenPick, dir: string, signal?: AbortSignal): Promise<{ x: number; y: number; width: number; height: number; radius: number }> {
   const bw = pick.box.right - pick.box.left;
   const bh = pick.box.bottom - pick.box.top;
   // Small inset so no bezel/background pixels remain at the edges.
@@ -275,7 +313,7 @@ export async function cropScreen(src: string, out: string, pick: ScreenPick, dir
   await writer.write(Buffer.from(alpha.buffer, alpha.byteOffset, alpha.byteLength));
   await writer.end();
   await ffmpeg(["-i", src, "-i", matte, "-filter_complex", `[0:v]format=rgba,crop=${w}:${h}:${x}:${y}[s];[1:v]format=gray[a];[s][a]alphamerge[v]`, "-map", "[v]", "-frames:v", "1", out], { signal });
-  return { width: w, height: h, radius };
+  return { x, y, width: w, height: h, radius };
 }
 
 // ---------------------------------------------------------------------------
@@ -317,9 +355,11 @@ async function runExtraction(ctx: JobContext<"media.extract_ui">, dir: string) {
   }
   const processed = new Set<string>();
 
-  // 1) Muse Spark: raw UI or designed store image.
-  const toClassify = pending.filter((a) => !a.screenshotKind && local.has(a.id));
+  // 1) Muse Spark: raw UI or designed store image, and private details to blur.
+  const toClassify = pending.filter((a) => needsLook(a) && local.has(a.id));
   const kinds = new Map<string, "raw_ui" | "marketing">(pending.filter((a) => a.screenshotKind).map((a) => [a.id, a.screenshotKind!]));
+  const privacy = new Map<string, NonNullable<MediaAsset["privacy"]>>(pending.filter((a) => a.privacy).map((a) => [a.id, a.privacy!]));
+  let flagged = 0;
   const reasons: Record<string, string> = {};
   for (let i = 0; i < toClassify.length; i += CLASSIFY_PER_CALL) {
     ctx.throwIfCancelled();
@@ -339,7 +379,10 @@ async function runExtraction(ctx: JobContext<"media.extract_ui">, dir: string) {
       kinds.set(b.asset.id, c.kind);
       if (c.reason) reasons[b.asset.id] = c.reason.slice(0, 200);
       processed.add(b.asset.id);
-      await assets.update(b.asset.id, { screenshotKind: c.kind }, { actor: ctx.actor });
+      if (c.privacy) privacy.set(b.asset.id, c.privacy);
+      if (c.privacy?.flagged) flagged++;
+      await assets.update(b.asset.id, { screenshotKind: c.kind, ...(c.privacy ? { privacy: c.privacy } : {}) }, { actor: ctx.actor });
+      if (c.privacy?.regions.length) await ctx.log_event(`“${(b.asset.title ?? b.asset.originalFilename ?? b.asset.id).slice(0, 60)}”: ${c.privacy.regions.length} private detail${c.privacy.regions.length === 1 ? "" : "s"} will be blurred in videos${c.privacy.notes ? ` (${c.privacy.notes.slice(0, 120)})` : ""}`, { entity: "mediaAssets", id: b.asset.id });
     }
   }
 
@@ -373,6 +416,9 @@ async function runExtraction(ctx: JobContext<"media.extract_ui">, dir: string) {
       const id = derivedId("ast", a.id, "sam_ui_crop");
       const file = join(dir, `${id}.png`);
       const cut = await cropScreen(l.src, file, pick, dir, ctx.signal);
+      // The cut-out keeps the private details that fall inside it (re-expressed in its own frame).
+      const parentPrivacy = privacy.get(a.id);
+      const cropPrivacy = parentPrivacy ? { ...parentPrivacy, regions: regionsInCrop(parentPrivacy.regions, l.size, { x: cut.x, y: cut.y, w: cut.width, h: cut.height }) } : undefined;
       const key = workspaceKey(ctx.workspaceId, "media", a.id, `${id}-ui-crop.png`);
       const { bytes } = await p.storage.uploadFile(file, key, { contentType: "image/png" });
       await assets.createIfAbsent(
@@ -396,6 +442,7 @@ async function runExtraction(ctx: JobContext<"media.extract_ui">, dir: string) {
           derivedFromAssetId: a.id,
           screenshotKind: "raw_ui",
           license: a.license,
+          ...(cropPrivacy ? { privacy: { ...cropPrivacy, flagged: cropPrivacy.regions.length > 0 } } : {}),
         },
         { actor: ctx.actor },
       );
@@ -417,6 +464,7 @@ async function runExtraction(ctx: JobContext<"media.extract_ui">, dir: string) {
     refs: [...refs, ...[...kinds.keys()].map((id) => ({ entity: "mediaAssets", id }))],
     data: {
       classified: toClassify.filter((a) => kinds.has(a.id)).length,
+      privacyFlagged: flagged,
       marketing: [...kinds.values()].filter((k) => k === "marketing").length,
       cutOut: refs.length,
       noScreenFound: noScreen,

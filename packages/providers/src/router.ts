@@ -119,7 +119,8 @@ export interface RouteOptions {
 
 export type Routed<T extends LlmTextResult> = T & { provider: "meta" | "baseten"; fallback?: FallbackEvent };
 
-const usesFileIds = (input: LlmCall["input"]) => typeof input !== "string" && input.some((x: InputPart) => x.type === "input_image" && Boolean(x.file_id));
+/** Meta-only inputs (file ids, PDFs): Muse Spark Open cannot take them, so such calls never fall back. */
+const usesFileIds = (input: LlmCall["input"]) => typeof input !== "string" && input.some((x: InputPart) => x.type === "input_file" || (x.type === "input_image" && Boolean(x.file_id)));
 
 async function run<T extends LlmTextResult>(p: Platform, call: LlmCall, opts: RouteOptions, onMeta: () => Promise<T>, onOpen: () => Promise<T>): Promise<Routed<T>> {
   const eligible = call.model !== "wonder" && !call.webSearch && !usesFileIds(call.input);

@@ -57,9 +57,9 @@ function carry(from: Layer, onto: Layer): Layer {
   const keep = ["name", "timing", "animation", "locked", "hidden", "anchor"];
   const byType: Record<Layer["type"], string[]> = {
     text: ["text", "role", "claimIds"],
-    image: ["assetId", "fit", "crop"],
+    image: ["assetId", "fit", "crop", "blurRegions", "lift"],
     video: ["assetId", "fit", "trimInSec", "trimOutSec", "playbackRate", "muted", "volume", "mask", "blurRegions"],
-    device: ["device", "screenAssetId", "screenKind", "trimInSec", "trimOutSec", "playbackRate", "frameColor", "shadow", "focus", "tap", "tilt", "blurRegions"],
+    device: ["device", "screenAssetId", "screenKind", "trimInSec", "trimOutSec", "playbackRate", "frameColor", "shadow", "focus", "tap", "tilt", "blurRegions", "lift"],
     shape: ["shape", "fill", "gradientTo", "blurPx"],
     block: ["blockId", "params"],
     effect: ["effect", "target", "color", "intensity", "assetId", "inset"],

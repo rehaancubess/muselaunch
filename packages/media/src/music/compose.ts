@@ -204,14 +204,25 @@ export interface MusicPlan {
   accents: number[];
 }
 
-/** Tempo in the mood's range so whole bars + a 1.2–3.5 s ring-out tail fill the exact duration. */
-export function planArrangement(mood: MusicMood, durationSec: number, rng: Rng, accents: number[] = []): MusicPlan {
+/**
+ * Tempo in the mood's range so whole bars + a 1.2–3.5 s ring-out tail fill the exact duration. With
+ * `fixedBpm` (beat sync: the video's cuts are on that tempo's beats) the tempo is kept and as many
+ * whole bars as fit come before the ring-out.
+ */
+export function planArrangement(mood: MusicMood, durationSec: number, rng: Rng, accents: number[] = [], fixedBpm?: number): MusicPlan {
   const cfg = MOODS[mood];
   const [lo, hi] = MUSIC_MOOD_INFO[mood].bpm;
   const center = lo + (hi - lo) * rng.range(0.35, 0.65);
   const tailNominal = clamp(durationSec * 0.07, 1.6, 3);
   let best: { bpm: number; bars: number } | null = null;
-  for (let bars = 1; bars <= 200; bars++) {
+  if (fixedBpm && fixedBpm > 0) {
+    const barSec = 240 / fixedBpm;
+    let bars = Math.max(1, Math.round((durationSec - tailNominal) / barSec));
+    while (bars > 1 && durationSec - bars * barSec < 1.2) bars--;
+    best = { bpm: fixedBpm, bars };
+  }
+  const fitted = !best;
+  for (let bars = 1; fitted && bars <= 200; bars++) {
     const bpm = (240 * bars) / Math.max(0.5, durationSec - tailNominal);
     if (bpm < lo || bpm > hi) continue;
     if (!best || Math.abs(bpm - center) < Math.abs(best.bpm - center)) best = { bpm, bars };
@@ -752,11 +763,11 @@ export interface MusicRender {
 const NOTE = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 
 /** Render original music. Pure CPU, deterministic for (mood, durationSec, seed, accents). */
-export function renderMusic(params: { mood: MusicMood; durationSec: number; seed: string; accents?: number[] }): MusicRender {
+export function renderMusic(params: { mood: MusicMood; durationSec: number; seed: string; accents?: number[]; bpm?: number }): MusicRender {
   const t0 = Date.now();
   const cfg = MOODS[params.mood];
   const rng = new Rng(`${params.mood}|${params.seed}`);
-  const plan = planArrangement(params.mood, params.durationSec, rng.fork("plan"), params.accents ?? []);
+  const plan = planArrangement(params.mood, params.durationSec, rng.fork("plan"), params.accents ?? [], params.bpm);
   const n = Math.round(params.durationSec * SR);
   const tonic = rng.pick(cfg.tonics);
   const prog = rng.pick(cfg.progressions);

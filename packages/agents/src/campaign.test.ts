@@ -146,7 +146,9 @@ describe("storyboard.generate", () => {
     expect(sb.calls).toBe(2); // UI-depicting generated image → one repair
     const updated = await s.ws.collection("campaignVariants").getOrThrow(variant.id);
     const story = await s.ws.collection("storyboards").getOrThrow(updated.storyboardId!);
-    expect(story.scenes.map((x) => x.template)).toEqual(["hook-title", "device-demo", "feature-callout", "store-cta"]); // one end card: the store-cta
+    // The text-card hook opens on real footage instead (the app has real screenshots); one end card: the store-cta.
+    expect(story.scenes.map((x) => x.template)).toEqual(["hook-footage", "device-demo", "feature-callout", "store-cta"]);
+    expect(story.scenes[0]!.assets.filter((h) => h.kind === "screenshot").every((h) => s.seed.screenshotIds.includes(h.assetId!))).toBe(true);
     expect(story.scenes.reduce((n, x) => n + x.durationSec, 0)).toBeCloseTo(15, 5);
     for (const scene of story.scenes.filter((x) => x.purpose === "demo" || x.purpose === "feature")) {
       const real = scene.assets.filter((h) => h.kind === "screenshot");

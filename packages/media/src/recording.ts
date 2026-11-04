@@ -6,6 +6,8 @@ import { generateJson, imagePart, metaClient, untrusted, type InputPart } from "
 import { z } from "zod";
 import { probeMedia } from "./ffmpeg";
 import { detectShots, extractFrame, keyframeTimes, mapLimit, sampleFrameChanges, type Shot } from "./frames";
+import { PRIVACY_RULES } from "./privacy";
+import { trackRegions } from "./region-track";
 import { ensureConsent, findOrCreateTranscript } from "./service";
 import { runTranscriptionSafely } from "./transcribe";
 import { callCtx, derivedId, EXT_BY_MIME, inheritFrom, usageEventIdsForJob, withWorkdir } from "./util";
@@ -18,9 +20,12 @@ import { callCtx, derivedId, EXT_BY_MIME, inheritFrom, usageEventIdsForJob, with
  * 2. narration (Muse Voice Transcribe), only when consent for the voice is recorded on the asset;
  * 3. 1–2 stills per shot (short edge ≈540 px) → Muse Spark (multimodal, ≤8 images per call) labels each
  *    shot with what happens, the App DNA features it shows, a marketing quality score and visible
- *    personal information (regions to blur);
+ *    personal or secret information (names, emails, API keys, revenue figures: regions to blur);
  * 4. adjacent shots with the same label/features are merged; RecordingSegments replace earlier ones for
- *    the recording (idempotent); the recording is added as evidence to the App DNA features it shows.
+ *    the recording (idempotent); the recording is added as evidence to the App DNA features it shows;
+ * 5. SAM 3.1 tracks each privacy region through its segment (box prompt on the still Spark drew it on,
+ *    propagated both ways), so the blur follows the secret when the screen scrolls. A region SAM cannot
+ *    follow keeps its static blur.
  *
  * Shots the model did not label stay as honest "Unlabelled shot" segments with low quality.
  */
@@ -34,6 +39,8 @@ const MAX_FRAMES = 200;
 /** Merged segments stay short enough to be useful clips. */
 const MAX_MERGED_SEC = 15;
 const SPARK_CONCURRENCY = 3;
+/** Segments whose privacy regions are tracked with SAM 3.1 (most private first). */
+export const MAX_PRIVACY_TRACKS = 8;
 /** Features shown by segments at least this good get the recording as evidence. */
 const EVIDENCE_QUALITY = 0.4;
 const UNLABELLED_QUALITY = 0.2;
@@ -123,7 +130,18 @@ export const ShotLabels = z.object({
             flagged: z.boolean(),
             notes: z.string().max(300).optional(),
             // Fractions of the frame; slightly out-of-range boxes are clamped afterwards rather than rejected.
-            regions: z.array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).describe("0–1 fractions of the frame, origin top-left")).max(8).default([]),
+            regions: z
+              .array(
+                z.object({
+                  x: z.number(),
+                  y: z.number(),
+                  w: z.number(),
+                  h: z.number(),
+                  image: z.number().int().min(1).max(64).optional().describe("The image number (in this batch) the box was drawn on"),
+                }).describe("0–1 fractions of the frame, origin top-left"),
+              )
+              .max(8)
+              .default([]),
           })
           .default({ flagged: false, regions: [] }),
       }),
@@ -141,13 +159,17 @@ For EVERY shot listed, return:
 - action: navigate | tap | type | scroll | swipe | speak | wait | other.
 - featureIds: ids of the listed App DNA features this shot clearly demonstrates; [] when none. Only use ids from the list.
 - quality (0–1): how useful the shot is in a marketing video. Low (≤ 0.3): loading or blank screens, lock screen, home screen, Control Center, system alerts or permission prompts, a keyboard covering most of the screen, accidental taps or fumbling, blurred or mid-transition frames. High (≥ 0.8): a clear, polished screen showing a feature working.
-- privacy: flagged = true when personal information is visible: notification banners, people's names, email addresses, phone numbers, street addresses, account or payment details, private messages or photos of people. For each item give a region (x, y, w, h as 0–1 fractions of the frame, origin top-left, generous enough to blur) and a short note. Obvious sample/demo content is not personal information.`;
+- ${PRIVACY_RULES}
+  For every region also give image: the number of the image you drew the box on (the box follows the content from there when the screen scrolls).`;
 
 interface ShotWork extends Shot {
   index: number;
   frames: { atSec: number; file: string }[];
   narration?: string;
 }
+
+/** A privacy region with the recording time of the still it was drawn on. */
+type PrivacyRegion = RecordingSegment["privacy"]["regions"][number] & { anchorSec?: number };
 
 interface LabelledShot extends ShotWork {
   labelled: boolean;
@@ -156,7 +178,7 @@ interface LabelledShot extends ShotWork {
   action: RecordingSegment["action"];
   featureIds: string[];
   quality: number;
-  privacy: RecordingSegment["privacy"];
+  privacy: Omit<RecordingSegment["privacy"], "regions"> & { regions: PrivacyRegion[] };
   /** Still used as the segment's keyframe. */
   keyframe: { atSec: number; file: string };
   labelledBy?: string;
@@ -166,12 +188,12 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const norm = (s: string | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
 
-function cleanRegions(regions: { x: number; y: number; w: number; h: number }[]): RecordingSegment["privacy"]["regions"] {
+function cleanRegions(regions: { x: number; y: number; w: number; h: number; anchorSec?: number }[]): PrivacyRegion[] {
   return regions
     .map((r) => {
       const x = clamp01(r.x);
       const y = clamp01(r.y);
-      return { x, y, w: clamp01(Math.min(r.w, 1 - x)), h: clamp01(Math.min(r.h, 1 - y)) };
+      return { x, y, w: clamp01(Math.min(r.w, 1 - x)), h: clamp01(Math.min(r.h, 1 - y)), ...(r.anchorSec !== undefined ? { anchorSec: r.anchorSec } : {}) };
     })
     .filter((r) => r.w > 0.005 && r.h > 0.005)
     .slice(0, 8);
@@ -195,15 +217,18 @@ export function batchShots<T extends { frames: unknown[] }>(shots: T[], perCall 
   return batches;
 }
 
-async function labelBatch(ctx: JobContext, batch: ShotWork[], app: { name: string }, features: BrandProfile["features"]): Promise<{ labels: Map<number, ShotLabel>; model: string }> {
+async function labelBatch(ctx: JobContext, batch: ShotWork[], app: { name: string }, features: BrandProfile["features"]): Promise<{ labels: Map<number, ShotLabel>; model: string; imageTimes: number[] }> {
   const parts: InputPart[] = [];
   const lines: string[] = [];
   const narration: string[] = [];
+  /** Recording time of each attached image (index = image number − 1). */
+  const imageTimes: number[] = [];
   let img = 0;
   for (const s of batch) {
     const first = img + 1;
     for (const f of s.frames) {
       parts.push(imagePart({ bytes: await readFile(f.file), mimeType: "image/jpeg" }));
+      imageTimes.push(f.atSec);
       img++;
     }
     const imgs = img === first ? `image ${first}` : `images ${first}–${img}`;
@@ -236,7 +261,14 @@ async function labelBatch(ctx: JobContext, batch: ShotWork[], app: { name: strin
   const want = new Set(batch.map((s) => s.index));
   const labels = new Map<number, ShotLabel>();
   for (const l of out.data.shots) if (want.has(l.shot) && !labels.has(l.shot)) labels.set(l.shot, l);
-  return { labels, model: out.model };
+  return { labels, model: out.model, imageTimes };
+}
+
+/** Recording time of the still a region was drawn on: the image Spark named when it belongs to the shot, else the shot's first still. */
+export function regionAnchor(shot: Pick<ShotWork, "startSec" | "endSec" | "frames">, image: number | undefined, imageTimes: number[]): number {
+  const t = image !== undefined ? imageTimes[image - 1] : undefined;
+  if (t !== undefined && t >= shot.startSec - 0.05 && t <= shot.endSec + 0.05) return t;
+  return shot.frames[0]?.atSec ?? shot.startSec;
 }
 
 /** Merge adjacent shots that show the same thing (same label, or same screen + action + features). */
@@ -375,6 +407,7 @@ async function runBreakdown(ctx: JobContext<"media.analyze_recording">, asset: M
   const featureIds = new Set(features.map((f) => f.id));
   const batches = batchShots(work);
   const labels = new Map<number, ShotLabel>();
+  const anchors = new Map<number, number[]>();
   let model: string | undefined;
   let finished = 0;
   await ctx.progress(40, "labelling shots", `${batches.length} call${batches.length === 1 ? "" : "s"} to Muse Spark`);
@@ -382,7 +415,11 @@ async function runBreakdown(ctx: JobContext<"media.analyze_recording">, asset: M
     ctx.throwIfCancelled();
     const r = await labelBatch(ctx, batch, app, features);
     model ??= r.model;
-    for (const [k, v] of r.labels) labels.set(k, v);
+    for (const [k, v] of r.labels) {
+      labels.set(k, v);
+      const shot = batch.find((s) => s.index === k)!;
+      anchors.set(k, v.privacy.regions.map((reg) => regionAnchor(shot, reg.image, r.imageTimes)));
+    }
     finished++;
     await ctx.progress(40 + (45 * finished) / batches.length, "labelling shots", `${finished}/${batches.length}`);
   });
@@ -400,13 +437,20 @@ async function runBreakdown(ctx: JobContext<"media.analyze_recording">, asset: M
       action: l.action,
       featureIds: [...new Set(l.featureIds.filter((id) => featureIds.has(id)))].slice(0, 10),
       quality: Math.round(clamp01(l.quality) * 1000) / 1000,
-      privacy: { flagged: l.privacy.flagged || l.privacy.regions.length > 0, notes: l.privacy.notes?.slice(0, 300) || undefined, regions: cleanRegions(l.privacy.regions) },
+      privacy: {
+        flagged: l.privacy.flagged || l.privacy.regions.length > 0,
+        notes: l.privacy.notes?.slice(0, 300) || undefined,
+        regions: cleanRegions(l.privacy.regions.map((reg, k) => ({ ...reg, anchorSec: anchors.get(s.index)?.[k] }))),
+      },
       keyframe: s.frames[0]!,
       labelledBy: model,
     };
   });
   const segments = mergeAdjacent(labelled);
   ctx.throwIfCancelled();
+
+  // 5) SAM 3.1: privacy blurs follow what they hide when the screen moves.
+  const privacyTracks = await trackPrivacy(ctx, segments, src, dir, { width: info.displayWidth ?? asset.width ?? 0, height: info.displayHeight ?? asset.height ?? 0 });
 
   // 5) Keyframes + segments (replacing this recording's earlier segments).
   await ctx.progress(88, "saving clips");
@@ -463,9 +507,10 @@ async function runBreakdown(ctx: JobContext<"media.analyze_recording">, asset: M
       action: s.action,
       featureIds: s.featureIds,
       quality: s.quality,
-      privacy: s.privacy,
+      privacy: { flagged: s.privacy.flagged, ...(s.privacy.notes ? { notes: s.privacy.notes } : {}), regions: s.privacy.regions.map(({ anchorSec: _a, ...r }) => r) },
       narration: transcript ? narrationFor(transcript.turns, s.startSec, s.endSec) : undefined,
       keyframeAssetId: kfId,
+      keyframeAtSec: s.keyframe.atSec,
       labelledBy: s.labelledBy,
     };
     const { created } = await repo.createIfAbsent({ id, ...data }, { actor: ctx.actor });
@@ -506,12 +551,54 @@ async function runBreakdown(ctx: JobContext<"media.analyze_recording">, asset: M
       sparkCalls: batches.length,
       frames: allFrames.length,
       privacyFlagged: flagged,
+      privacyTracked: privacyTracks.tracked,
+      privacyStatic: privacyTracks.static,
       unlabelled,
       narration: transcript ? "transcribed" : (narrationNote ?? (info.hasAudio ? "skipped" : "no audio track")),
       evidenceFeatures,
       dnaFeatures: features.length,
     },
   };
+}
+
+/**
+ * Track each privacy region of the flagged segments through its segment (one SAM 3.1 call per
+ * segment). Optional: a failure keeps the static blur and is logged, never fails the breakdown.
+ */
+async function trackPrivacy(ctx: JobContext, segments: LabelledShot[], src: string, dir: string, size: { width: number; height: number }): Promise<{ tracked: number; static: number }> {
+  const flagged = segments.filter((s) => s.privacy.regions.length && s.endSec - s.startSec >= 0.6);
+  let tracked = 0;
+  let kept = flagged.reduce((n, s) => n + s.privacy.regions.length, 0);
+  if (!flagged.length || !size.width || !size.height || !metaClient(ctx.platform).configured) return { tracked, static: kept };
+  // Most regions first (a dashboard full of keys matters more than one avatar).
+  const order = [...flagged].sort((a, b) => b.privacy.regions.length - a.privacy.regions.length).slice(0, MAX_PRIVACY_TRACKS);
+  await ctx.progress(86, "following private details", `${order.length} clip${order.length === 1 ? "" : "s"} with SAM 3.1`);
+  const failures: string[] = [];
+  await mapLimit(order, 2, async (s) => {
+    ctx.throwIfCancelled();
+    try {
+      const r = await trackRegions(ctx, {
+        src,
+        dir,
+        size,
+        startSec: s.startSec,
+        endSec: s.endSec,
+        regions: s.privacy.regions.map((reg) => ({ x: reg.x, y: reg.y, w: reg.w, h: reg.h, anchorSec: reg.anchorSec ?? s.keyframe.atSec })),
+        task: "media.analyze_recording.privacy_track",
+      });
+      s.privacy = { ...s.privacy, regions: s.privacy.regions.map((reg, i) => (r.paths[i] ? { ...reg, path: r.paths[i]! } : reg)) };
+      const n = r.paths.filter(Boolean).length;
+      tracked += n;
+      kept -= n;
+    } catch (raw) {
+      const err = toAppError(raw);
+      if (err.code === "CANCELLED") throw err;
+      failures.push(`${clock(s.startSec)}: ${err.opts.userMessage ?? err.message}`.slice(0, 160));
+    }
+  });
+  if (tracked) await ctx.log_event(`SAM 3.1 follows ${tracked} private detail${tracked === 1 ? "" : "s"} as the screen moves`);
+  if (failures.length) await ctx.log_event(`Some blurs stay where Muse Spark drew them (tracking unavailable: ${failures[0]})`);
+  return { tracked, static: kept };
 }
 
 async function retireKeyframe(ctx: JobContext, id: string, recordingId: string) {

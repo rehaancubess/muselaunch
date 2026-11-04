@@ -81,6 +81,9 @@ export interface RunInput {
   footageBusy?: boolean;
 }
 
+/** Spark's automatic preview check (agents review/autofix.ts): a run waits while any of these runs for its video. */
+export const CHECK_JOBS: ReadonlySet<Job["type"]> = new Set(["video.autofix", "video.review", "composition.edit"]);
+
 const isActive = (j: Pick<Job, "status"> | null | undefined) => Boolean(j && (j.status === "queued" || j.status === "running"));
 const newest = <T extends { createdAt: string }>(xs: T[]) => [...xs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 const jobPct = (j: JobLike | undefined) => (j && isActive(j) ? Math.max(0, Math.min(100, j.progress?.pct ?? 0)) / 100 : 0);
@@ -186,6 +189,13 @@ export function deriveRun(input: RunInput): Derived {
   const preview = track(latest(mine("render.preview", (p) => p.compositionId === comp.id)));
   if (isActive(build)) return result("make", { ...made, working: true, pct: within("make", 0.25 + 0.5 * jobPct(build)), detail: detailOf(build) });
   if (isActive(preview)) return result("make", { ...made, working: true, pct: within("make", 0.75 + 0.25 * jobPct(preview)), detail: detailOf(preview) });
+  // Muse Spark is watching the preview and fixing what it flags (video.autofix, video.review, the
+  // fix itself): the final render waits for the fixed version.
+  const checking = jobs.find((j) => CHECK_JOBS.has(j.type) && j.payload.compositionId === comp.id && isActive(j));
+  if (checking) {
+    track(checking);
+    return result("make", { ...made, working: true, pct: within("make", 0.97), detail: "Muse Spark is checking the preview" });
+  }
 
   // 4. Checking facts and brand, then the final render (the same checks the render route makes).
   return result("check", { ...made, next: { kind: "final", compositionId: comp.id, version: comp.currentVersion } });

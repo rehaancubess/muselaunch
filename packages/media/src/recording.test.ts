@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { detectShots, keyframeTimes, sampleFrameChanges, type FrameChanges } from "./frames";
 import { handlers } from "./index";
 import { batchShots, mergeAdjacent, narrationFor, recordingProblem, requestRecordingAnalysis } from "./recording";
-import { imageCountOf, installFakeMeta, loadFixture, makeTestWalkthrough, schemaOf, storeUpload, textOf, type RecordedCall } from "./testing";
+import { imageCountOf, installFakeMeta, loadFixture, makeTestWalkthrough, promptBoxes, samPromptOf, samTrackOutput, schemaOf, storeUpload, textOf, type RecordedCall } from "./testing";
 
 const dir = mkdtempSync(join(tmpdir(), "media-walkthrough-test-"));
 const transcript = loadFixture<{ response: unknown }>("voice-transcribe-documented.json").response;
@@ -103,6 +103,8 @@ describe("media.analyze_recording (walkthrough → labelled clips)", () => {
     p = createTestPlatform({ META_API_KEY: "test-meta-key" }, handlers);
     ({ calls } = installFakeMeta(p, {
       transcribe: () => transcript,
+      // SAM 3.1 follows the flagged banner as the report scrolls (2 px per frame at 10 fps).
+      samOutput: (body) => samTrackOutput(samPromptOf(body), 30, (f) => ({ dx: 0, dy: 2 * f })),
       spark: (body) => {
         if (spark.fail) return new Response(JSON.stringify({ error: { message: "bad request", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
         expect(schemaOf(body)).toBe("RecordingShotLabels");
@@ -184,7 +186,17 @@ describe("media.analyze_recording (walkthrough → labelled clips)", () => {
     ]);
     expect(segs[0]).toMatchObject({ appId, featureIds: ["feat_timer"], quality: 0.9, action: "navigate", screen: "Home", narration: "How is the weather?", labelledBy: "muse-spark-1.3" });
     expect(segs[1]!.narration).toBe("How is the weather? It is raining.");
-    expect(segs[2]!.privacy).toEqual({ flagged: true, notes: "Message banner shows a name", regions: [{ x: 0.02, y: 0, w: 0.98, h: 0.15 }] });
+    expect(segs[2]!.privacy).toMatchObject({ flagged: true, notes: "Message banner shows a name", regions: [{ x: 0.02, y: 0, w: 0.98, h: 0.15 }] });
+    // The blur follows the banner through the segment (SAM 3.1 box prompt on the still it was drawn on).
+    const sam = calls.filter((c) => c.url.endsWith("/responses") && c.json && String(c.json.model ?? "").startsWith("sam"));
+    expect(sam).toHaveLength(1);
+    expect(promptBoxes(samPromptOf(sam[0]!.json!))[0]).toMatchObject({ id: 1, x1: 3, y1: 0, w: 180, h: 320 });
+    const path = segs[2]!.privacy.regions[0]!.path!;
+    expect(path[0]!.t).toBeCloseTo(14, 1);
+    expect(path[path.length - 1]!.t).toBeGreaterThan(16);
+    expect(path[path.length - 1]!.y).toBeGreaterThan(path[0]!.y + 0.05); // moved down with the content
+    expect(segs[2]!.keyframeAtSec).toBeGreaterThanOrEqual(14);
+    expect(job.output?.data).toMatchObject({ privacyFlagged: 1, privacyTracked: 1, privacyStatic: 0 });
     for (const s of segs) {
       const kf = await ws.collection("mediaAssets").getOrThrow(s.keyframeAssetId!);
       expect(kf).toMatchObject({ kind: "image", role: "thumbnail", origin: "derived", sourceLabel: "recording_keyframe", derivedFromAssetId: asset.id, isProductTruth: false, width: 180, height: 320 });

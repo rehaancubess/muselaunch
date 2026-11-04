@@ -5,6 +5,7 @@ import type { MediaAsset } from "@muselaunch/contracts";
 import { AppError, workspaceKey, type JobContext } from "@muselaunch/platform";
 import { countVideoFrames, ffmpeg, probeMedia, type MediaProbe } from "./ffmpeg";
 import { autoAnalyzeRecording } from "./recording";
+import { autoExtractUi } from "./ui-extract";
 import { sha256File, withWorkdir } from "./util";
 
 /**
@@ -81,9 +82,12 @@ export async function probeHandler(ctx: JobContext<"media.probe">) {
   await repo.update(asset.id, { status: "processing", error: undefined }, { actor: ctx.actor });
   try {
     const result = await withWorkdir((dir) => probeInto(ctx, asset, dir));
-    // A screen recording of an app is cut into labelled clips right away (walkthrough breakdown).
-    const analyzeRecordingJobId = await autoAnalyzeRecording(ctx, await repo.getOrThrow(asset.id));
-    return { refs: [{ entity: "mediaAssets", id: asset.id }, ...(result.posterAssetId ? [{ entity: "mediaAssets", id: result.posterAssetId }] : [])], data: { ...result, analyzeRecordingJobId } };
+    // A screen recording of an app is cut into labelled clips right away (walkthrough breakdown); a
+    // screenshot added after App DNA is checked right away (kind, private details, cut-out).
+    const ready = await repo.getOrThrow(asset.id);
+    const analyzeRecordingJobId = await autoAnalyzeRecording(ctx, ready);
+    const extractUiJobId = await autoExtractUi(ctx, ready);
+    return { refs: [{ entity: "mediaAssets", id: asset.id }, ...(result.posterAssetId ? [{ entity: "mediaAssets", id: result.posterAssetId }] : [])], data: { ...result, analyzeRecordingJobId, ...(extractUiJobId ? { extractUiJobId } : {}) } };
   } catch (err) {
     const e = err instanceof AppError ? err : new AppError("INTERNAL", (err as Error).message, { retryable: false });
     if (!e.retryable || e.code === "CANCELLED") await repo.update(asset.id, { status: "failed", error: e.message.slice(0, 1000) }, { actor: ctx.actor }).catch(() => {});
@@ -178,6 +182,11 @@ async function probeInto(ctx: JobContext, asset: MediaAsset, dir: string) {
     );
     patch.posterAssetId = posterAssetId;
     if (!frameCount) ctx.log.warn({ assetId: asset.id }, "could not count video frames");
+  } else if (asset.kind === "document") {
+    // The upload policy trusts the declared type; a PDF must really be one before Muse Spark reads it.
+    if (asset.mimeType === "application/pdf" && !head.subarray(0, 5).toString("latin1").startsWith("%PDF-")) {
+      throw new AppError("BAD_REQUEST", "Not a PDF file", { retryable: false, userMessage: "That file isn't a readable PDF." });
+    }
   } else if (asset.kind === "audio") {
     const info = await probeMedia(src, { signal: ctx.signal });
     if (!info.hasAudio) throw new AppError("BAD_REQUEST", "No audio stream found", { retryable: false, userMessage: "That file has no audio we can read." });
