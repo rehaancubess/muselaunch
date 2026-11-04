@@ -21,7 +21,7 @@ export async function loadAppContext(ws: WorkspaceDb, appId: string): Promise<Ap
 }
 
 export function requireDna(c: AppContextData): BrandProfile {
-  if (!c.dna) throw new AppError("BAD_REQUEST", "App DNA has not been generated yet", { userMessage: "Build your App DNA first (import your listing or describe your app)." });
+  if (!c.dna) throw new AppError("BAD_REQUEST", "App DNA has not been generated yet", { userMessage: "Let MuseLaunch learn about your app first (import your listing or describe your app)." });
   return c.dna;
 }
 

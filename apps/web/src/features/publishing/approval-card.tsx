@@ -21,7 +21,7 @@ const ACTION_LABEL: Record<Approval["action"], string> = {
   outreach_send: "Creator outreach",
   account_change: "Account change",
   spend: "Spend",
-  claim_use: "Claim use",
+  claim_use: "Using a fact",
   render_over_budget: "Render over budget",
   agent_continue: "Agent step",
 };

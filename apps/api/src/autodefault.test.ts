@@ -104,7 +104,7 @@ describe("Autopilot by default (apps.ts, autopilot.ts, needs-you.ts, workspace.t
     expect(after.body.items.map((i: J) => i.id)).toEqual([second.id]);
   });
 
-  it("autopilot: false (\"I'll do it myself\") and the workspace setting turn the automatic start off", async () => {
+  it("autopilot: false (API) and the workspace setting (Settings → Autopilot) turn the automatic start off", async () => {
     const manual = await alice.post(`${W()}/apps`, { websiteUrl: "https://tidy.example.com", autopilot: false });
     expect(manual.status).toBe(202);
     expect(manual.body.autopilot).toBeNull();
@@ -124,6 +124,12 @@ describe("Autopilot by default (apps.ts, autopilot.ts, needs-you.ts, workspace.t
     const on = await alice.patch(W(), { settings: { defaultTimezone: "Europe/Berlin", autopilot: { enabled: true, maxCreditsPerRun: null } } });
     expect(on.body.workspace.settings).toMatchObject({ defaultTimezone: "Europe/Berlin", autopilot: { enabled: true, autoApproveRenders: true } });
     expect(on.body.workspace.settings.autopilot.maxCreditsPerRun).toBeUndefined();
+    // Spark's automatic preview check (Settings → Video checks): spends credits, so billing.manage; kept beside the rest.
+    expect((await eddie.patch(W(), { settings: { videoReview: { autoFix: false } } })).status).toBe(403);
+    expect((await alice.patch(W(), { settings: { videoReview: { autoFix: false, extra: 1 } } })).status).toBe(422);
+    const noCheck = await alice.patch(W(), { settings: { videoReview: { autoFix: false } } });
+    expect(noCheck.status).toBe(200);
+    expect(noCheck.body.workspace.settings).toMatchObject({ defaultTimezone: "Europe/Berlin", autopilot: { enabled: true }, videoReview: { autoFix: false } });
   });
 
   it("one-tap start: viewers can see the plan but not start; editors start without pre-approved renders; short credits → 402 with a smaller run", async () => {

@@ -230,7 +230,7 @@ function AnalysisBody({ a, canRun, onReanalyze }: { a: YouTubeChannelAnalysis; c
                   <li key={f.key}>{f.statement}</li>
                 ))}
               </ul>
-              <p className="text-footnote text-ink-3">Saved as sourced findings: they show up in Discover and Growth Autopilot can use them.</p>
+              <p className="text-footnote text-ink-3">Saved as sourced findings: they show up in what Muse found (Create) and Autopilot can use them.</p>
             </Card>
           ) : null}
         </>
@@ -484,7 +484,7 @@ function PostStats({ workspaceId, appId }: { workspaceId: string; appId: string 
     <Section title="Your YouTube posts" description="Stats for videos you published from MuseLaunch to a connected channel, as YouTube reports them for each video.">
       {!accounts.length ? (
         <Card tone="well" className="text-body-sm text-ink-2">
-          Connect YouTube in the calendar to publish. MuseLaunch then reads each video’s views, likes and comments, plus watch time, shares and subscribers when you allow YouTube Analytics access.
+          Connect YouTube in Creator → Scheduled to post there. MuseLaunch then reads each video’s views, likes and comments, plus watch time, shares and subscribers when you allow YouTube Analytics access.
         </Card>
       ) : (
         accounts.map((c) => (

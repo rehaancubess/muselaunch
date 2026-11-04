@@ -51,6 +51,23 @@ export const DELIVERABLE_LABEL: Record<DeliverableKind, string> = {
   product_hunt_assets: "Product Hunt assets",
   caption_pack: "Captions",
   outreach_pack: "Creator outreach",
+  store_screenshots: "Store screenshots",
+  text_post: "Text post",
+};
+
+/** Caption-pack items as people read them ("cta" is "Call to action", never "Cta"). */
+export const COPY_KIND_LABEL: Record<string, string> = {
+  caption: "Caption",
+  title: "Title",
+  hashtags: "Hashtags",
+  cta: "Call to action",
+  description: "Description",
+  thread: "Thread",
+  first_comment: "First comment",
+  outreach_pitch: "Outreach pitch",
+  product_hunt_tagline: "Product Hunt tagline",
+  product_hunt_description: "Product Hunt description",
+  maker_comment: "Maker comment",
 };
 
 export const ANGLE_LABEL: Record<AngleType, string> = {

@@ -54,7 +54,7 @@ export function BrandGuardianPanel({ subject, version, onApplied, onFocus, class
     );
   }
   if (query.error) {
-    if (isRouteMissing(query.error)) return <EmptyState className={className} size="sm" icon={<ShieldCheck aria-hidden />} title="Brand Guardian isn't in this build" description="Nothing is simulated in the meantime." />;
+    if (isRouteMissing(query.error)) return <EmptyState className={className} size="sm" icon={<ShieldCheck aria-hidden />} title="The brand check isn't in this build" description="Nothing is simulated in the meantime." />;
     return <ErrorState className={className} compact title="Brand review didn't load" message={errorMessage(query.error)} onRetry={() => void query.refetch()} />;
   }
 
@@ -67,8 +67,8 @@ export function BrandGuardianPanel({ subject, version, onApplied, onFocus, class
               <ShieldCheck className="size-4" aria-hidden />
             </span>
             <div className="min-w-0">
-              <h2 className="text-headline font-semibold text-ink">Brand Guardian</h2>
-              <p className="text-caption text-ink-2">Checks {subject.entity === "compositions" && (latest?.subjectVersion ?? version) ? `version ${latest?.subjectVersion ?? version}` : "this content"} against your brand kit, claims and memory.</p>
+              <h2 className="text-headline font-semibold text-ink">Brand check</h2>
+              <p className="text-caption text-ink-2">Checks {subject.entity === "compositions" && (latest?.subjectVersion ?? version) ? `version ${latest?.subjectVersion ?? version}` : "this content"} against your brand kit, facts and memory.</p>
             </div>
           </div>
           {latest && !isRunning(latest) && canWrite ? (
@@ -90,7 +90,7 @@ export function BrandGuardianPanel({ subject, version, onApplied, onFocus, class
             size="sm"
             icon={<ShieldCheck aria-hidden />}
             title="Not reviewed yet"
-            description={glimmer?.configured ? "Muse Glimmer reviews this privately on your GPU in a few seconds, alongside the brand rules. Final renders and approvals are checked automatically too." : "Glimmer isn't connected, so the deterministic brand rules will review it. Final renders and approvals are checked automatically too."}
+            description={glimmer?.configured ? "Muse Glimmer reviews this privately on your GPU in a few seconds, alongside the brand rules. Final renders and approvals are checked automatically too." : "Glimmer isn't connected, so the fixed brand rules will check it. Final renders and approvals are checked automatically too."}
             action={
               canWrite ? (
                 <Button size="sm" loading={actions.busy === "run"} onClick={() => void run(false)}>
@@ -104,7 +104,7 @@ export function BrandGuardianPanel({ subject, version, onApplied, onFocus, class
             <Spinner size={18} label="Reviewing" />
             <div className="min-w-0">
               <p className="text-body-sm font-medium text-ink">{glimmer?.configured ? "Muse Glimmer is reviewing locally…" : "Checking brand rules…"}</p>
-              <p className="text-caption text-ink-2">Brand kit, verified claims and team memory</p>
+              <p className="text-caption text-ink-2">Brand kit, confirmed facts and team memory</p>
             </div>
           </div>
         ) : latest.status === "failed" ? (
@@ -241,7 +241,7 @@ function FindingCard({
     try {
       const r = await actions.apply(review.id, f.id);
       onApplied?.(r);
-      toast.success(`Fixed in version ${r.version.version}`, "Brand Guardian is checking the new version.");
+      toast.success(`Fixed in version ${r.version.version}`, "The brand check is looking at the new version.");
     } catch (e) {
       const stale = e instanceof ApiError && e.details?.reason === "brand_review_stale";
       toast.error(stale ? "This review is out of date" : "Couldn't apply the fix", stale ? "The video changed since this review. Re-run it to get fresh fixes." : errorMessage(e));

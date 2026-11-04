@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
+import { routes, withQuery } from "@/lib/routes";
 
-export default async function AppRoot({ params }: { params: Promise<{ workspaceId: string; appId: string }> }) {
+/** The app opens on Home (what's ready to review, what's coming up, what needs you). */
+export default async function AppRoot({ params, searchParams }: { params: Promise<{ workspaceId: string; appId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { workspaceId, appId } = await params;
-  redirect(`/w/${workspaceId}/a/${appId}/creator`);
+  redirect(withQuery(routes.app(workspaceId, appId).home, await searchParams));
 }

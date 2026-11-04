@@ -36,5 +36,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </PageContainer>
     );
   }
+  // Create's "Generate video" runs on the server (it keeps going with every tab closed): nothing to mount here.
   return <>{children}</>;
 }

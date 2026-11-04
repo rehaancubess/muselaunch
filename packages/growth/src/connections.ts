@@ -13,7 +13,10 @@ import { growthDeps, redirectUriFor } from "./deps";
  */
 
 export const STATE_TTL_MS = 10 * 60_000;
-const StatePayload = z.object({ v: z.literal(1), w: z.string(), u: z.string(), p: ConnectionProvider, n: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/), e: z.number(), a: z.string().optional() });
+/** Where the browser lands after the provider's consent screen (a fixed page, never a URL from the request). */
+export const ConnectionReturn = z.enum(["autopilot", "settings"]);
+export type ConnectionReturn = z.infer<typeof ConnectionReturn>;
+const StatePayload = z.object({ v: z.literal(1), w: z.string(), u: z.string(), p: ConnectionProvider, n: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/), e: z.number(), a: z.string().optional(), r: ConnectionReturn.optional() });
 export type OAuthState = z.infer<typeof StatePayload>;
 const NonceRecord = z.object({ provider: ConnectionProvider, uid: z.string(), verifier: z.string().optional(), appId: z.string().optional(), exp: z.number() });
 
@@ -66,6 +69,8 @@ export function providerCatalog(p: Platform) {
   const { settings } = growthDeps(p);
   return Object.values(PROVIDER_ADAPTERS).map((a) => {
     const configured = Boolean(settings.creds[a!.provider]);
+    // New Meta apps sign in to Instagram with the Meta app itself plus a Unified login configuration.
+    const envNames = a!.provider === "instagram" ? ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET", "INSTAGRAM_LOGIN_CONFIG_ID"] : [a!.env.clientId, a!.env.clientSecret];
     const state: ProviderAvailability = !configured ? "not_configured" : a!.review.required && !(a!.provider === "tiktok" && settings.adapter.tiktokAudited) ? "pending_review" : "available";
     return {
       provider: a!.provider,
@@ -77,10 +82,10 @@ export function providerCatalog(p: Platform) {
       configured,
       state,
       review: a!.review,
-      env: [a!.env.clientId, a!.env.clientSecret],
+      env: envNames,
       redirectUri: redirectUriFor(p, a!.provider),
       detail: !configured
-        ? `Not configured on this deployment (set ${a!.env.clientId} / ${a!.env.clientSecret}). Use the export package + manual posting meanwhile.`
+        ? `Not configured on this deployment (set ${envNames.join(" / ")}). Use the export package + manual posting meanwhile.`
         : state === "pending_review"
           ? "Configured. Until the provider's review/verification is complete, only accounts registered with the developer app (testers/owned accounts) can connect, with the limits listed."
           : "Configured.",
@@ -102,7 +107,7 @@ function credsOrThrow(p: Platform, a: ProviderAdapter) {
 }
 
 /** Start an OAuth connection: returns the provider authorize URL. */
-export async function startConnection(p: Platform, wid: string, uid: string, provider: string, opts: { appId?: string } = {}): Promise<{ authorizeUrl: string; expiresAt: string; provider: string }> {
+export async function startConnection(p: Platform, wid: string, uid: string, provider: string, opts: { appId?: string; back?: ConnectionReturn } = {}): Promise<{ authorizeUrl: string; expiresAt: string; provider: string }> {
   const a = adapterOrThrow(provider);
   const creds = credsOrThrow(p, a);
   const { settings, now } = growthDeps(p);
@@ -110,7 +115,7 @@ export async function startConnection(p: Platform, wid: string, uid: string, pro
   const exp = now() + STATE_TTL_MS;
   const pkce = a.oauth.pkce ? pkcePair() : undefined;
   await p.secrets.put(wid, nonceSecretId(nonce), "oauth_nonce", { provider: a.provider, uid, verifier: pkce?.verifier, appId: opts.appId, exp });
-  const state = signState(settings.oauthStateKey, { v: 1, w: wid, u: uid, p: a.provider, n: nonce, e: exp, a: opts.appId });
+  const state = signState(settings.oauthStateKey, { v: 1, w: wid, u: uid, p: a.provider, n: nonce, e: exp, a: opts.appId, ...(opts.back ? { r: opts.back } : {}) });
   const authorizeUrl = a.oauth.authorizeUrl({ clientId: creds.clientId, redirectUri: redirectUriFor(p, a.provider), state, codeChallenge: pkce?.challenge, settings: settings.adapter });
   return { authorizeUrl, expiresAt: new Date(exp).toISOString(), provider: a.provider };
 }
@@ -189,9 +194,10 @@ export async function completeConnection(p: Platform, provider: string, q: { cod
   const { settings, now, fetch } = growthDeps(p);
   if (!q.state) throw new AppError("FORBIDDEN", "Missing OAuth state");
   const st = verifyState(settings.oauthStateKey, q.state, now());
-  // Back to the app's calendar (connections panel) when started there, else workspace integrations.
-  const back = (params: Record<string, string>) =>
-    `${web}/w/${encodeURIComponent(st.w)}${st.a ? `/a/${encodeURIComponent(st.a)}/calendar` : "/settings/integrations"}?${new URLSearchParams({ connections: "1", ...params }).toString()}`;
+  // Back to where it was started: the app's progress screen (quick setup), Settings (The basics), the
+  // app's calendar (connections panel) when started there, else workspace integrations.
+  const page = st.r === "autopilot" && st.a ? `/a/${encodeURIComponent(st.a)}/autopilot` : st.r === "settings" ? "/settings" : st.a ? `/a/${encodeURIComponent(st.a)}/calendar` : "/settings/integrations";
+  const back = (params: Record<string, string>) => `${web}/w/${encodeURIComponent(st.w)}${page}?${new URLSearchParams({ connections: "1", ...params }).toString()}`;
   if (st.p !== a.provider) throw new AppError("FORBIDDEN", "OAuth state was issued for a different provider");
   const nonce = await readSecret<z.infer<typeof NonceRecord>>(p, st.w, nonceSecretId(st.n));
   const rec = nonce ? NonceRecord.safeParse(nonce) : null;

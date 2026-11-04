@@ -1,7 +1,9 @@
-import { AUTO_VIDEO_DURATION, type AgentRun, type Approval, type Autopilot, type BrandReview, type Composition, type Experiment, type Job, type ResearchFinding, type ScheduledPost, type StartAutopilotRequest } from "@muselaunch/contracts";
+import { AUTO_VIDEO_DURATION, type AgentRun, type Approval, type Autopilot, type AutopilotProgress, type AutopilotRunCost, type BrandReview, type Composition, type Experiment, type Job, type ResearchFinding, type ScheduledPost, type StartAutopilotRequest } from "@muselaunch/contracts";
 import { AppError, type Platform } from "@muselaunch/platform";
 import { chooseTextModel } from "@muselaunch/providers";
 import type { z } from "zod";
+import { runCostCached } from "./cost";
+import { autopilotProgress } from "./progress";
 import { enqueueStep } from "./step";
 import { delegatedJobIds, nowMs, reasonText, RETRY_PREFIX, type LogEntry } from "./state";
 
@@ -15,13 +17,13 @@ export function estimateAutopilot(p: Platform, input: { variants: number; maxIte
   const v = input.variants;
   const lines = [
     { label: "Research (Muse Wonder, cited)", credits: e("research.run") },
-    { label: `Campaign concepts (${chooseTextModel(p, "concepts.generate").name})`, credits: e("campaign.generate_concepts") },
-    { label: `Storyboards + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
-    { label: `Brand Guardian reviews ×${v}`, credits: v * e("brand.review") },
-    { label: `Final renders ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? AUTO_VIDEO_DURATION.max }) },
-    { label: `Spark video reviews ×${v}`, credits: v * e("video.review") },
+    { label: `Video ideas (${chooseTextModel(p, "concepts.generate").name})`, credits: e("campaign.generate_concepts") },
+    { label: `Plans + editable videos ×${v}`, credits: v * (e("storyboard.generate") + e("composition.build") + e("render.preview")) },
+    { label: `Brand checks ×${v}`, credits: v * e("brand.review") },
+    { label: `Final videos ×${v}`, credits: v * e("render.final", { durationSec: input.durationSec ?? AUTO_VIDEO_DURATION.max }) },
+    { label: `Muse Spark watches each video ×${v}`, credits: v * e("video.review") },
     { label: `Post copy ×${v}`, credits: v * e("copy.generate") },
-    { label: "Experiment analysis + recommendations", credits: e("experiment.analyze") + e("recommendations.generate") },
+    { label: "Reading results + next steps", credits: e("experiment.analyze") + e("recommendations.generate") },
   ];
   const perIteration = lines.reduce((n, l) => n + l.credits, 0);
   return { perIteration, total: perIteration * input.maxIterations, breakdown: lines };
@@ -33,16 +35,18 @@ export async function startAutopilot(
   appId: string,
   input: StartInput,
   actor: string,
-  opts: { auto?: Autopilot["auto"]; notes?: string[] } = {},
+  opts: { auto?: Autopilot["auto"]; notes?: string[]; alwaysOn?: Autopilot["alwaysOn"]; summary?: string } = {},
 ): Promise<{ autopilot: Autopilot; job: Job }> {
   const ws = p.db.ws(workspaceId);
   await ws.collection("apps").getOrThrow(appId);
   const active = await ws.collection("autopilots").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 20 });
   if (active.items.some((a) => ACTIVE.includes(a.status))) {
-    throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "This app already has an active Growth Autopilot. Pause or cancel it first." });
+    throw new AppError("CONFLICT", "A Growth Autopilot is already active for this app", { userMessage: "Autopilot is already running for this app. Pause or stop it first." });
   }
   const renders = input.autoApproveCredits ? `final renders run without asking up to ${input.autoApproveCredits} credits` : "final renders ask you first";
-  const summary = opts.auto
+  const summary = opts.summary
+    ? opts.summary
+    : opts.auto
     ? `Started automatically (Autopilot is on). Goal: “${input.goal}”. Budget ${input.maxCredits} credits for one full run: research, ${input.variants} video${input.variants > 1 ? "s" : ""}, checks, renders, post drafts and analysis; ${renders}. Posts, outreach and anything over budget always wait for your approval.${opts.notes?.length ? ` ${opts.notes.join(" ")}` : ""}`
     : `Started with goal “${input.goal}”. Budget ${input.maxCredits} credits, ${input.maxIterations} iteration(s), ${input.variants} variant(s); renders auto-approved up to ${input.autoApproveCredits} credits. Posts always need your approval.`;
   const autopilot = await ws.collection("autopilots").create(
@@ -56,6 +60,7 @@ export async function startAutopilot(
       waitingOn: { jobIds: [] },
       log: [{ at: new Date(nowMs(p)).toISOString(), stage: "understand", kind: "decision", summary: summary.slice(0, 1200), refs: [] }],
       ...(opts.auto ? { auto: opts.auto } : {}),
+      ...(opts.alwaysOn ? { alwaysOn: opts.alwaysOn } : {}),
     },
     { actor },
   );
@@ -143,6 +148,10 @@ export interface AutopilotDetail {
   compositions: Pick<Composition, "id" | "title" | "currentVersion" | "variantId">[];
   posts: Pick<ScheduledPost, "id" | "status" | "channel" | "scheduledAt" | "compositionId">[];
   experiment: Pick<Experiment, "id" | "title" | "status" | "launchWindow" | "variants" | "primaryMetric"> | null;
+  /** The run in plain steps with real results, its finished videos and the models that ran (progress.ts). */
+  progress: AutopilotProgress;
+  /** Model cost of everything the run did, from usage records (cost.ts); null when it couldn't be read. */
+  cost: AutopilotRunCost | null;
 }
 
 export async function autopilotDetail(p: Platform, workspaceId: string, id: string): Promise<AutopilotDetail> {
@@ -160,7 +169,16 @@ export async function autopilotDetail(p: Platform, workspaceId: string, id: stri
     ws.collection("scheduledPosts").getMany(autopilot.scheduledPostIds.slice(-12)),
     autopilot.hypothesis?.experimentId ? ws.collection("experiments").get(autopilot.hypothesis.experimentId) : Promise.resolve(null),
   ]);
+  const [progress, cost] = await Promise.all([
+    autopilotProgress(p, workspaceId, { autopilot, jobs, reviews, compositions }),
+    runCostCached(ws, autopilot).catch((err: unknown) => {
+      p.log.warn({ err: (err as Error)?.message, autopilotId: autopilot.id }, "autopilot run cost could not be read");
+      return null;
+    }),
+  ]);
   return {
+    progress,
+    cost,
     autopilot,
     waitingFor: reasonText(autopilot.waitingOn.reason),
     runs: runs.map((r) => ({ id: r.id, kind: r.kind, status: r.status, goal: r.goal, model: r.model, usage: r.usage, createdAt: r.createdAt })),

@@ -1,14 +1,13 @@
 "use client";
-import { ErrorState, Select, Spinner } from "@muselaunch/ui";
-import { ChevronDown } from "lucide-react";
+import { ErrorState, Select, Spinner, useToast } from "@muselaunch/ui";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { LogoMark } from "@/components/logo";
-import { AddAppForm, ImportProgress, type AutopilotChoice, type CreatedApp } from "@/components/onboarding/add-app";
+import { AddAppForm, ImportProgress, afterAdd, type CreatedApp } from "@/components/onboarding/add-app";
 import { RequireAuth } from "@/components/require-auth";
-import { WalkthroughExplainer, WalkthroughPrompt } from "@/features/media/walkthrough";
-import { api, errorMessage, wsPath } from "@/lib/api";
+import { WalkthroughPrompt } from "@/features/media/walkthrough";
+import { api, errorMessage } from "@/lib/api";
 import type { CreateWorkspaceResponse } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { countryOptions, guessCountry } from "@/lib/countries";
@@ -56,12 +55,20 @@ function CountryLine({ country, onChange, workspaceName }: { country: string; on
   );
 }
 
+/**
+ * The first run: paste a link (or describe the app) → Go. That's the only step: the workspace is
+ * created from your name, the app is imported and Autopilot starts with sensible defaults, and you
+ * land on Home, which shows the run's progress (plain steps → your first video) until the first posts
+ * are ready to review. Nothing else is asked here;
+ * the hands-on tools are under Create.
+ */
 function OnboardingInner() {
   const me = useMe();
   const { user } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const invalidate = useInvalidate();
+  const toast = useToast();
   const [country, setCountry] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedApp | null>(null);
 
@@ -93,17 +100,24 @@ function OnboardingInner() {
   };
 
   /** On Go: the workspace (named from you, with your country) is created now, not as a form step. */
-  const ensureWorkspace = async (choice: AutopilotChoice): Promise<string> => {
+  const ensureWorkspace = async (): Promise<string> => {
     if (existing) {
       if (country && country !== me.data.user.country) await api.patch("/v1/me", { country });
       return existing.workspace.id;
     }
     const { workspace } = await api.post<CreateWorkspaceResponse>("/v1/workspaces", { name });
     await api.patch("/v1/me", { country: country || undefined, defaultWorkspaceId: workspace.id });
-    // "I'll do it myself" is the workspace's preference too (Settings → Growth Autopilot turns it back on).
-    if (choice === "manual") await api.patch(wsPath(workspace.id), { settings: { autopilot: { enabled: false } } }).catch(() => undefined);
     await invalidate("/v1/me");
     return workspace.id;
+  };
+
+  const onCreated = (c: CreatedApp) => {
+    const to = afterAdd(c);
+    // Autopilot is off for this (existing) workspace: show the import, then the hands-on tools.
+    if (!to) return setCreated(c);
+    // It didn't start (credits, a per-run limit…): say why; the Autopilot page offers what fits.
+    if (c.autopilot && !c.autopilot.started) toast.toast({ title: "Autopilot didn’t start yet", description: c.autopilot.reason ?? "See what fits on the next page.", tone: "neutral" });
+    void finish(to);
   };
 
   if (created) {
@@ -111,13 +125,13 @@ function OnboardingInner() {
       <div className="space-y-8">
         <div className="space-y-2">
           <h1 className="text-title-1 font-semibold text-balance">{created.app.name && created.app.name !== "New app" ? `Importing ${created.app.name}` : "Importing your app"}</h1>
-          <p className="text-body text-ink-2 text-pretty">This usually takes under a minute. Then review your App DNA and plan your first campaign.</p>
+          <p className="text-body text-ink-2 text-pretty">This usually takes under a minute. Then check what MuseLaunch learned and plan your first campaign.</p>
         </div>
         <ImportProgress
           workspaceId={created.workspaceId}
           app={created.app}
           job={created.job}
-          onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).creator)}
+          onContinue={() => void finish(routes.app(created.workspaceId, created.app.id).home)}
           onReview={() => void finish(routes.app(created.workspaceId, created.app.id).brand)}
         />
         <WalkthroughPrompt workspaceId={created.workspaceId} appId={created.app.id} variant="inline" />
@@ -129,29 +143,16 @@ function OnboardingInner() {
     <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="text-title-1 font-semibold text-balance">Let’s grow your app</h1>
-        <p className="text-body text-ink-2 text-pretty">Paste your App Store or Google Play link. MuseLaunch learns your app and gets to work.</p>
+        <p className="text-body text-ink-2 text-pretty">Paste your App Store, Google Play or website link. MuseLaunch learns your app and makes your first videos.</p>
       </div>
       <AddAppForm
         workspaceId={existing?.workspace.id}
         ensureWorkspace={ensureWorkspace}
         initialUrl={params.get("app") ?? undefined}
-        autopilotDefault={existing ? (existing.workspace.settings.autopilot?.enabled ?? true) : true}
-        onCreated={(c) => {
-          if (c.choice === "auto") void finish(routes.app(c.workspaceId, c.app.id).creator);
-          else setCreated(c);
-        }}
+        onCreated={onCreated}
+        promise="Nothing is posted and no extra credits are spent without your OK."
         footer={<CountryLine country={country} onChange={setCountry} workspaceName={existing ? null : name} />}
       />
-      <details className="group rounded-2xl bg-mist/60 px-4 py-3 [&_summary::-webkit-details-marker]:hidden">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-body-sm font-medium text-ink">
-          <span>
-            Optional next: record one walkthrough of your app
-            <span className="block text-footnote font-normal text-ink-2">Makes every video show your real app moving. You can add it after Go, on your app’s Home.</span>
-          </span>
-          <ChevronDown className="size-4 shrink-0 text-ink-3 transition-transform group-open:rotate-180" aria-hidden />
-        </summary>
-        <WalkthroughExplainer className="pt-4" />
-      </details>
     </div>
   );
 }

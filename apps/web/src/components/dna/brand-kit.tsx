@@ -5,10 +5,18 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useInvalidate } from "@/lib/query";
+import { AppColourPicker } from "./app-colour";
 
 type Palette = BrandProfile["visual"]["palette"];
 const ROLES = ["primary", "secondary", "accent", "background", "text", "other"] as const;
 const HEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/;
+/** The faces videos can render (packages/compositions/src/fonts.ts, all SIL Open Font License). */
+const BUNDLED_FACES = ["Inter", "Plus Jakarta Sans", "Space Grotesk", "Bricolage Grotesque", "Sora", "Fraunces", "Manrope"];
+const faceOptions = (current: string, none: string) => [
+  { value: "", label: none },
+  ...BUNDLED_FACES.map((f) => ({ value: f, label: f })),
+  ...(current && !BUNDLED_FACES.some((f) => f.toLowerCase() === current.toLowerCase()) ? [{ value: current, label: `${current} (not bundled: videos use Inter)` }] : []),
+];
 
 function GroupCard({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -71,6 +79,10 @@ export function BrandKitEditor({ profile, workspaceId, appId, canEdit }: { profi
 
   return (
     <div className="rounded-xl bg-surface p-5 shadow-raised sm:p-6">
+      <GroupCard title="App colour" description="MuseLaunch takes this colour while you work on this app. It starts as your icon’s colour; shades are adjusted so text stays easy to read.">
+        <AppColourPicker palette={profile.visual.palette} canEdit={canEdit} />
+      </GroupCard>
+
       <GroupCard title="Voice" description="How your brand sounds. Muse writes scripts and captions in this voice.">
         <Field label="Tone">{(f) => <TagInput id={f.id} label="Tone words" value={s.voice} onChange={(v) => set("voice", v)} placeholder="e.g. calm, precise, warm" disabled={!canEdit} max={12} />}</Field>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -106,17 +118,17 @@ export function BrandKitEditor({ profile, workspaceId, appId, canEdit }: { profi
         ) : null}
       </GroupCard>
 
-      <GroupCard title="Type & style" description="Fonts are matched to licensed equivalents when rendering.">
+      <GroupCard title="Type & style" description="Videos render with the bundled open-licence faces below. Leave the heading font on “Let Muse pick” and Muse Spark chooses one per video to suit the concept.">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Heading font">{(f) => <Input id={f.id} value={s.headingFont} onChange={(e) => set("headingFont", e.target.value)} placeholder="e.g. SF Pro Display" disabled={!canEdit} />}</Field>
-          <Field label="Body font">{(f) => <Input id={f.id} value={s.bodyFont} onChange={(e) => set("bodyFont", e.target.value)} placeholder="e.g. Inter" disabled={!canEdit} />}</Field>
+          <Field label="Heading font">{(f) => <Select id={f.id} value={s.headingFont} onChange={(e) => set("headingFont", e.target.value)} options={faceOptions(s.headingFont, "Let Muse pick per video")} disabled={!canEdit} />}</Field>
+          <Field label="Body font">{(f) => <Select id={f.id} value={s.bodyFont} onChange={(e) => set("bodyFont", e.target.value)} options={faceOptions(s.bodyFont, "Inter (default)")} disabled={!canEdit} />}</Field>
         </div>
         <Field label="Style keywords">{(f) => <TagInput id={f.id} label="Style keywords" value={s.keywords} onChange={(v) => set("keywords", v)} placeholder="e.g. minimal, airy, high contrast" disabled={!canEdit} max={20} />}</Field>
       </GroupCard>
 
-      <GroupCard title="Calls to action & guardrails" description="Muse never uses prohibited claims, even if a concept would benefit from them.">
+      <GroupCard title="Calls to action & guardrails" description="Muse never says the things you list here, even if an idea would benefit from them.">
         <Field label="Preferred calls to action">{(f) => <TagInput id={f.id} label="Preferred calls to action" value={s.ctas} onChange={(v) => set("ctas", v)} placeholder="e.g. Try it free on iPhone" disabled={!canEdit} max={20} />}</Field>
-        <Field label="Never claim">{(f) => <TagInput id={f.id} label="Prohibited claims" value={s.prohibited} onChange={(v) => set("prohibited", v)} placeholder="e.g. #1 productivity app" disabled={!canEdit} tone="danger" maxLength={300} />}</Field>
+        <Field label="Never say">{(f) => <TagInput id={f.id} label="Things never to say" value={s.prohibited} onChange={(v) => set("prohibited", v)} placeholder="e.g. #1 productivity app" disabled={!canEdit} tone="danger" maxLength={300} />}</Field>
         <Field label="Guidelines" optional>
           {(f) => <Textarea id={f.id} rows={4} value={s.guidelines} onChange={(e) => set("guidelines", e.target.value)} placeholder="Anything else a designer should know: logo usage, imagery to avoid, legal lines…" disabled={!canEdit} maxLength={4000} />}
         </Field>

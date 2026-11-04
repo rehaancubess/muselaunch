@@ -38,6 +38,12 @@ export const MusicParams = z.object({
   seed: z.string().min(1).max(120),
   /** Timeline times (s) that get a riser into a soft hit, snapped to the nearest beat. */
   accents: z.array(z.number().min(0).max(180)).max(12).default([]),
+  /**
+   * Fixed tempo (beats per minute). Set when the video's cuts were placed on this tempo's beats
+   * (beat sync): the arrangement keeps it and fills whole bars, the last chord rings out. Omitted =
+   * the tempo is fitted to the length inside the mood's range.
+   */
+  bpm: z.number().min(40).max(220).optional(),
 });
 export type MusicParams = z.infer<typeof MusicParams>;
 
@@ -100,18 +106,20 @@ export type SpeechRange = z.infer<typeof SpeechRange>;
 // ---------------------------------------------------------------------------
 
 /**
- * New videos (and Autopilot) get original music + sound effects automatically. AI voiceover is
- * off by default: when on, storyboards that ask for narration get an external-TTS voice (labelled).
+ * New videos (and Autopilot) get original music + sound effects automatically, and an AI voiceover
+ * by default: storyboards write one short spoken line per scene, voiced by an external TTS provider
+ * (OpenAI TTS, always labelled as an AI voice) and checked with Muse Voice Transcribe. A workspace
+ * can switch the voice off; without an external TTS key the storyboard plans no voice (captions off).
  */
 export const WorkspaceSoundSettings = z.object({
   music: z.boolean().default(true),
   sfx: z.boolean().default(true),
-  aiVoiceover: z.boolean().default(false),
+  aiVoiceover: z.boolean().default(true),
   /** Built-in TTS voice (never a clone). */
   voice: z.string().min(1).max(40).optional(),
 });
 export type WorkspaceSoundSettings = z.infer<typeof WorkspaceSoundSettings>;
-export const DEFAULT_SOUND_SETTINGS: WorkspaceSoundSettings = { music: true, sfx: true, aiVoiceover: false };
+export const DEFAULT_SOUND_SETTINGS: WorkspaceSoundSettings = { music: true, sfx: true, aiVoiceover: true };
 
 // ---------------------------------------------------------------------------
 // Studio sound API (apps/api/src/routes/sound.ts)
@@ -146,3 +154,22 @@ export type SoundVoiceoverRequest = z.infer<typeof SoundVoiceoverRequest>;
 
 /** `DELETE /compositions/:id/sound/voiceover?baseVersion=` body-less; query parsed with this. */
 export const SoundRemoveVoiceoverQuery = z.object({ baseVersion: z.coerce.number().int().min(1) });
+
+/**
+ * Viewers of a posted video never see the Studio, so when its narration is an external TTS voice
+ * (`external_tts`) the post's caption carries this line (OpenAI's guidance: tell listeners the speech
+ * is AI-generated). Added once, at the end, by post creation and by the export package's copy files.
+ */
+export const AI_VOICE_CAPTION_LINE = "Voiceover: AI-generated voice.";
+
+/** The caption with the AI-voice line added once (kept within `maxChars` when the channel has a limit: the line wins over the caption's tail). */
+export function withAiVoiceLine(caption: string, maxChars?: number): string {
+  const text = caption.trimEnd();
+  if (text.toLowerCase().includes(AI_VOICE_CAPTION_LINE.toLowerCase())) return caption;
+  const joiner = text ? "\n\n" : "";
+  const full = `${text}${joiner}${AI_VOICE_CAPTION_LINE}`;
+  if (!maxChars || full.length <= maxChars) return full;
+  const room = maxChars - AI_VOICE_CAPTION_LINE.length - joiner.length - 1;
+  if (room <= 0) return AI_VOICE_CAPTION_LINE.slice(0, maxChars);
+  return `${text.slice(0, room).trimEnd()}…${joiner}${AI_VOICE_CAPTION_LINE}`;
+}

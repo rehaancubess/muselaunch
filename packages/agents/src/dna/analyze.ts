@@ -1,4 +1,4 @@
-import { ClaimContext, Monetization, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
+import { ClaimContext, Monetization, Platform as AppPlatform, pickThemeColor, type AppEvidence, type BrandProfile, type MediaAsset } from "@muselaunch/contracts";
 import { AppError, assertKeyInWorkspace, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { generateJson, imagePart, roleNames, untrusted, type InputPart } from "@muselaunch/providers";
 import sharp from "sharp";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { initialClaimState } from "../claims";
 import { RunRecorder } from "../runs";
 import { clip, hashId, normalizeText, nowIso, uniq } from "../util";
+import { readDocuments } from "./documents";
 import { paletteFromImages } from "./palette";
 import { queueScreenCutouts } from "./screens";
 
@@ -16,6 +17,13 @@ export const DnaDraft = z.object({
   oneLiner: z.string().min(1).max(240),
   description: z.string().min(1).max(4000),
   category: z.string().max(120).optional(),
+  platforms: z
+    .array(AppPlatform)
+    .max(8)
+    .default([])
+    .describe(
+      "Where the app runs, only as the evidence or screenshots show it: ios, android, web (in a browser), macos, windows, linux, tv (runs on a TV: Amazon Fire TV, Apple TV, Android TV / Google TV or a smart TV, including TV games played with phones or remotes as controllers), other",
+    ),
   screenshotObservations: z
     .array(
       z.object({
@@ -70,14 +78,17 @@ export const DnaDraft = z.object({
 });
 export type DnaDraft = z.infer<typeof DnaDraft>;
 
-const INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's product analyst. Build the "App DNA" of an app from its real public listing text, the founder's own description and real screenshots.
+const INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's product analyst. Build the "App DNA" of an app from its real public listing text, the founder's own description and documents, and real screenshots.
 
 Rules (non-negotiable):
 - Use only what the evidence and screenshots show. Never invent features, numbers, awards, user counts, reviews or testimonials.
 - Every feature must cite evidence ids (from the evidence list, or keys of your screenshotObservations) and/or the asset ids of screenshots that show it. Omit features you cannot ground.
 - screenshotObservations describe what is literally visible on a screenshot (UI elements, screens, text shown); use the exact asset id given for that image.
 - Audiences, problems and differentiators are positioning hypotheses; cite evidence where possible.
+- Evidence with source "document" was read from a PDF the founder uploaded (pitch deck, spec, press kit): cite it like the founder's own text. Numbers from documents stay exactly as written and only in claims that cite that evidence.
 - Claims are short marketing statements. support="direct" only when the listing or founder text literally states it; otherwise "inferred". Confidence reflects how well the evidence supports the claim.
+- What the listing or website plainly states about the product is a direct fact: its categories or groups, the names of its games, features or modes, the platforms it runs on, and counts it gives (e.g. "15 games"). Cover them as features and as claims with support="direct" that cite the evidence ids stating them (e.g. "Racing games: Pocket GP, Mud Slingers" citing the evidence that lists them). Keep the listing's own words; never widen them (a "Sports" group with a bowling game supports "bowling", not "every sport").
+- Platforms: where the app runs, only from the evidence. Use "tv" when it runs on a TV (Fire TV, Apple TV, Android TV, smart TV), e.g. a TV game whose players use their phones as controllers.
 - Monetization: use only pricing evidence (price, in-app purchases, subscription wording). Use "unknown" if there is none.
 - Tone: describe the voice the listing already uses; styleKeywords describe the visual style of the screenshots and icon.
 - Write in English, concise and specific to this app.`;
@@ -145,6 +156,10 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     await ctx.progress(10, "gathering evidence");
     const evidence = (await ws.collection("appEvidence").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 150 })).items;
     const assetPage = (await ws.collection("mediaAssets").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
+    // Founder PDFs (deck, spec, press kit): Muse Spark reads each one into cited evidence first.
+    const docs = await readDocuments(ctx, run, { appId, appName: app.name, assets: assetPage, evidence });
+    if (docs.read) await ctx.progress(22, `Read ${docs.read} document${docs.read === 1 ? "" : "s"}`);
+    for (const e of docs.evidence) if (!evidence.some((x) => x.id === e.id)) evidence.push(e);
     const truth = assetPage.filter((a) => a.isProductTruth && a.kind === "image" && (a.status === "ready" || a.status === "uploaded") && !a.generation);
     // Order: explicitly requested assets, then the import's listing order, then newest uploads.
     const requested = new Set(ctx.payload.assetIds);
@@ -154,7 +169,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     const shots = [...ordered.filter((a) => requested.has(a.id)), ...ordered.filter((a) => !requested.has(a.id) && a.role === "screenshot")].filter((a, i, all) => all.findIndex((b) => b.id === a.id) === i).slice(0, 8);
     const icon = truth.find((a) => a.id === app.iconAssetId) ?? truth.find((a) => a.role === "icon" || a.role === "logo");
     if (!evidence.length && !shots.length) {
-      throw new AppError("BAD_REQUEST", "No evidence to analyze", { userMessage: "Add a store link, a description or screenshots so we can build your App DNA." });
+      throw new AppError("BAD_REQUEST", "No evidence to analyze", { userMessage: "Add a store link, a description or screenshots so we can learn about your app." });
     }
     const { parts: imageParts, buffers } = await imageInputs(p, ctx.workspaceId, [...shots, ...(icon ? [icon] : [])]);
     const imaged = [...shots, ...(icon ? [icon] : [])].filter((a) => buffers.has(a.id));
@@ -169,7 +184,7 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
       ...listings.map((l) => untrusted(`${l.source} listing ${l.url}`, `Name: ${l.name ?? ""}\nDeveloper: ${l.developer ?? ""}\nCategory: ${l.category ?? ""}\nPrice: ${l.price ?? ""}\n\n${l.description ?? ""}`, 8000)),
       "",
       "Evidence (id | kind | source | fact):",
-      untrusted("app_evidence", evidence.map((e) => `${e.id} | ${e.kind} | ${e.source.kind} | ${clip(e.fact, 400)}`).join("\n") || "(none)", 30_000),
+      untrusted("app_evidence", evidence.map((e) => `${e.id} | ${e.kind} | ${e.source.kind} | ${clip(e.fact, 600)}`).join("\n") || "(none)", 40_000),
       "",
       "Images attached, in order:",
       ...imaged.map((a, i) => `Image ${i + 1}: asset ${a.id} — ${a.role}${a.title ? ` (${a.title})` : ""}`),
@@ -244,11 +259,16 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
     // Palette from the real icon + screenshots (deterministic image statistics).
     const palette = await paletteFromImages(icon ? buffers.get(icon.id) : undefined, shots.map((s) => buffers.get(s.id)).filter((b): b is Buffer => Boolean(b)));
 
+    // Store listings decide ios/android and a website decides web (import handler); no importer can
+    // tell a TV app, so "tv" read from the listing/founder text/screenshots is added (never removed),
+    // unless the founder edited the platforms themselves.
+    const addTv = draft.platforms.includes("tv") && !app.platforms.includes("tv") && !existing?.userEditedPaths.includes("platforms");
+    const platforms = addTv ? [...app.platforms, "tv" as const] : app.platforms;
     const generated: Partial<BrandProfile> = {
       oneLiner: clip(draft.oneLiner, 240),
       description: clip(draft.description, 4000),
       category: draft.category ?? app.category,
-      platforms: app.platforms,
+      platforms,
       audiences,
       problems: evidenced(draft.problems, "prob"),
       features,
@@ -317,14 +337,16 @@ export async function appAnalyzeHandler(ctx: JobContext<"app.analyze">): Promise
       );
     }
 
-    await run.step({ kind: "decision", title: "Grounded App DNA against evidence", output: { features: features.length, claimsCreated: created, dropped, palette: palette.length } });
-    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category }, { actor: ctx.actor });
+    await run.step({ kind: "decision", title: "Grounded App DNA against evidence", output: { features: features.length, claimsCreated: created, dropped, palette: palette.length, documentsRead: docs.read, documentFacts: docs.evidence.length, ...(docs.skipped.length ? { documentsSkipped: docs.skipped } : {}), ...(addTv ? { platformAdded: "tv" } : {}) } });
+    // Interface colour from the real icon, unless the person picked one themselves.
+    const theme = app.theme?.source === "custom" ? {} : { theme: { color: pickThemeColor(profile.visual.palette), source: "icon" as const } };
+    await ws.collection("apps").update(appId, { dnaStatus: "needs_review", brandProfileId: appId, tagline: app.tagline ?? clip(draft.oneLiner, 240), category: app.category ?? draft.category, ...(addTv ? { platforms } : {}), ...theme }, { actor: ctx.actor });
     if (imp) await ws.collection("appImports").update(imp.id, { status: imp.warnings.length ? "partial" : "succeeded" }, { actor: ctx.actor });
     await run.finish("succeeded", { outputRefs: [{ entity: "brandProfiles", id: profile.id }] });
     // Designed store screenshots → Muse Spark check + SAM 3.1 screen cut-outs, in the background.
     const screenCutoutJobId = await queueScreenCutouts(ctx, appId);
-    await ctx.progress(100, "App DNA ready for review");
-    return { refs: [{ entity: "brandProfiles", id: profile.id }, { entity: "agentRuns", id: run.id }], data: { version: profile.version, features: features.length, claimsCreated: created, dropped, screenCutoutJobId } };
+    await ctx.progress(100, "Learned about your app: ready to check");
+    return { refs: [{ entity: "brandProfiles", id: profile.id }, { entity: "agentRuns", id: run.id }], data: { version: profile.version, features: features.length, claimsCreated: created, dropped, documentsRead: docs.read, documentFacts: docs.evidence.length, screenCutoutJobId } };
   } catch (raw) {
     const err = toAppError(raw);
     const final = err.code === "CANCELLED" || !err.retryable || ctx.job.attempts >= ctx.job.maxAttempts;

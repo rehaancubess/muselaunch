@@ -8,6 +8,8 @@ export interface CompileRuntime {
   gsap?: string;
   /** `@font-face` CSS for the bundled fonts (data URLs; deterministic, no network). */
   fontCss?: string;
+  /** `@font-face` CSS per bundled display face (BundledFont.name); only the faces a doc uses are inlined. */
+  fonts?: Record<string, string>;
 }
 
 let current: CompileRuntime = {};

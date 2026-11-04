@@ -1,5 +1,5 @@
 import { autopilotSettings, tryStartAutoAutopilot } from "@muselaunch/autopilot";
-import { CreateAppRequest, HttpUrl, type AutopilotAutoStart } from "@muselaunch/contracts";
+import { CreateAppRequest, HexColor, HttpUrl, Platform, normalizeHex, pickThemeColor, type App, type AppTheme, type AutopilotAutoStart } from "@muselaunch/contracts";
 import { AppError, assertSafeUrl } from "@muselaunch/platform";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -15,10 +15,27 @@ import { audit } from "../services/workspaces";
  */
 export const appRoutes = new Hono<AppEnv>();
 
+type Ws = ReturnType<AppEnv["Variables"]["platform"]["db"]["ws"]>;
+
+/** The icon colour from App DNA, for apps analysed before apps carried a theme. */
+async function iconTheme(ws: Ws, app: App): Promise<AppTheme | undefined> {
+  if (!app.brandProfileId) return undefined;
+  const profile = await ws.collection("brandProfiles").get(app.brandProfileId).catch(() => null);
+  return profile ? { color: pickThemeColor(profile.visual.palette), source: "icon" } : undefined;
+}
+
+/** Fill in `theme` for older apps (read-time; nothing is written). */
+async function withTheme(ws: Ws, app: App): Promise<App> {
+  if (app.theme) return app;
+  const theme = await iconTheme(ws, app);
+  return theme ? { ...app, theme } : app;
+}
+
 appRoutes.get("/", async (c) => {
   const p = c.get("platform");
-  const page = await p.db.ws(c.get("workspaceId")).collection("apps").list({ limit: 100 });
-  return c.json({ items: page.items.filter((a) => a.status !== "archived") });
+  const ws = p.db.ws(c.get("workspaceId"));
+  const page = await ws.collection("apps").list({ limit: 100 });
+  return c.json({ items: await Promise.all(page.items.filter((a) => a.status !== "archived").map((a) => withTheme(ws, a))) });
 });
 
 appRoutes.post("/", requireCap("apps.write"), async (c) => {
@@ -55,13 +72,27 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
   let job = null;
   if (sources.length) {
     const imp = await p.db.ws(wid).collection("appImports").create({ appId: app.id, sources, status: "queued" }, { actor });
+    let evidenceId: string | undefined;
     if (input.description) {
-      await p.db.ws(wid).collection("appEvidence").create(
-        { appId: app.id, kind: "positioning", fact: input.description.slice(0, 1000), source: { kind: "user_input", retrievedAt: new Date().toISOString() }, observedAt: new Date().toISOString(), reviewState: "verified" },
-        { actor },
-      );
+      evidenceId = (
+        await p.db.ws(wid).collection("appEvidence").create(
+          { appId: app.id, kind: "positioning", fact: input.description.slice(0, 1000), source: { kind: "user_input", retrievedAt: new Date().toISOString() }, observedAt: new Date().toISOString(), reviewState: "verified" },
+          { actor },
+        )
+      ).id;
     }
-    job = await p.jobs.create(wid, "app.import", { appId: app.id, importId: imp.id }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `app.import:${imp.id}`), credits: { operation: "app.import" } });
+    try {
+      job = await p.jobs.create(wid, "app.import", { appId: app.id, importId: imp.id }, { actor, appId: app.id, idempotencyKey: idempotencyKey(c, `app.import:${imp.id}`), credits: { operation: "app.import" } });
+    } catch (err) {
+      // No import could start (rate limit, credits, queue): undo the app so a retry doesn't leave a
+      // stuck "importing" app behind (and doesn't count against the plan's app limit).
+      await Promise.allSettled([
+        p.db.ws(wid).collection("appImports").delete(imp.id),
+        ...(evidenceId ? [p.db.ws(wid).collection("appEvidence").delete(evidenceId)] : []),
+        p.db.ws(wid).collection("apps").delete(app.id),
+      ]);
+      throw err;
+    }
     await p.db.ws(wid).collection("appImports").update(imp.id, { jobId: job.id }, { actor });
     await p.db.ws(wid).collection("apps").update(app.id, { lastImportId: imp.id }, { actor });
   }
@@ -71,7 +102,7 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
   if (wantsAutopilot) {
     autopilot = job
       ? await tryStartAutoAutopilot(p, wid, app.id, { member: c.get("member"), actor })
-      : { started: false, code: "no_source", reason: "Add a store link, a website or a short description so MuseLaunch can learn the app first; Growth Autopilot starts from there." };
+      : { started: false, code: "no_source", reason: "Add a store link, a website or a short description so MuseLaunch can learn the app first; Autopilot starts from there." };
     if (autopilot.started) await audit(p, wid, actor, "autopilot.auto_started", { appId: app.id, autopilotId: autopilot.autopilotId, budget: autopilot.plan?.maxCredits });
   }
   return c.json({ app, job, autopilot }, hasSources ? 202 : 201);
@@ -79,8 +110,8 @@ appRoutes.post("/", requireCap("apps.write"), async (c) => {
 
 appRoutes.get("/:appId", async (c) => {
   const p = c.get("platform");
-  const app = await p.db.ws(c.get("workspaceId")).collection("apps").getOrThrow(c.req.param("appId"));
-  return c.json({ app });
+  const ws = p.db.ws(c.get("workspaceId"));
+  return c.json({ app: await withTheme(ws, await ws.collection("apps").getOrThrow(c.req.param("appId"))) });
 });
 
 const UpdateApp = z.object({
@@ -92,7 +123,11 @@ const UpdateApp = z.object({
   targetCountries: z.array(z.string().length(2)).max(20).optional(),
   targetLanguages: z.array(z.string().min(2).max(16)).max(10).optional(),
   stage: z.enum(["pre_launch", "launched", "growing", "mature"]).optional(),
+  /** Where the app runs (e.g. add "tv" for a TV game the import didn't recognise); decides device frames. */
+  platforms: z.array(Platform).max(7).optional(),
   iconAssetId: z.string().optional(),
+  /** Interface colour: a colour, null for monochrome, or "icon" to go back to the app icon's colour. */
+  theme: z.union([z.object({ color: HexColor.nullable() }), z.literal("icon")]).optional(),
 });
 
 appRoutes.patch("/:appId", requireCap("apps.write"), async (c) => {
@@ -100,8 +135,15 @@ appRoutes.patch("/:appId", requireCap("apps.write"), async (c) => {
   const input = await body(c, UpdateApp);
   // Same URL policy as POST /apps: store URLs are fetched by re-imports and used as tracked-link destinations.
   for (const u of [input.websiteUrl, input.storeUrls?.ios, input.storeUrls?.android]) if (u) assertSafeUrl(u);
-  const app = await p.db.ws(c.get("workspaceId")).collection("apps").update(c.req.param("appId"), input, { actor: actorOf(c) });
-  return c.json({ app });
+  const ws = p.db.ws(c.get("workspaceId"));
+  const { theme: themeIn, ...rest } = input;
+  let theme: AppTheme | undefined;
+  if (themeIn === "icon") {
+    const current = await ws.collection("apps").getOrThrow(c.req.param("appId"));
+    theme = (await iconTheme(ws, current)) ?? { color: null, source: "icon" };
+  } else if (themeIn) theme = { color: normalizeHex(themeIn.color), source: "custom" };
+  const app = await ws.collection("apps").update(c.req.param("appId"), { ...rest, ...(theme ? { theme } : {}) }, { actor: actorOf(c) });
+  return c.json({ app: await withTheme(ws, app) });
 });
 
 /** Re-import public listing data (does not overwrite user-edited App DNA fields). */

@@ -27,6 +27,8 @@ const UpdateWorkspace = z.object({
         .object({ enabled: z.boolean().optional(), autoApproveRenders: z.boolean().optional(), maxCreditsPerRun: z.number().int().positive().max(2000).nullable().optional() })
         .strict()
         .optional(),
+      /** Spark's automatic preview check and fixes (spends credits per round: needs billing.manage). */
+      videoReview: z.object({ autoFix: z.boolean() }).strict().optional(),
     })
     .optional(),
 });
@@ -42,6 +44,7 @@ workspaceRoutes.patch("/", requireCap("workspace.manage"), async (c) => {
   const ws = c.get("workspace");
   const ap = input.settings?.autopilot;
   if (ap && (ap.autoApproveRenders !== undefined || ap.maxCreditsPerRun !== undefined)) assertCap(c, "billing.manage");
+  if (input.settings?.videoReview) assertCap(c, "billing.manage");
   const { autopilot: _ignored, ...rest } = input.settings ?? {};
   const current = autopilotSettings(ws);
   const maxCreditsPerRun = ap?.maxCreditsPerRun === undefined ? current.maxCreditsPerRun : (ap.maxCreditsPerRun ?? undefined);

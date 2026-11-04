@@ -91,7 +91,7 @@ export function TrackedLinks({ workspaceId, campaignId, campaignName, app, chann
             </ul>
           ) : (
             <div className="rounded-xl bg-mist/60">
-              <EmptyState size="sm" icon={<Link2 aria-hidden />} title="No tracked links yet" description="Put a tracked link in each post so Insights can count clicks for this campaign. Without one, clicks can’t be attributed." />
+              <EmptyState size="sm" icon={<Link2 aria-hidden />} title="No tracked links yet" description="Put a tracked link in each post so Results can count clicks for this campaign. Without one, clicks can’t be attributed." />
             </div>
           )
         }

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPatch, posterTimeSec } from "@muselaunch/compositions";
+import { applyPatch, posterTimeSec, totalDuration } from "@muselaunch/compositions";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform } from "@muselaunch/platform";
 import { unzipSync } from "fflate";
@@ -60,7 +60,10 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     await p.storage.downloadToFile(asset.storagePath, file);
     const info = await probe(file);
     expect([info.width, info.height]).toEqual([1080, 1920]);
-    expect(Math.abs(info.durationSec! - 9)).toBeLessThan(0.15);
+    // Cuts and the ending land on the music's beat: the MP4 matches the doc, within half a second of the planned 9 s.
+    const v1 = await getVersion(p.db.ws(wid), "cmp_r", 1);
+    expect(Math.abs(info.durationSec! - totalDuration(v1.doc))).toBeLessThan(0.15);
+    expect(Math.abs(info.durationSec! - 9)).toBeLessThan(0.5);
     // Save a frame from the device-demo scene for visual review.
     await extractFrame(file, 4.6, join(FIXTURES_DIR, "samples", "integration-final-frame.png"));
     const comp = await p.db.ws(wid).collection("compositions").getOrThrow("cmp_r");
@@ -188,7 +191,9 @@ describe.runIf(process.env.RUN_RENDER_TESTS === "1")("real render pipeline", { t
     const file = join(tmp, "long-preview.mp4");
     await p.storage.downloadToFile(asset.storagePath, file);
     const info = await probe(file);
-    expect(Math.abs(info.durationSec! - sb.targetDurationSec)).toBeLessThan(0.25);
+    // Ends on the music's last bar (+ its ring-out): within half a second of the target, matching the doc.
+    expect(Math.abs(info.durationSec! - totalDuration(v1.doc))).toBeLessThan(0.25);
+    expect(Math.abs(info.durationSec! - sb.targetDurationSec)).toBeLessThan(0.5);
     // Kinetic hook, phone tilt, focus zoom (ring), tap demo, second focus zoom.
     const times = [1.6, 10.5, 15.2, 18.4, 26];
     const frames = times.map((t) => join(FIXTURES_DIR, "samples", `long-cut-${t}.png`));

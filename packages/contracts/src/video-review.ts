@@ -94,7 +94,8 @@ export const VideoReview = BaseEntity.extend({
   /** The model that answered (Muse Spark, or Muse Spark Open when it stood in visibly). */
   reviewer: z.object({ model: z.string().max(80).optional(), label: z.string().max(120).optional(), note: z.string().max(300).optional() }).default({}),
   /** Who asked: a person in the Studio, or the Growth Autopilot. */
-  requestedFrom: z.enum(["studio", "autopilot", "api"]).default("api"),
+  /** `autofix`: Spark's automatic check of a new video's preview (video.autofix). */
+  requestedFrom: z.enum(["studio", "autopilot", "api", "autofix"]).default("api"),
   agentRunId: Id.optional(),
   jobId: Id.optional(),
   /** Patches created from this review's findings (Studio "Fix these scenes", Autopilot fix round). */

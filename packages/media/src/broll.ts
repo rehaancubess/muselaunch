@@ -15,6 +15,7 @@ import {
   type ImageSize,
 } from "@muselaunch/providers";
 import { ffmpeg, probeMedia, type MediaProbe } from "./ffmpeg";
+import { trackStoryboardFocus } from "./focus-track";
 import { storeGeneratedImages } from "./images";
 import { makePoster } from "./probe";
 import { callCtx, derivedId, EXT_BY_MIME, mediaDeps, sha256, withWorkdir } from "./util";
@@ -88,7 +89,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 
 export async function resolveMediaHandler(ctx: JobContext<"storyboard.resolve_media">): Promise<JobResult> {
   const { appId, storyboardId, compositionId } = ctx.payload;
-  await ctx.progress(2, "loading storyboard");
+  await ctx.progress(2, "loading the plan");
   const sb = await ctx.ws.collection("storyboards").getOrThrow(storyboardId);
   if (sb.appId !== appId) throw new AppError("BAD_REQUEST", "Storyboard belongs to another app", { retryable: false });
 
@@ -112,8 +113,21 @@ export async function resolveMediaHandler(ctx: JobContext<"storyboard.resolve_me
     if (o.unresolved) warnings.push(`Scene ${o.sceneOrder + 1}: ${o.unresolved}`);
   }
 
+  // Close-ups on walkthrough footage follow the element they point at (SAM 3.1); never blocks the video.
+  let focusTracked = 0;
+  try {
+    await ctx.progress(90, "following focused elements");
+    const r = await trackStoryboardFocus(ctx, sb);
+    focusTracked = r.tracked;
+    warnings.push(...r.warnings);
+  } catch (raw) {
+    const err = toAppError(raw);
+    if (err.code === "CANCELLED" || ctx.signal.aborted) throw err;
+    warnings.push(`Close-ups stay fixed: ${err.opts.userMessage ?? err.message}`.slice(0, 300));
+  }
+
   ctx.throwIfCancelled();
-  await ctx.progress(95, "queueing composition build");
+  await ctx.progress(95, "queueing the video build");
   const build = await ctx.enqueue("composition.build", { appId, storyboardId, compositionId }, { idempotencyKey: `composition.build:${storyboardId}`, credits: { operation: "composition.build" } });
   const attached = outcomes.filter((o) => o.assetId);
   return {
@@ -125,6 +139,7 @@ export async function resolveMediaHandler(ctx: JobContext<"storyboard.resolve_me
       resolved: attached.map((o) => ({ sceneId: o.sceneId, kind: o.kind, assetId: o.assetId, provider: o.provider, reused: o.reused ?? false })),
       unresolved: outcomes.filter((o) => !o.assetId).map((o) => ({ sceneId: o.sceneId, kind: o.kind, query: o.query, reason: o.unresolved })),
       warnings,
+      focusTracked,
       creditsCharged: outcomes.reduce((n, o) => n + o.credits, 0),
     },
   };

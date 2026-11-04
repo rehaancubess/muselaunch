@@ -7,15 +7,17 @@ loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), qui
 const { serve } = await import("@hono/node-server");
 const { Hono } = await import("hono");
 const { JOB_POOLS, TaskEnvelope } = await import("@muselaunch/contracts");
-const { createPlatform, createRunner, toAppError } = await import("@muselaunch/platform");
+const { checkPushReceipts, createPlatform, createRunner, toAppError, webPushKeys } = await import("@muselaunch/platform");
 const { handlers } = await import("./registry");
 const { runDueScheduledPosts } = await import("@muselaunch/growth");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
 const { installCampaignHooks } = await import("@muselaunch/agents");
-const { installAutopilotHooks, wakeDueAutopilots } = await import("@muselaunch/autopilot");
+const { installAutopilotHooks, runAlwaysOn, wakeDueAutopilots } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
+// Browser notifications are sent from job steps here: log at startup whether they're on.
+webPushKeys(platform);
 installAnalyticsHooks(platform);
 // Growth Autopilot (module B): resume a loop when the jobs it waits on finish (status hook in the
 // process that finishes them); the "autopilot-wake" cron wakes sleeping loops and repairs missed resumes.
@@ -63,6 +65,10 @@ app.post("/tasks/execute", async (c) => {
 const CRONS: Record<string, () => Promise<unknown>> = {
   "publish-due": () => runDueScheduledPosts(platform),
   "autopilot-wake": () => wakeDueAutopilots(platform),
+  // Always on (hourly): weekly research sweep + Needs-you suggestions, pace clamp after a downgrade,
+  // waking loops whose week of posts ran low, and the opt-in weekly email.
+  // Also: push receipts from Expo (removes the tokens of uninstalled phone apps).
+  "always-on": async () => ({ ...(await runAlwaysOn(platform)), push: await checkPushReceipts(platform) }),
 };
 
 app.post("/tasks/cron/:name", async (c) => {

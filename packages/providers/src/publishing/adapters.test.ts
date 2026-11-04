@@ -3,7 +3,7 @@ import { FakeFetch, growthFixture } from "./fake-fetch";
 import { buildRawEmail, gmailAdapter, YOUTUBE_UPLOAD_URL, youtubeAdapter } from "./google";
 import { HttpClient } from "./http";
 import { linkedinAdapter, linkedinCommentary } from "./linkedin";
-import { instagramAdapter } from "./meta-social";
+import { facebookAdapter, instagramAdapter } from "./meta-social";
 import { tiktokAdapter, tiktokChunks } from "./tiktok";
 import type { PublishContext, PublishRequest } from "./types";
 import { xAdapter } from "./x";
@@ -160,6 +160,67 @@ describe("Instagram adapter", () => {
     const f = new FakeFetch().on("GET", `${base}/${ig.container.id}`, { json: { status_code: "PUBLISHED" } });
     await expect(instagramAdapter.publish!(req(), ctx(f, { igContainerId: ig.container.id }))).rejects.toMatchObject({ code: "PROVIDER_ERROR", opts: { details: { uncertain: true } } });
     expect(f.calls("POST", `${base}/acct-1/media_publish`)).toHaveLength(0);
+  });
+});
+
+describe("Meta Unified login (new Meta apps)", () => {
+  const unified = { ...settings, instagramLoginConfigId: "CFG_IG", facebookLoginConfigId: "CFG_FB" };
+  const fb = "https://graph.facebook.com/v25.0";
+  it("Instagram signs in through the Facebook dialog with config_id and no scope", () => {
+    const u = new URL(instagramAdapter.oauth!.authorizeUrl({ clientId: "META_APP", redirectUri: "https://api.example.com/v1/oauth/instagram/callback", state: "st", settings: unified }));
+    expect(`${u.origin}${u.pathname}`).toBe("https://www.facebook.com/dialog/oauth");
+    expect(Object.fromEntries(u.searchParams)).toEqual({
+      client_id: "META_APP",
+      config_id: "CFG_IG",
+      redirect_uri: "https://api.example.com/v1/oauth/instagram/callback",
+      response_type: "code",
+      override_default_response_type: "true",
+      state: "st",
+    });
+  });
+  it("Instagram without a config id keeps the older Instagram Login", () => {
+    const u = new URL(instagramAdapter.oauth!.authorizeUrl({ clientId: "IG_APP", redirectUri: "https://r", state: "st", settings }));
+    expect(u.host).toBe("www.instagram.com");
+    expect(u.searchParams.get("scope")).toContain("instagram_business_content_publish");
+  });
+  it("redeems the code with the Meta app, then finds the account via /me/assigned_instagram_accounts", async () => {
+    const f = new FakeFetch()
+      .on("GET", `${fb}/oauth/access_token`, { json: { access_token: "SUAT", token_type: "bearer" } })
+      .on("GET", `${fb}/me/assigned_instagram_accounts`, { json: { data: [{ id: "17841400000000001", username: "magicpocket.app" }] } })
+      .on("GET", `${fb}/me`, { json: { id: "biz-user", client_business_id: "961918090324816" } });
+    const http = new HttpClient(f.fetch, "Instagram");
+    const tokens = await instagramAdapter.oauth!.exchangeCode({ code: "CODE", redirectUri: "https://r", creds, settings: unified }, http);
+    expect(tokens).toMatchObject({ accessToken: "SUAT", expiresAt: undefined, extra: { login: "unified" } });
+    const q = new URL(f.calls("GET", `${fb}/oauth/access_token`)[0]!.url).searchParams;
+    expect(Object.fromEntries(q)).toEqual({ client_id: "cid", client_secret: "csecret", redirect_uri: "https://r", code: "CODE" });
+    const id = await instagramAdapter.oauth!.identity(tokens, http, unified, creds);
+    expect(id).toMatchObject({ externalAccountId: "17841400000000001", displayName: "@magicpocket.app", extra: { clientBusinessId: "961918090324816" } });
+    expect(f.calls("GET", `${fb}/me/assigned_instagram_accounts`)[0]!.headers.authorization).toBe("Bearer SUAT");
+    // A system-user token is never "refreshed" through the Instagram Login endpoint.
+    expect(await instagramAdapter.oauth!.refresh!(tokens, creds, http, unified)).toBe(tokens);
+  });
+  it("says what to do when no Instagram account was shared", async () => {
+    const f = new FakeFetch().on("GET", `${fb}/me/assigned_instagram_accounts`, { json: { data: [] } });
+    await expect(instagramAdapter.oauth!.identity({ accessToken: "SUAT", scope: [], extra: { login: "unified" } }, new HttpClient(f.fetch, "Instagram"), unified, creds)).rejects.toMatchObject({ code: "PROVIDER_ERROR" });
+  });
+  it("publishes a Unified login connection on graph.facebook.com", async () => {
+    const ig = growthFixture("instagram");
+    const f = new FakeFetch()
+      .on("POST", `${fb}/acct-1/media_publish`, { json: ig.publish })
+      .on("POST", `${fb}/acct-1/media`, { json: ig.container })
+      .on("GET", `${fb}/${ig.container.id}`, { json: ig.statusFinished })
+      .on("GET", `${fb}/${ig.publish.id}`, { json: ig.media });
+    const out = await instagramAdapter.publish!(req(), ctx(f, {}, { tokens: { accessToken: "SUAT", scope: [], extra: { login: "unified" } } }));
+    expect(f.calls("POST", `${fb}/acct-1/media`)[0]!.form).toMatchObject({ media_type: "REELS", video_url: "https://cdn.example.com/signed/post.mp4" });
+    expect(f.requests.every((r) => r.url.startsWith(fb))).toBe(true);
+    expect(out).toMatchObject({ remoteId: ig.publish.id, remoteUrl: ig.media.permalink });
+  });
+  it("Facebook Pages send config_id instead of scope when a configuration is set", () => {
+    const withCfg = new URL(facebookAdapter.oauth!.authorizeUrl({ clientId: "META_APP", redirectUri: "https://r", state: "st", settings: unified }));
+    expect(withCfg.searchParams.get("config_id")).toBe("CFG_FB");
+    expect(withCfg.searchParams.has("scope")).toBe(false);
+    const legacy = new URL(facebookAdapter.oauth!.authorizeUrl({ clientId: "META_APP", redirectUri: "https://r", state: "st", settings }));
+    expect(legacy.searchParams.get("scope")).toBe("pages_show_list,pages_read_engagement,pages_manage_posts");
   });
 });
 

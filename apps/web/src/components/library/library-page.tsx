@@ -42,7 +42,7 @@ const FILTERS: { value: Filter; label: string; test: (a: MediaAsset) => boolean 
   { value: "product", label: "Product", test: (a) => a.isProductTruth || ["screenshot", "app_recording", "icon", "logo", "product_photo"].includes(a.role) },
   { value: "founder", label: "Founder", test: (a) => a.role === "founder_clip" || a.role === "voiceover" },
   { value: "generated", label: "Generated & stock", test: (a) => a.origin === "generated" || a.origin === "stock" },
-  { value: "renders", label: "Renders", test: (a) => a.origin === "render" || a.role === "render" || a.role === "package" },
+  { value: "renders", label: "Finished videos", test: (a) => a.origin === "render" || a.role === "render" || a.role === "package" },
   { value: "audio", label: "Audio", test: (a) => a.kind === "audio" },
 ];
 
@@ -167,6 +167,13 @@ function AssetSheet({
           <ScreenKindBadge asset={asset} />
           {asset.status !== "ready" ? <StatusPill status={statusKindOf(asset.status)}>{asset.status === "uploaded" ? "Waiting for processing" : humanizeStatus(asset.status)}</StatusPill> : null}
           {asset.license?.consent ? <Badge tone="success">Consent recorded</Badge> : null}
+          {asset.privacy?.flagged && asset.privacy.regions.length ? (
+            <Badge tone="warning" title={asset.privacy.notes ?? "Checked by Muse Spark"}>
+              {asset.privacy.regions.length} private detail{asset.privacy.regions.length === 1 ? "" : "s"} blurred in videos
+            </Badge>
+          ) : asset.privacy && !asset.privacy.flagged ? (
+            <Badge tone="neutral">No private details found</Badge>
+          ) : null}
         </div>
         <ScreenCutoutSection asset={asset} items={items} workspaceId={workspaceId} canEdit={canEdit} onOpen={onOpen} />
         {asset.kind === "video" && asset.role === "app_recording" && asset.appId && asset.status === "ready" ? (
@@ -219,7 +226,7 @@ function AssetSheet({
         onOpenChange={setConfirm}
         size="sm"
         title="Delete this file?"
-        description="It’s removed from storage. Compositions that use it will show it as missing."
+        description="It’s removed from storage. Videos that use it will show it as missing."
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirm(false)}>
@@ -252,7 +259,11 @@ function AssetSheet({
   );
 }
 
-export function LibraryPage() {
+/**
+ * The app's files: finished videos, recordings, screenshots, founder clips and generated media.
+ * Shown as Creator → Videos (`embedded`: no page frame of its own; the Creator frame has the tabs).
+ */
+export function LibraryPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { appId, workspaceId, app } = useCurrentApp();
   const { can } = useWorkspace();
   const params = useSearchParams();
@@ -269,11 +280,11 @@ export function LibraryPage() {
   const open = q.data?.items.find((a) => a.id === openId) ?? null;
   const canEdit = can("content.write");
 
-  return (
-    <PageContainer width="wide">
+  const content = (
+    <>
       <PageHeader
-        title="Library"
-        description={`Screenshots, recordings, founder clips, generated media and renders for ${app?.name ?? "this app"}. Every file shows where it came from.`}
+        title={embedded ? "Videos and files" : "Library"}
+        description={`Finished videos for ${app?.name ?? "this app"}, and the screenshots, recordings and clips they’re made from. Every file shows where it came from.`}
         actions={
           canEdit ? (
             <Button variant="secondary" icon={<Mic className="size-4" aria-hidden />} onClick={() => setRecordOpen(true)}>
@@ -316,7 +327,7 @@ export function LibraryPage() {
                   : filter === "renders"
                     ? "Rendered videos and export packages appear here after you produce a campaign."
                     : filter === "generated"
-                      ? "Lifestyle b-roll appears here with its provider and licence: stock from Pexels, Pixabay or Openverse, and labelled AI images. MuseLaunch finds it for your storyboards automatically, and you can search stock or generate an image in the Studio’s media panel."
+                      ? "Lifestyle b-roll appears here with its provider and licence: stock from Pexels, Pixabay or Openverse, and labelled AI images. MuseLaunch finds it for your videos’ plans automatically, and you can search stock or generate an image in the Studio’s media panel."
                       : "Upload files above and set their type."
               }
             />
@@ -334,6 +345,7 @@ export function LibraryPage() {
       <Dialog open={recordOpen} onOpenChange={setRecordOpen} title="Record a founder brief" description="Talk through your app. Muse transcribes it and uses it as a brief and for captions.">
         <VoiceRecorder appId={appId} purpose="founder_brief" />
       </Dialog>
-    </PageContainer>
+    </>
   );
+  return embedded ? content : <PageContainer width="wide">{content}</PageContainer>;
 }

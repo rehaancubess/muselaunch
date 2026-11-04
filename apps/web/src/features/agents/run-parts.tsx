@@ -94,7 +94,7 @@ export function PlanCard({ plan }: { plan: AgentPlan }) {
         <p className="text-body text-ink text-pretty">{plan.goal}</p>
         {plan.audience ? <p className="text-body-sm text-ink-2">Audience: {plan.audience}</p> : null}
         <div className="grid gap-5 md:grid-cols-3">
-          <PlanList title="Hypotheses" items={plan.hypotheses} />
+          <PlanList title="What we’re testing" items={plan.hypotheses} />
           <PlanList title="Deliverables" items={plan.deliverables} />
           <PlanList title="Measurement" items={plan.measurement} />
         </div>

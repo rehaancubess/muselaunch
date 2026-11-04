@@ -1,8 +1,10 @@
 "use client";
 /**
- * Owner: module F (Analytics & platform). The Insights tab body: sourced metrics with explicit gaps,
- * funnel, cost vs outcome, experiments, recommendations, YouTube (public channel analysis + stats of
- * published videos) and data sources (RevenueCat, CSV, manual entry, tracked links). Rendered by .../a/[appId]/insights/page.tsx inside <PageContainer width="wide">.
+ * Owner: module F (Analytics & platform). Insights → Details: sourced metrics with explicit gaps,
+ * filters, funnel, cost vs outcome, experiments, recommendations, YouTube (public channel analysis +
+ * stats of published videos) and data sources (RevenueCat, CSV, manual entry, tracked links).
+ * Rendered by .../a/[appId]/insights/details/page.tsx inside <PageContainer width="wide">; the main
+ * Insights page ("How it's going", ./simple.tsx) shows only up to three numbers and the next step.
  */
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@muselaunch/ui";
 import { useState } from "react";
@@ -13,23 +15,31 @@ import { RecommendationsView } from "./recommendations";
 import { SourcesView } from "./sources";
 import { YouTubeView } from "./youtube";
 
+export type InsightsTab = "overview" | "experiments" | "next" | "youtube" | "sources";
+
 export interface InsightsRootProps {
   appId: string;
+  /** Opens on this tab (e.g. `?tab=sources` from "Connect your data"). */
+  initialTab?: InsightsTab;
+  /** Data sources: the section to bring into view. */
+  initialFocus?: SourcesFocus;
+  /** Tests: the test to open. */
+  initialExperiment?: string | null;
 }
 
-type TabKey = "overview" | "experiments" | "next" | "youtube" | "sources";
+type TabKey = InsightsTab;
 
-export default function InsightsRoot({ appId }: InsightsRootProps) {
+export default function InsightsRoot({ appId, initialTab = "overview", initialFocus, initialExperiment = null }: InsightsRootProps) {
   const { workspaceId } = useRouteIds();
-  const [tab, setTab] = useState<TabKey>("overview");
-  const [focus, setFocus] = useState<SourcesFocus | undefined>();
-  const [openExperiment, setOpenExperiment] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabKey>(initialTab);
+  const [focus, setFocus] = useState<SourcesFocus | undefined>(initialFocus);
+  const [openExperiment, setOpenExperiment] = useState<string | null>(initialExperiment);
   if (!workspaceId) return null;
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="space-y-8">
       <TabsList label="Insights sections">
         <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="experiments">Experiments</TabsTrigger>
+        <TabsTrigger value="experiments">Tests</TabsTrigger>
         <TabsTrigger value="next">What to try next</TabsTrigger>
         <TabsTrigger value="youtube">YouTube</TabsTrigger>
         <TabsTrigger value="sources">Data sources</TabsTrigger>

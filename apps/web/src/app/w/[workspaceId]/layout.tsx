@@ -6,23 +6,15 @@ import { use, type ReactNode } from "react";
 import { FullPageLoader, RequireAuth } from "@/components/require-auth";
 import { AppShell } from "@/components/shell/app-shell";
 import { LogoMark } from "@/components/logo";
-import type { PrimaryTab } from "@/lib/routes";
-import { WorkspaceProvider, useWorkspace } from "@/lib/workspace";
-
-function shellStateFor(pathname: string): { tab: PrimaryTab | null; section?: string; fullBleed: boolean } {
-  const seg = pathname.split("/").filter(Boolean); // w, wid, a, appId, section, ...
-  if (seg[2] === "a") {
-    const s = seg[4] ?? "creator";
-    const tab = s === "discover" || s === "creator" || s === "insights" ? s : null;
-    return { tab, section: tab ? undefined : s, fullBleed: s === "creator" && seg[5] === "studio" };
-  }
-  if (seg[2] === "settings") return { tab: null, section: seg[3] ?? "settings", fullBleed: false };
-  return { tab: null, section: seg[2], fullBleed: false };
-}
+import { shellStateFor } from "@/components/shell/shell-state";
+import { useAppTheme } from "@/lib/app-theme";
+import { WorkspaceProvider, useRouteIds, useWorkspace } from "@/lib/workspace";
 
 function Gate({ children }: { children: ReactNode }) {
   const ws = useWorkspace();
+  const { appId } = useRouteIds();
   const pathname = usePathname() ?? "";
+  useAppTheme(ws.workspaceId, appId, ws.apps, !ws.appsLoading);
   if (ws.loading) return <FullPageLoader />;
   if (ws.error || !ws.workspace) {
     const notFound = ws.error?.status === 404;

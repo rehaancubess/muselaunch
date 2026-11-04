@@ -13,6 +13,8 @@ import { useWorkspace } from "@/lib/workspace";
 import { ConfidencePill, IdChips, fmtDate } from "./shared";
 
 const METRIC_OPTIONS = MetricName.options.map((m) => ({ value: m, label: m.replace(/_/g, " ") }));
+/** A test's status in plain words. */
+const TEST_STATUS: Record<Experiment["status"], string> = { proposed: "Not started", running: "Running", analyzing: "Analysing", concluded: "Finished", abandoned: "Stopped" };
 export const fetchEstimate = (workspaceId: string) => (req: { operation: string; params: Record<string, unknown> }) => api.post<EstimateResult>(wsPath(workspaceId, "/estimate"), req);
 
 export function ExperimentsView({ workspaceId, appId, openId, onOpen }: { workspaceId: string; appId: string; openId: string | null; onOpen: (id: string | null) => void }) {
@@ -21,17 +23,17 @@ export function ExperimentsView({ workspaceId, appId, openId, onOpen }: { worksp
   const [creating, setCreating] = useState(false);
   return (
     <Section
-      title="Experiments"
+      title="Tests"
       description="What you're testing, the measured results, and what MuseLaunch can and can't conclude from them."
       actions={
         can("analytics.write") ? (
           <Button size="sm" icon={<Plus aria-hidden />} onClick={() => setCreating(true)}>
-            New experiment
+            New test
           </Button>
         ) : null
       }
     >
-      <QueryState query={list} feature="Experiments">
+      <QueryState query={list} feature="Tests">
         {(data) =>
           data.items.length ? (
             <Card padding="none">
@@ -42,11 +44,11 @@ export function ExperimentsView({ workspaceId, appId, openId, onOpen }: { worksp
                       <span className="min-w-0">
                         <span className="block truncate text-body-sm font-medium">{e.title}</span>
                         <span className="block truncate text-footnote text-ink-2">
-                          {e.variants.length} variants · primary metric: {e.primaryMetric.replace(/_/g, " ")}
+                          {e.variants.length} versions · measured by {e.primaryMetric.replace(/_/g, " ")}
                           {e.proposedByRecommendationId ? " · from a recommendation" : ""}
                         </span>
                       </span>
-                      <StatusPill status={statusKindOf(e.status === "concluded" ? "succeeded" : e.status === "abandoned" ? "cancelled" : e.status === "running" ? "running" : "queued")}>{e.status}</StatusPill>
+                      <StatusPill status={statusKindOf(e.status === "concluded" ? "succeeded" : e.status === "abandoned" ? "cancelled" : e.status === "running" ? "running" : "queued")}>{TEST_STATUS[e.status] ?? e.status}</StatusPill>
                     </button>
                   </li>
                 ))}
@@ -54,7 +56,7 @@ export function ExperimentsView({ workspaceId, appId, openId, onOpen }: { worksp
             </Card>
           ) : (
             <Card tone="well">
-              <EmptyState icon={<FlaskConical aria-hidden />} title="No experiments yet" description="Start one yourself, or accept a recommendation to turn it into an experiment." />
+              <EmptyState icon={<FlaskConical aria-hidden />} title="No tests yet" description="Start one yourself, or accept a recommendation in What to try next to turn it into a test." />
             </Card>
           )
         }
@@ -71,7 +73,7 @@ export function ExperimentsView({ workspaceId, appId, openId, onOpen }: { worksp
 
 function CreateExperimentDialog({ workspaceId, appId, open, onOpenChange, onCreated }: { workspaceId: string; appId: string; open: boolean; onOpenChange: (v: boolean) => void; onCreated: (id: string) => void }) {
   const toast = useToast();
-  const [f, setF] = useState({ title: "", hypothesis: "", primaryMetric: "clicks", a: "Control", b: "Variant B" });
+  const [f, setF] = useState({ title: "", hypothesis: "", primaryMetric: "clicks", a: "Current version", b: "New version" });
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true);
@@ -88,7 +90,7 @@ function CreateExperimentDialog({ workspaceId, appId, open, onOpenChange, onCrea
       });
       onCreated(res.experiment.id);
     } catch (err) {
-      toast.error("Couldn’t create the experiment", errorMessage(err));
+      toast.error("Couldn’t create the test", errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -97,8 +99,8 @@ function CreateExperimentDialog({ workspaceId, appId, open, onOpenChange, onCrea
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="New experiment"
-      description="Two variants, one primary metric. Link numbers to each variant afterwards."
+      title="New test"
+      description="Two versions, one thing to measure. Add the numbers for each version afterwards."
       footer={
         <Button onClick={() => void submit()} loading={busy} disabled={!f.title.trim() || !f.hypothesis.trim() || !f.a.trim() || !f.b.trim()}>
           Create
@@ -107,11 +109,11 @@ function CreateExperimentDialog({ workspaceId, appId, open, onOpenChange, onCrea
     >
       <div className="space-y-4">
         <Field label="Title">{(ids) => <Input id={ids.id} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Question hook vs demo-first" />}</Field>
-        <Field label="Hypothesis">{(ids) => <Textarea id={ids.id} rows={2} value={f.hypothesis} onChange={(e) => setF({ ...f, hypothesis: e.target.value })} />}</Field>
-        <Field label="Primary metric">{(ids) => <Select id={ids.id} options={METRIC_OPTIONS} value={f.primaryMetric} onChange={(e) => setF({ ...f, primaryMetric: e.target.value })} />}</Field>
+        <Field label="What we’re testing" hint="What you expect to happen, e.g. a question in the first line gets more clicks.">{(ids) => <Textarea id={ids.id} rows={2} value={f.hypothesis} onChange={(e) => setF({ ...f, hypothesis: e.target.value })} />}</Field>
+        <Field label="Measured by">{(ids) => <Select id={ids.id} options={METRIC_OPTIONS} value={f.primaryMetric} onChange={(e) => setF({ ...f, primaryMetric: e.target.value })} />}</Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Variant A (control)">{(ids) => <Input id={ids.id} value={f.a} onChange={(e) => setF({ ...f, a: e.target.value })} />}</Field>
-          <Field label="Variant B">{(ids) => <Input id={ids.id} value={f.b} onChange={(e) => setF({ ...f, b: e.target.value })} />}</Field>
+          <Field label="Version A (the one to beat)">{(ids) => <Input id={ids.id} value={f.a} onChange={(e) => setF({ ...f, a: e.target.value })} />}</Field>
+          <Field label="Version B">{(ids) => <Input id={ids.id} value={f.b} onChange={(e) => setF({ ...f, b: e.target.value })} />}</Field>
         </div>
       </div>
     </Dialog>
@@ -149,16 +151,16 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
   };
 
   return (
-    <Sheet open={Boolean(experimentId)} onOpenChange={(o) => !o && onClose()} title={exp?.title ?? "Experiment"} description={exp?.hypothesis} width="max-w-2xl">
+    <Sheet open={Boolean(experimentId)} onOpenChange={(o) => !o && onClose()} title={exp?.title ?? "Test"} description={exp?.hypothesis} width="max-w-2xl">
       {exp ? (
         <div className="space-y-6 p-5">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill status={statusKindOf(exp.status === "concluded" ? "succeeded" : exp.status === "abandoned" ? "cancelled" : exp.status === "running" ? "running" : "queued")}>{exp.status}</StatusPill>
-            <Badge tone="outline">Primary: {exp.primaryMetric.replace(/_/g, " ")}</Badge>
+            <StatusPill status={statusKindOf(exp.status === "concluded" ? "succeeded" : exp.status === "abandoned" ? "cancelled" : exp.status === "running" ? "running" : "queued")}>{TEST_STATUS[exp.status] ?? exp.status}</StatusPill>
+            <Badge tone="outline">Measured by {exp.primaryMetric.replace(/_/g, " ")}</Badge>
             {exp.variants.map((v) => (
               <Badge key={v.key}>
                 {v.key.toUpperCase()}: {v.label}
-                {v.isControl ? " (control)" : ""}
+                {v.isControl ? " (the one to beat)" : ""}
               </Badge>
             ))}
           </div>
@@ -176,7 +178,7 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
             </div>
           ) : null}
 
-          {result ? <ResultView result={result} /> : <Notice>No analysis yet. Link numbers to the variants, then analyse.</Notice>}
+          {result ? <ResultView result={result} /> : <Notice>No analysis yet. Add the numbers for each version, then analyse.</Notice>}
 
           {can("analytics.write") && exp.status !== "concluded" && exp.status !== "abandoned" ? (
             <Card tone="well" className="space-y-3">
@@ -185,10 +187,10 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
               </Field>
               <div className="flex gap-2">
                 <Button size="sm" onClick={() => void patch({ status: "concluded", decision })} disabled={!decision.trim()}>
-                  Conclude
+                  Finish test
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => void patch({ status: "abandoned" })}>
-                  Abandon
+                  Stop test
                 </Button>
               </div>
             </Card>
@@ -200,7 +202,7 @@ function ExperimentSheet({ workspaceId, experimentId, onClose, onChanged }: { wo
         </div>
       ) : (
         <div className="p-5">
-          <QueryState query={detail} feature="Experiment">
+          <QueryState query={detail} feature="Test">
             {() => null}
           </QueryState>
         </div>
@@ -218,7 +220,7 @@ function VariantNumberForm({ workspaceId, experiment, onSaved }: { workspaceId: 
   if (!open)
     return (
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        Add a number for a variant
+        Add a number for a version
       </Button>
     );
   const save = async () => {
@@ -235,7 +237,7 @@ function VariantNumberForm({ workspaceId, experiment, onSaved }: { workspaceId: 
         attribution: f.scope,
         definition: f.definition,
       });
-      toast.success("Saved", "Labelled “Manual” and linked to this variant.");
+      toast.success("Saved", "Labelled “Manual” and linked to this version.");
       setF({ ...f, value: "" });
       onSaved();
     } catch (err) {
@@ -247,7 +249,7 @@ function VariantNumberForm({ workspaceId, experiment, onSaved }: { workspaceId: 
   return (
     <Card className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Variant">{(ids) => <Select id={ids.id} options={experiment.variants.map((v) => ({ value: v.key, label: `${v.key.toUpperCase()}: ${v.label}` }))} value={f.variantKey} onChange={(e) => setF({ ...f, variantKey: e.target.value })} />}</Field>
+        <Field label="Version">{(ids) => <Select id={ids.id} options={experiment.variants.map((v) => ({ value: v.key, label: `${v.key.toUpperCase()}: ${v.label}` }))} value={f.variantKey} onChange={(e) => setF({ ...f, variantKey: e.target.value })} />}</Field>
         <Field label="Metric">{(ids) => <Select id={ids.id} options={METRIC_OPTIONS} value={f.metric} onChange={(e) => setF({ ...f, metric: e.target.value })} />}</Field>
         <Field label="Value">{(ids) => <Input id={ids.id} inputMode="decimal" value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} />}</Field>
         <Field label="From (UTC)">{(ids) => <Input id={ids.id} type="date" max={today} value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} />}</Field>
@@ -294,7 +296,7 @@ function ResultView({ result }: { result: ExperimentResult }) {
       <table className="w-full text-left text-body-sm">
         <thead className="text-footnote text-ink-3">
           <tr>
-            <th className="py-1.5 font-medium">Variant</th>
+            <th className="py-1.5 font-medium">Version</th>
             {metrics.map((m) => (
               <th key={m} className="py-1.5 text-right font-medium">
                 {m.replace(/_/g, " ")}
@@ -331,12 +333,12 @@ function ResultView({ result }: { result: ExperimentResult }) {
             ))}
           </ul>
         ) : (
-          <p className="text-body-sm text-ink-3">No verified measured statements.</p>
+          <p className="text-body-sm text-ink-3">No measured results we could check.</p>
         )}
       </div>
       {result.hypotheses.length ? (
         <div className="space-y-2">
-          <p className="text-footnote font-semibold uppercase tracking-wide text-ink-2">Hypotheses (not measured)</p>
+          <p className="text-footnote font-semibold uppercase tracking-wide text-ink-2">Possible reasons (not measured)</p>
           <ul className="list-disc space-y-1 pl-5 text-body-sm text-ink-2">
             {result.hypotheses.map((h, i) => (
               <li key={i}>{h}</li>

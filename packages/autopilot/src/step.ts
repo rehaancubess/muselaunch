@@ -1,6 +1,7 @@
 import type { Autopilot } from "@muselaunch/contracts";
 import { DbError } from "@muselaunch/db";
 import { toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
+import { notifyAfterStep } from "./notify";
 import { STAGES, type StepInfo } from "./stages";
 import { INACTIVE, isTerminalJob, LoopEnv, nowMs, resumeKey, spentCredits, tagOf, type LogEntry, type Outcome } from "./state";
 
@@ -140,6 +141,8 @@ export async function autopilotStepHandler(ctx: JobContext<"autopilot.step">): P
   }
   if (outcome.kind === "done") env.note("decision", `Loop complete: ${outcome.summary}`);
   const saved = await commit(env, outcome);
+  // Phones and browsers hear about the moments this step crossed (never fails the step).
+  await notifyAfterStep(p, ap, saved);
   const next = await kick(p, saved, outcome);
   await ctx.progress(100, saved.status.replace(/_/g, " "));
   return { creditsUsed: 0, refs: [{ entity: "autopilots", id: saved.id }], data: { stage: saved.stage, status: saved.status, outcome: outcome.kind, nextStepJobId: next } };

@@ -48,6 +48,10 @@ export function loadGrowthSettings(p: Platform, env: NodeJS.ProcessEnv = process
     const secret = env[adapter!.env.clientSecret]?.trim();
     if (id && secret) creds[provider as ConnectionProvider] = { clientId: id, clientSecret: secret };
   }
+  const instagramLoginConfigId = env.INSTAGRAM_LOGIN_CONFIG_ID?.trim() || undefined;
+  const facebookLoginConfigId = env.FACEBOOK_LOGIN_CONFIG_ID?.trim() || undefined;
+  // Unified login signs in with the Meta app itself, so Instagram can share the Facebook app's id/secret.
+  if (instagramLoginConfigId && !creds.instagram && creds.facebook) creds.instagram = { ...creds.facebook };
   const secretSource = env.OAUTH_STATE_SECRET || p.cfg.TOKEN_ENCRYPTION_KEY || p.cfg.STORAGE_SIGNING_SECRET;
   return {
     creds,
@@ -55,6 +59,8 @@ export function loadGrowthSettings(p: Platform, env: NodeJS.ProcessEnv = process
       graphApiVersion: env.META_GRAPH_API_VERSION || "v25.0",
       linkedinApiVersion: env.LINKEDIN_API_VERSION || "202605",
       tiktokAudited: ["1", "true", "yes"].includes((env.TIKTOK_AUDITED ?? "").toLowerCase()),
+      instagramLoginConfigId,
+      facebookLoginConfigId,
     },
     oauthStateKey: createHmac("sha256", "muselaunch.oauth-state.v1").update(secretSource).digest(),
     outreachDailyLimit: Number(env.OUTREACH_DAILY_SEND_LIMIT ?? 20) || 20,

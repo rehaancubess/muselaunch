@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale } from "./common";
+import { AspectRatio, BaseEntity, Channel, Id, IsoDateTime, Locale, RegionPath } from "./common";
+import { TEMPLATE_IDS } from "./composition";
+import { CreateRunState } from "./create-run";
+import { MusicMood } from "./sound";
+import { OutputFormat, StoreTarget } from "./stills";
 
 export const CampaignGoal = z.enum([
   "awareness",
@@ -39,6 +43,10 @@ export const DeliverableKind = z.enum([
   "product_hunt_assets",
   "caption_pack",
   "outreach_pack",
+  /** A set of App Store / Google Play screenshots (stills: see stills.ts). */
+  "store_screenshots",
+  /** A text-only post (X, Threads, LinkedIn, Reddit, Facebook): written by Muse, nothing rendered. */
+  "text_post",
 ]);
 export type DeliverableKind = z.infer<typeof DeliverableKind>;
 
@@ -48,8 +56,16 @@ export const Deliverable = z.object({
   aspectRatio: AspectRatio.default("9:16"),
   durationSec: z.number().positive().max(180).optional(),
   count: z.number().int().min(1).max(10).default(1),
+  /** Stills: how many slides (carousel 3–10, store sets 3–10 / 3–8; see `slideLimits`). */
+  slides: z.number().int().min(1).max(10).optional(),
+  /** store_screenshots: which store (App Store 1290×2796, Google Play 1080×1920). */
+  store: StoreTarget.optional(),
 });
 export type Deliverable = z.infer<typeof Deliverable>;
+
+/** Where a campaign was started when that changes how it's made (see `Campaign.origin`). */
+export const CampaignOrigin = z.enum(["create"]);
+export type CampaignOrigin = z.infer<typeof CampaignOrigin>;
 
 export const Campaign = BaseEntity.extend({
   appId: Id,
@@ -68,6 +84,15 @@ export const Campaign = BaseEntity.extend({
   creditCap: z.number().int().positive().optional(),
   strategyRunId: Id.optional(),
   coverAssetId: Id.optional(),
+  /**
+   * `create`: started from Create ("Generate video"): ONE video in the format and length stored in
+   * `deliverables[0]`. Create moves it along the same steps a person would (the best-fitting idea →
+   * plan → editable video → brand check → final render) and asks the person when a step needs them.
+   * Absent: a campaign planned by hand (Make), from Discover or by Autopilot.
+   */
+  origin: CampaignOrigin.optional(),
+  /** origin "create": what only the server's Create runner knows (its decision, waits, approvals). See create-run.ts. */
+  createRun: CreateRunState.optional(),
 });
 export type Campaign = z.infer<typeof Campaign>;
 
@@ -115,6 +140,34 @@ export const AngleType = z.enum([
 ]);
 export type AngleType = z.infer<typeof AngleType>;
 
+export const DirectionPacing = z.enum(["punchy", "steady", "slow-burn"]);
+export type DirectionPacing = z.infer<typeof DirectionPacing>;
+
+/**
+ * Muse Wonder's creative direction for one video (Growth Autopilot, `pick_variants`): how the concept
+ * should look, move and sound. The storyboard writer (Muse Spark) works to it; the music mood is
+ * applied as chosen. Additive and optional: concepts produced by hand have none.
+ */
+export const CreativeDirection = z.object({
+  /** How the first seconds stop the scroll. */
+  hookApproach: z.string().min(1).max(600),
+  pacing: DirectionPacing,
+  /** The visual idea that runs through the whole video. */
+  visualMotif: z.string().min(1).max(600),
+  /** Up to 3 templates the video should feature (allowlisted; object-aware ones only with presenter footage). */
+  signatureShots: z.array(z.enum(TEMPLATE_IDS)).max(3).default([]),
+  musicMood: MusicMood,
+  /** What to stay away from in this video. */
+  avoid: z.string().max(400).optional(),
+  /** Why this direction suits the concept and what it tests. */
+  why: z.string().max(800).default(""),
+  /** The model that actually directed (e.g. muse-wonder-1.0) and its run. */
+  model: z.string().max(120),
+  runId: Id.optional(),
+  directedAt: IsoDateTime.optional(),
+});
+export type CreativeDirection = z.infer<typeof CreativeDirection>;
+
 /** A strategically distinct campaign concept (not a copy variant). */
 export const CampaignVariant = BaseEntity.extend({
   appId: Id,
@@ -140,6 +193,8 @@ export const CampaignVariant = BaseEntity.extend({
   generatedByRunId: Id.optional(),
   /** Video length chosen for this concept (seconds): the founder's choice, else Spark's pick in AUTO_VIDEO_DURATION. */
   targetDurationSec: z.number().positive().max(180).optional(),
+  /** Muse Wonder's creative direction (Growth Autopilot); the storyboard follows it. */
+  creativeDirection: CreativeDirection.optional(),
 });
 export type CampaignVariant = z.infer<typeof CampaignVariant>;
 
@@ -166,6 +221,8 @@ export const StoryboardScene = z.object({
   purpose: ScenePurpose,
   durationSec: z.number().positive().max(60),
   onScreenText: z.string().max(300).default(""),
+  /** Stills only: the supporting line under the headline (≤ ~18 words). */
+  body: z.string().max(300).optional(),
   narration: z.string().max(800).default(""),
   visual: z.string().max(1000),
   /** Template from the allowlisted catalog (see compositions/TEMPLATE_IDS). */
@@ -176,6 +233,12 @@ export const StoryboardScene = z.object({
   focus: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) }).optional(),
   /** What to focus on when no box was given (resolved to `focus` with SAM 3.1 on the real image). */
   focusQuery: z.string().max(120).optional(),
+  /**
+   * Walkthrough segments: `focus` tracked through the footage by SAM 3.1 (storyboard.resolve_media),
+   * so the zoom and ring follow the element as it moves. Fractions of the recording frame; `t` =
+   * seconds into the recording.
+   */
+  focusPath: RegionPath.optional(),
 });
 export type StoryboardScene = z.infer<typeof StoryboardScene>;
 
@@ -186,11 +249,21 @@ export const Storyboard = BaseEntity.extend({
   title: z.string().max(200),
   aspectRatio: AspectRatio,
   targetDurationSec: z.number().positive().max(180),
+  /**
+   * What this plan makes (stills.ts). Stills: one scene per slide, in order; `durationSec` is only a
+   * render slot; `onScreenText` is the headline and `body` the slide's supporting line; no
+   * narration, no voiceover, no music. Older storyboards have no format: a video.
+   */
+  format: OutputFormat.default("video"),
+  /** store_screenshots: which store the set is for. */
+  store: StoreTarget.optional(),
   scenes: z.array(StoryboardScene).min(1).max(20),
   voiceover: z
     .object({ source: z.enum(["none", "founder_recording", "tts"]), assetId: Id.optional(), script: z.string().max(4000).optional() })
     .default({ source: "none" }),
   music: z.object({ mood: z.string().max(120).optional(), assetId: Id.optional() }).default({}),
+  /** Headline typeface Muse Spark picked for this video (one of the bundled faces; the brand kit's own font wins). */
+  typeface: z.string().max(60).optional(),
   generatedByRunId: Id.optional(),
 });
 export type Storyboard = z.infer<typeof Storyboard>;
@@ -209,6 +282,30 @@ export const CopyItemKind = z.enum([
   "maker_comment",
 ]);
 
+/**
+ * What kind of problem the fact check found in a piece of copy:
+ * - unsupported: a product statement no confirmed fact or listing evidence backs (the person can
+ *   remove it, or confirm it as a fact);
+ * - figure: a number, multiplier or superlative that isn't in the confirmed facts or listing;
+ * - prohibited: something the founder asked never to say (can only be removed);
+ * - limit: longer than the channel allows (not a fact problem).
+ */
+export const CopyIssueKind = z.enum(["unsupported", "figure", "prohibited", "limit"]);
+export type CopyIssueKind = z.infer<typeof CopyIssueKind>;
+
+export const CopyValidationIssue = z.object({
+  itemId: Id,
+  issue: z.string().max(500),
+  kind: CopyIssueKind.optional(),
+  /** The exact words in the copy that aren't backed (e.g. "racing, bowling"). */
+  quote: z.string().max(300).optional(),
+  /** Just the unsupported things, in plain words (e.g. ["racing", "bowling"]). */
+  terms: z.array(z.string().max(80)).max(8).optional(),
+  /** The product fact the copy asserts, as a sentence a founder could confirm. */
+  statement: z.string().max(500).optional(),
+});
+export type CopyValidationIssue = z.infer<typeof CopyValidationIssue>;
+
 export const CopyPack = BaseEntity.extend({
   appId: Id,
   campaignId: Id,
@@ -217,9 +314,9 @@ export const CopyPack = BaseEntity.extend({
   locale: Locale.default("en"),
   items: z.array(z.object({ id: Id, kind: CopyItemKind, text: z.string().max(5000), claimIds: z.array(Id).default([]) })).max(40),
   /** Result of the claim validator over every item. */
-  validation: z
-    .object({ ok: z.boolean(), issues: z.array(z.object({ itemId: Id, issue: z.string().max(500) })).default([]), checkedAt: IsoDateTime })
-    .optional(),
+  validation: z.object({ ok: z.boolean(), issues: z.array(CopyValidationIssue).default([]), checkedAt: IsoDateTime }).optional(),
+  /** The pack this one rewrites (a fact-check fix: "Remove it"). */
+  revisionOf: Id.optional(),
   generatedByRunId: Id.optional(),
 });
 export type CopyPack = z.infer<typeof CopyPack>;

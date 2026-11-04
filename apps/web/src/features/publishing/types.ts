@@ -1,17 +1,50 @@
-import type { Approval, Channel, ConnectedAccount, Job, OutreachDraft, OutreachProspect, Publication, ScheduledPost, SourceRef } from "@muselaunch/contracts";
+import type { Approval, Channel, ConnectedAccount, Job, OutreachDraft, OutreachProspect, PostFactCheck, Publication, ScheduledPost, SourceRef } from "@muselaunch/contracts";
 
 /** Response shapes of module E routes (apps/api/src/routes/{publishing,discover}.ts). */
 
 export type Preflight = { errors: string[]; warnings: string[] };
 
+/** What a channel takes (GET /publishing/channel-rules, and PostView.media.rules). */
+export type ChannelMediaRules = {
+  channel: Channel;
+  needsMedia: boolean;
+  captionLimit: number | null;
+  /** Most images one post holds when posted by hand (where the platform states a limit). */
+  manualMaxImages: number | null;
+  /** What the channel's API adapter takes; null when it's always posted by hand. */
+  api: {
+    video: boolean;
+    image: boolean;
+    textOnly: boolean;
+    carousel: { min: number; max: number; mimeTypes: string[] } | null;
+    imageFormats: string[];
+    thumbnail: boolean;
+    manualReason: Partial<Record<PostMediaShape, string>>;
+  } | null;
+};
+export type PostMediaShape = "text" | "video" | "image" | "carousel" | "mixed";
+
+/** A post's media in posting order (GET /posts/:id `media`). */
+export type PostMedia = {
+  shape: PostMediaShape;
+  count: number;
+  items: { assetId: string; order: number; kind: string; mimeType: string; width?: number; height?: number; bytes?: number; slide?: number; posterAssetId?: string; status: string }[];
+  thumbnailAssetId?: string;
+  rules: ChannelMediaRules;
+};
+
 export type PostView = {
   post: ScheduledPost;
+  /** The post's media in order and the channel's rules (servers before stills don't send it). */
+  media?: PostMedia;
   approval: Approval | null;
   publication: Publication | null;
   account: Pick<ConnectedAccount, "id" | "provider" | "displayName" | "status" | "limitations"> | null;
   preflight: Preflight;
   snapshotHash: string;
   statusLabel: string;
+  /** The fact check of the post's generated copy, with the one-tap fixes (null without a copy pack). */
+  factCheck: PostFactCheck | null;
 };
 
 export type CalendarItem = {

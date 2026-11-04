@@ -3,6 +3,7 @@ import { AspectRatio, BaseEntity, EntityRef, ErrorInfo, Id, IsoDateTime } from "
 import { YouTubeChannelRelation } from "./analytics";
 import { ResearchKind } from "./research";
 import { MusicMood } from "./sound";
+import { OutputFormat, StoreTarget } from "./stills";
 
 /**
  * Every asynchronous unit of work. Payload schemas below are the contract between
@@ -16,7 +17,20 @@ export const JobPayloads = {
   "strategy.run": z.object({ appId: Id, agentRunId: Id, goal: z.string().max(4000), campaignId: Id.optional() }),
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
   /** targetDurationSec omitted = the concept's length (CampaignVariant.targetDurationSec), else 30–60 s. */
-  "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).optional() }),
+  /**
+   * `format` (stills.ts): a video by default; stills plan one scene per slide (`slides`, clamped by
+   * `slideLimits`) in the format's frame (`stillAspect`). `store` for store screenshot sets.
+   */
+  "storyboard.generate": z.object({
+    appId: Id,
+    campaignId: Id,
+    variantId: Id,
+    aspectRatio: AspectRatio.default("9:16"),
+    targetDurationSec: z.number().positive().max(90).optional(),
+    format: OutputFormat.optional(),
+    slides: z.number().int().min(1).max(10).optional(),
+    store: StoreTarget.optional(),
+  }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
   /** Lifestyle b-roll: turn the storyboard's stock/generated hints into licensed assets, then enqueue composition.build. */
   "storyboard.resolve_media": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
@@ -33,6 +47,17 @@ export const JobPayloads = {
   }),
   "composition.variants": z.object({ appId: Id, compositionId: Id, mode: z.enum(["aspect", "audience", "hooks"]), targets: z.array(z.string().max(200)).min(1).max(5) }),
   "copy.generate": z.object({ appId: Id, campaignId: Id, variantId: Id.optional(), channels: z.array(z.string()).min(1) }),
+  /**
+   * One-tap fix for a post whose copy failed the fact check. `remove`: Muse Spark rewrites the copy
+   * without the flagged words, then it is checked again. `recheck`: check the copy again after the
+   * person confirmed a fact. Either way the post's approval is requested when it was Autopilot's draft.
+   */
+  "post.fix_facts": z.object({ appId: Id, postId: Id, copyPackId: Id, action: z.enum(["remove", "recheck"]), claimId: Id.optional() }),
+  /**
+   * "Tell Muse what to change" on a post's caption: Muse Spark rewrites the post's copy as asked, the
+   * copy is checked against the app's facts again, and the post shows it (its approval starts over).
+   */
+  "post.revise_copy": z.object({ appId: Id, postId: Id, changeId: Id, instruction: z.string().min(1).max(2000) }),
   "render.preview": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1) }),
   "render.final": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), format: z.enum(["mp4", "png", "jpeg"]).default("mp4") }),
   "package.export": z.object({ appId: Id, campaignId: Id, compositionIds: z.array(Id).default([]), includeCopy: z.boolean().default(true) }),
@@ -60,6 +85,21 @@ export const JobPayloads = {
   "autopilot.step": z.object({ autopilotId: Id }),
   /** Muse Spark watches frames of a rendered MP4 and reviews what a viewer sees (VideoReview). */
   "video.review": z.object({ appId: Id, compositionId: Id, version: z.number().int().min(1), renderAssetId: Id, reviewId: Id.optional() }),
+  /**
+   * Spark's automatic preview check, one step per job (chained from job-status hooks): `preview` =
+   * a preview render of a new video (or of a version this loop made) finished → watch it; `review` =
+   * Spark watched it → fix the flagged scenes (auto-applied) or stop; `edit` = the fix applied →
+   * re-render the preview. At most 2 fix rounds.
+   */
+  "video.autofix": z.object({
+    appId: Id,
+    compositionId: Id,
+    trigger: z.enum(["preview", "review", "edit"]),
+    version: z.number().int().min(1).optional(),
+    renderAssetId: Id.optional(),
+    reviewId: Id.optional(),
+    patchId: Id.optional(),
+  }),
   /**
    * Walkthrough breakdown: shot detection + Muse Spark labels on sampled frames (+ narration via Muse
    * Voice Transcribe when consent is recorded) → RecordingSegments for one app_recording (replaces earlier ones).
@@ -110,6 +150,8 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "composition.edit": "agents",
   "composition.variants": "agents",
   "copy.generate": "agents",
+  "post.fix_facts": "agents",
+  "post.revise_copy": "agents",
   "render.preview": "render",
   "render.final": "render",
   "package.export": "render",
@@ -132,6 +174,7 @@ export const JOB_POOLS: Record<JobType, "agents" | "media" | "render"> = {
   "brand.review": "agents",
   "autopilot.step": "agents",
   "video.review": "agents",
+  "video.autofix": "agents",
   "media.analyze_recording": "media",
   "media.extract_ui": "media",
   "media.music": "media",

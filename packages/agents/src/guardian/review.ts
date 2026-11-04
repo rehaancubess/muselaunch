@@ -131,7 +131,7 @@ export async function executeReview(p: Platform, workspaceId: string, reviewId: 
     const subject = await loadSubject(ws, review.subject, review.subjectVersion);
     if (subject.appId !== review.appId) throw new AppError("BAD_REQUEST", "Review subject belongs to another app");
     if (review.contentHash && subject.contentHash !== review.contentHash) {
-      throw new AppError("CONFLICT", "The content changed before the review ran", { userMessage: "This content changed before Brand Guardian could review it. Run the review again." });
+      throw new AppError("CONFLICT", "The content changed before the review ran", { userMessage: "This changed before the brand check could run. Run the check again." });
     }
     await opts.progress?.(15, "Loading brand kit, claims and memory");
     const { brand, allowed } = await loadBrandContext(ws, subject);
@@ -200,7 +200,7 @@ export async function brandReviewHandler(ctx: JobContext<"brand.review">): Promi
   if (!review) throw new AppError("NOT_FOUND", `Brand review ${reviewId} not found`, { retryable: false });
   if (review.appId !== appId) throw new AppError("BAD_REQUEST", "Review does not belong to this app");
   if (isTerminalReview(review)) return { refs: [{ entity: "brandReviews", id: reviewId }], creditsUsed: 0, data: { alreadyReviewed: true, status: review.status } };
-  await ctx.progress(5, "Brand Guardian starting");
+  await ctx.progress(5, "Brand check starting");
   const done = await executeReview(ctx.platform, ctx.workspaceId, reviewId, { actor: ctx.actor, jobId: ctx.job.id, signal: ctx.signal, progress: (pct, stage) => ctx.progress(pct, stage) });
   await ctx.progress(100, `${done.status} · ${done.reviewer.engine === "glimmer" ? "Muse Glimmer" : "rules only"}`);
   return {

@@ -123,7 +123,7 @@ describe("storyboard rules for 30–60 s videos", () => {
     expect(r.soft).toEqual([]);
   });
 
-  it("flags runs of type-only cards, a long ending and repeated lines; trims the ending to icon-reveal + CTA (live run 5)", () => {
+  it("flags runs of type-only cards, closing cards and repeated lines; one ending: the end card follows the last app scene (live run 5)", () => {
     const shot = (id: string, text: string) => sc("device-demo", { onScreenText: text, assets: [{ kind: "screenshot", assetId: id }] });
     const scenes = [
       sc("hook-title", { purpose: "hook", onScreenText: "Where's that password?", durationSec: 2 }),
@@ -137,14 +137,36 @@ describe("storyboard rules for 30–60 s videos", () => {
     ];
     const r = checkStoryboard(out(scenes), { ...ctx(30), voice: "none" });
     expect(r.soft.join("\n")).toMatch(/Scenes 5–7 are all type-only cards/);
-    expect(r.soft.join("\n")).toMatch(/3 closing cards after the last app scene/);
+    expect(r.soft.join("\n")).toMatch(/3 closing card\(s\) after the last app scene .*repeat the end card/);
     expect(r.soft.join("\n")).toMatch(/Scene 7 repeats scene 5's text/);
     const pol = polishStoryboard(r.scenes, { targetDurationSec: 30 }, "Get it");
-    expect(pol.scenes.map((s) => s.template)).toEqual(["hook-title", "kinetic-type", "device-demo", "focus-zoom", "icon-reveal", "store-cta"]);
-    expect(pol.fixes.join(" ")).toMatch(/Shorter ending: removed 2/);
+    expect(pol.scenes.map((s) => s.template)).toEqual(["hook-title", "kinetic-type", "device-demo", "focus-zoom", "store-cta"]);
+    expect(pol.fixes.join(" ")).toMatch(/One ending: removed 3 closing card/);
     // The freed time goes to the scenes before (total length kept, CTA unchanged).
     expect(pol.scenes.reduce((n, s) => n + s.durationSec, 0)).toBeCloseTo(scenes.reduce((n, s) => n + s.durationSec, 0), 0);
     expect(pol.scenes.at(-1)!.durationSec).toBe(3);
+  });
+
+  it("ends on one end card: no icon-reveal before it, and the end card is the store-cta (PocketPlay run)", () => {
+    const shot = (id: string, text: string) => sc("device-demo", { onScreenText: text, assets: [{ kind: "screenshot", assetId: id }] });
+    // Both PocketPlay videos ended icon-reveal (icon + name + tagline) → cta-endcard (icon + name + CTA).
+    const scenes = [
+      sc("hook-title", { purpose: "hook", onScreenText: "Everyone scans one code", durationSec: 2.5 }),
+      sc("kinetic-type", { purpose: "problem", onScreenText: "No controllers to buy", durationSec: 3 }),
+      sc("icon-reveal", { purpose: "transition", onScreenText: "Your couch, your arena", durationSec: 3 }), // early brand beat: kept
+      shot("ast_raw1", "Type a name, you're in"),
+      sc("focus-zoom", { onScreenText: "No app to install", assets: [{ kind: "screenshot", assetId: "ast_raw2" }] }),
+      sc("icon-reveal", { purpose: "transition", onScreenText: "Free games to start", durationSec: 4 }),
+      sc("cta-endcard", { purpose: "cta", onScreenText: "Get it on Fire TV", durationSec: 3.5 }),
+    ];
+    const r = checkStoryboard(out(scenes), { ...ctx(30), voice: "none" });
+    expect(r.soft.join("\n")).toMatch(/1 closing card\(s\) after the last app scene \(icon-reveal\)/);
+    const pol = polishStoryboard(r.scenes, { targetDurationSec: 30 }, "Get it");
+    expect(pol.scenes.map((s) => s.template)).toEqual(["hook-title", "kinetic-type", "icon-reveal", "device-demo", "focus-zoom", "store-cta"]);
+    expect(pol.scenes.at(-1)).toMatchObject({ purpose: "cta", onScreenText: "Get it on Fire TV" });
+    expect(pol.scenes.filter((s) => s.template === "icon-reveal" || CTA.has(s.template))).toHaveLength(2); // one brand beat early, one end card
+    expect(pol.scenes.reduce((n, s) => n + s.durationSec, 0)).toBeCloseTo(scenes.reduce((n, s) => n + s.durationSec, 0), 0);
+    expect(checkStoryboard({ ...out(scenes), scenes: pol.scenes }, { ...ctx(30), voice: "none" }).soft.join("\n")).not.toMatch(/closing card/);
   });
 
   it("with an AI voice, asks for a short spoken line on most scenes", () => {
@@ -158,6 +180,76 @@ describe("storyboard rules for 30–60 s videos", () => {
     expect(soft).toMatch(/Scene 1 narration has 20 words for 2 s/);
     expect(soft).toMatch(/only 1 of 3 scenes have narration/);
     expect(checkStoryboard(out(scenes), { ...ctx(15), voice: "none" }).soft.join("\n")).not.toMatch(/narration/);
+  });
+});
+
+const CTA = new Set(["store-cta", "cta-endcard"]);
+
+describe("landscape footage (TV, desktop, web apps)", () => {
+  const tvCtx = (aspectRatio?: StoryboardCheckContext["aspectRatio"]): StoryboardCheckContext => {
+    const base = ctx(30);
+    const assets = new Map(base.assets);
+    // A TV app's walkthrough recording (1920×1206) and a landscape screenshot, plus the portrait items of ctx().
+    assets.set("ast_tvrec", asset("ast_tvrec", { kind: "video", role: "app_recording", mimeType: "video/mp4", width: 1920, height: 1206 }));
+    assets.set("ast_tvshot", asset("ast_tvshot", { width: 1920, height: 1080 }));
+    const segments = new Map([seg("rsg_lobby", { assetId: "ast_tvrec", startSec: 0, endSec: 6 }), seg("rsg_race", { assetId: "ast_tvrec", startSec: 20, endSec: 26 }), seg("rsg_snow", { assetId: "ast_tvrec", startSec: 40, endSec: 46 }), seg("rsg_kitchen", { assetId: "ast_tvrec", startSec: 60, endSec: 66 })].map((s) => [s.id, s]));
+    return { ...base, assets, segments, aspectRatio };
+  };
+  const tv = (template: S["template"], segmentId: string, over: Partial<S> = {}) => sc(template, { assets: [{ kind: "app_recording", segmentId }], ...over });
+
+  it("accepts fullscreen-recording with walkthrough segments; portrait or marketing media never goes full screen as a recording", () => {
+    const r = checkStoryboard(
+      out([
+        sc("hook-title", { purpose: "hook", onScreenText: "Game night, sorted" }),
+        tv("fullscreen-recording", "rsg_race", { onScreenText: "Race your friends", focus: { x: 0.2, y: 0.3, w: 0.4, h: 0.4 } }),
+        tv("device-demo", "rsg_lobby", { onScreenText: "Runs on your TV" }),
+        sc("fullscreen-recording", { onScreenText: "Scan to join", assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }), // portrait phone screenshot
+        sc("fullscreen-recording", { onScreenText: "Built for the couch", assets: [{ kind: "screenshot", assetId: "ast_mkt_solo" }] }), // designed store image
+        sc("fullscreen-recording", { purpose: "feature", onScreenText: "Snowball fights" }), // no media: gets landscape footage
+        sc("store-cta", { purpose: "cta", onScreenText: "Get it on Fire TV" }),
+      ]),
+      tvCtx("9:16"),
+    );
+    expect(r.problems).toEqual([]);
+    expect(r.scenes[1]).toMatchObject({ template: "fullscreen-recording", focus: { x: 0.2, y: 0.3, w: 0.4, h: 0.4 } });
+    expect(r.scenes[1]!.assets[0]).toMatchObject({ kind: "app_recording", assetId: "ast_tvrec", segmentId: "rsg_race" });
+    expect(r.scenes[3]!.template).toBe("device-demo");
+    expect(r.scenes[4]!.template).toBe("fullscreen-showcase");
+    expect(r.scenes[5]!.template).toBe("fullscreen-recording");
+    expect(r.scenes[5]!.assets[0]).toMatchObject({ assetId: "ast_tvrec" });
+    expect(r.fixes.join("\n")).toMatch(/fullscreen-recording → device-demo \(portrait footage keeps its device frame\)/);
+  });
+
+  it("in a tall frame, mixes landscape footage full screen with device scenes; 16:9 videos and phone footage are left as planned", () => {
+    const plan = [
+      sc("hook-title", { purpose: "hook", onScreenText: "Game night, sorted" }),
+      tv("device-demo", "rsg_lobby", { onScreenText: "Runs on your TV" }),
+      tv("phone-tilt", "rsg_race", { onScreenText: "Race your friends" }),
+      tv("focus-zoom", "rsg_snow", { onScreenText: "Snowball fights" }),
+      tv("device-demo", "rsg_kitchen", { onScreenText: "Cook together" }),
+      sc("device-demo", { onScreenText: "Your phone is the pad", assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }),
+      sc("store-cta", { purpose: "cta", onScreenText: "Get it on Fire TV" }),
+    ];
+    const tall = polishStoryboard(checkStoryboard(out(plan), tvCtx("9:16")).scenes, tvCtx("9:16"), "Get it");
+    const t = tall.scenes.map((s) => s.template);
+    expect(t[1]).toBe("device-demo"); // the "it runs on your TV" moment keeps its TV
+    expect(t[2]).toBe("fullscreen-recording");
+    expect(t[3]).toBe("focus-zoom"); // close-ups keep their device
+    expect(t[4]).toBe("fullscreen-recording"); // about half of the TV footage scenes fill the frame
+    expect(t[5]).toBe("device-demo"); // the phone screenshot stays on a phone
+    expect(tall.fixes.join("\n")).toMatch(/Scene 3: phone-tilt → fullscreen-recording/);
+    // Spark already chose one full-screen scene: the rest of the half is filled, alternating.
+    const one = plan.map((s, i) => (i === 4 ? { ...s, template: "fullscreen-recording" as const } : s));
+    expect(polishStoryboard(checkStoryboard(out(one), tvCtx("9:16")).scenes, tvCtx("9:16"), "Get it").scenes.map((s) => s.template).slice(1, 5)).toEqual(["device-demo", "fullscreen-recording", "focus-zoom", "fullscreen-recording"]);
+    for (const ar of ["16:9", undefined] as const) {
+      const wide = polishStoryboard(checkStoryboard(out(plan), tvCtx(ar)).scenes, tvCtx(ar), "Get it");
+      expect(wide.scenes.some((s) => s.template === "fullscreen-recording")).toBe(false);
+    }
+    // All the TV footage full screen: one scene goes back on the TV.
+    const allFull = plan.map((s) => (s.assets[0]?.segmentId ? { ...s, template: "fullscreen-recording" as const } : s));
+    const fixed = polishStoryboard(checkStoryboard(out(allFull), tvCtx("9:16")).scenes, tvCtx("9:16"), "Get it");
+    expect(fixed.scenes[1]!.template).toBe("device-demo");
+    expect(fixed.fixes.join("\n")).toMatch(/Scene 2: fullscreen-recording → device-demo \(one scene shows the footage on its device\)/);
   });
 });
 
@@ -313,5 +405,24 @@ describe("storyboard.generate (30–60 s)", () => {
     await s.p.inline!.drain();
     const req = s.meta.requests.find((r) => schemaName(r) === "Storyboard")!;
     expect(requestText(req)).not.toContain("SECRET other tenant segment");
+  });
+});
+
+describe("footage-first opening and typeface", () => {
+  it("turns a text-card hook into hook-footage on the strongest real moment, and keeps text cards without media", () => {
+    const c = ctx(30);
+    c.segments = new Map([seg("rsg_wait", { quality: 0.95, action: "wait" }), seg("rsg_best", { quality: 0.85, action: "tap", featureIds: ["feat_a"] }), seg("rsg_low", { quality: 0.3 })].map((s) => [s.id, s]));
+    const r = checkStoryboard(out([sc("kinetic-type", { purpose: "hook", onScreenText: "Receipts, sorted" }), sc("device-demo", { assets: [{ kind: "screenshot", assetId: "ast_raw1" }] }), sc("store-cta", { purpose: "cta", onScreenText: "Get it" })]), c);
+    const pol = polishStoryboard(r.scenes, c, "Get it");
+    expect(pol.scenes[0]).toMatchObject({ template: "hook-footage", onScreenText: "Receipts, sorted", assets: [{ kind: "app_recording", segmentId: "rsg_best" }] });
+    expect(pol.fixes.some((f) => f.includes("hook-footage"))).toBe(true);
+
+    const bare = polishStoryboard(out([sc("hook-title", { purpose: "hook", onScreenText: "Receipts, sorted" }), sc("store-cta", { purpose: "cta" })]).scenes, { targetDurationSec: 10 }, "Get it");
+    expect(bare.scenes[0]!.template).toBe("hook-title");
+  });
+
+  it("accepts a typeface from the bundled list only", () => {
+    expect(StoryboardOutput.parse({ title: "T", scenes: [sc("hook-title"), sc("store-cta", { purpose: "cta" })], voiceover: { source: "none" }, typeface: "Fraunces" }).typeface).toBe("Fraunces");
+    expect(() => StoryboardOutput.parse({ title: "T", scenes: [sc("hook-title"), sc("store-cta", { purpose: "cta" })], voiceover: { source: "none" }, typeface: "Papyrus" })).toThrow();
   });
 });

@@ -1,7 +1,7 @@
 import type { Autopilot } from "@muselaunch/contracts";
 import { describe, expect, it } from "vitest";
 import { brandGate } from "@muselaunch/agents";
-import { autopilotDetail, cancelAutopilot, decideCheckpoint, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
+import { autopilotDetail, cancelAutopilot, decideCheckpoint, needsYou, pauseAutopilot, resumeAutopilot, startAutopilot, wakeDueAutopilots } from "./index";
 import { tagOf } from "./state";
 import { type MetaRoute, responsesBody, toolNames } from "@muselaunch/agents/testing";
 import { autopilotDecisionRoute, autopilotHarness, type AutopilotHarness } from "./testing";
@@ -59,6 +59,17 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
       expect(v.findingIds.length).toBeGreaterThan(0);
       for (const f of v.findingIds) expect(loopFindings.has(f)).toBe(true);
     }
+    // ...each directed by Muse Wonder (distinct looks), and the storyboard worked to that direction
+    for (const v of variants) {
+      expect(v.creativeDirection).toMatchObject({ model: "muse-wonder-1.0", runId: expect.stringMatching(/^run_/) });
+      expect(v.creativeDirection!.signatureShots.length).toBeGreaterThan(0);
+      const sb = await h.p.db.ws(h.wid).collection("storyboards").getOrThrow(v.storyboardId!);
+      expect(sb.music.mood).toBe(v.creativeDirection!.musicMood);
+      const steps = (await h.p.db.ws(h.wid).collection("agentSteps").list({ where: [["runId", "==", sb.generatedByRunId!]], limit: 50 })).items;
+      expect(steps.some((st) => st.title === "Working to Muse Wonder's creative direction")).toBe(true);
+      expect(steps.some((st) => st.title.startsWith("Direction followed"))).toBe(true);
+    }
+    expect(new Set(variants.map((v) => `${v.creativeDirection!.pacing}|${v.creativeDirection!.musicMood}`)).size).toBe(2);
     expect(ap.compositionIds).toHaveLength(2);
     // Verified (lint + claims + Brand Guardian) then rendered under the auto-approve threshold
     expect(ap.reviewIds).toHaveLength(2);
@@ -98,9 +109,11 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(runs.map((r) => r.kind)).toEqual(["growth_autopilot", "growth_autopilot", "growth_autopilot"]);
     for (const r of runs) expect(r.status).toBe("succeeded");
     const decisions = ap.log.filter((e) => e.kind === "decision" && e.agentRunId);
-    expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative"]);
+    // audience, hypothesis, the picks, then one creative-direction entry per video
+    expect(decisions.map((d) => d.stage)).toEqual(["select_audience", "hypothesis", "plan_creative", "plan_creative", "plan_creative"]);
+    expect(decisions.slice(3).map((d) => d.summary)).toEqual([expect.stringMatching(/^Muse Wonder directed v1 “.+”: /), expect.stringMatching(/^Muse Wonder directed v2 “.+”: /)]);
     expect(ap.log.filter((e) => e.kind === "verification" && e.stage === "verify")).toHaveLength(2);
-    expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/auto-approved/);
+    expect(ap.log.find((e) => e.stage === "render" && e.kind === "decision")?.summary).toMatch(/without asking: about \d+ credits is within the \d+-credit limit/);
     // Spark watched both final renders (no blockers) before the posts were drafted.
     expect(h.watched.sort()).toEqual(ap.compositionIds.map((c) => `${c}@v1:pass`).sort());
     const watchedLog = ap.log.filter((e) => e.stage === "render" && e.kind === "verification");
@@ -116,6 +129,22 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(detail.runs).toHaveLength(3);
     expect(detail.jobs.map((j) => j.type)).toEqual(expect.arrayContaining(["research.run", "campaign.generate_concepts", "storyboard.generate", "brand.review", "render.final", "video.review", "copy.generate", "experiment.analyze", "recommendations.generate"]));
     expect(detail.checkpoint).toBeNull();
+    // The run's model cost covers every job it started (research, plans, checks…), not only its own
+    // Wonder decisions (Autopilot.spent.usd), and matches the usage records of those calls.
+    expect(detail.cost).not.toBeNull();
+    const cost = detail.cost!;
+    expect(cost.complete).toBe(true);
+    expect(cost.usd).toBeGreaterThan(ap.spent.usd);
+    const usage = (await h.p.db.ws(h.wid).collection("modelUsage").list({ limit: 2000 })).items;
+    const jobIds = new Set(detail.jobs.map((j) => j.id));
+    const runIds = new Set(ap.agentRunIds);
+    const delegated = usage.filter((u) => (u.jobId && jobIds.has(u.jobId)) || (u.agentRunId && runIds.has(u.agentRunId)));
+    expect(cost.calls).toBeGreaterThanOrEqual(delegated.length);
+    expect(cost.usd).toBeGreaterThanOrEqual(Math.round(delegated.reduce((n, u) => n + u.costUsdEstimate, 0) * 10_000) / 10_000 - 0.0001);
+    expect(cost.byModel.map((m) => m.name)).toEqual(expect.arrayContaining(["Muse Wonder", "Muse Spark"]));
+    // Nothing to ask for: the app has real screenshots.
+    expect(detail.progress.media).toMatchObject({ ask: null });
+    expect(detail.progress.media.screenshots).toBeGreaterThan(0);
 
     // Tenancy: invisible from another workspace
     await expect(h.p.db.ws("ws_other").collection("autopilots").getOrThrow(id)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -132,6 +161,43 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(ap.stage).toBe("research");
     expect(ap.error?.userMessage).toMatch(/didn't produce any sourced findings/);
     expect(ap.audience).toBeUndefined();
+  });
+
+  it("asks for a recording or screenshots when the app has no real media yet, then makes the videos once some is added", async () => {
+    const h = await autopilotHarness();
+    const ws = h.p.db.ws(h.wid);
+    // A website-only app (a TV game, say): nothing that shows the real product.
+    for (const sid of h.screenshotIds) await ws.collection("mediaAssets").update(sid, { isProductTruth: false }, { actor: "test" });
+    const id = await start(h);
+    let ap = await get(h, id);
+    expect(ap).toMatchObject({ status: "awaiting_user", stage: "produce" });
+    expect(tagOf(ap.waitingOn.reason)).toBe("produce:media");
+    expect(ap.waitingOn.reason).toMatch(/Add a screen recording or screenshots of your app/);
+    const detail = await autopilotDetail(h.p, h.wid, id);
+    expect(detail.checkpoint).toMatchObject({ action: "agent_continue", status: "pending" });
+    expect(detail.checkpoint?.summary).toMatch(/no screenshots or screen recordings of it yet/);
+    // The progress screen and the Needs-you card offer the recording upload right there.
+    expect(detail.progress.media).toEqual({ screenshots: 0, recordings: 0, ask: "waiting" });
+    expect(detail.progress.steps.find((s) => s.key === "make")?.state).toBe("needs_you");
+    const owner = await needsYou(h.p, h.wid, { role: "owner", canPublish: true, canManageAccounts: true, status: "active" }, { appId: h.appId });
+    expect(owner.items.find((i) => i.autopilotId === id)).toMatchObject({ kind: "decision", title: "Add a screen recording or screenshots of your app", preview: { needsMedia: true }, canDecide: true });
+    const jobs = (await ws.collection("jobs").list({ where: [["appId", "==", h.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })).items;
+    expect(jobs.some((j) => j.type === "storyboard.generate")).toBe(false);
+    const budgetBefore = ap.budget.maxCredits;
+
+    // Continue without adding anything: it asks again rather than failing.
+    await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(tagOf(ap.waitingOn.reason)).toBe("produce:media");
+
+    // The founder adds footage; Continue makes the videos, and the decision never raises the credit limit.
+    await ws.collection("mediaAssets").update(h.screenshotIds[0]!, { isProductTruth: true }, { actor: "test" });
+    await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
+    await h.p.inline!.drain();
+    ap = await get(h, id);
+    expect(ap.compositionIds.length).toBeGreaterThan(0);
+    expect(ap.budget.maxCredits).toBe(budgetBefore);
   });
 
   it("pauses at the budget checkpoint, continues after approval, asks before rendering, and a rejection pauses the loop", async () => {
@@ -156,7 +222,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     }
     expect(budgetApprovals).toBe(1);
     ap = await get(h, id);
-    expect(ap.log.some((e) => e.kind === "budget" && /rest of this iteration/.test(e.summary))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "budget" && /rest of this round/.test(e.summary))).toBe(true);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "render" });
     expect(tagOf(ap.waitingOn.reason)).toBe("render:approve");
     expect(h.rendered).toHaveLength(0);
@@ -221,7 +287,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     for (const c of comps) expect(c.currentVersion).toBe(2);
     const patches = (await h.p.db.ws(h.wid).collection("compositionPatches").list({ limit: 20 })).items;
     expect(patches.filter((x) => x.status === "applied")).toHaveLength(2);
-    expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("Brand Guardian (rules): blocked"))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("Brand check (rules): blocked"))).toBe(true);
     expect(ap.log.some((e) => e.kind === "verification" && e.summary.includes("v2") && e.summary.includes("passed"))).toBe(true);
   });
 
@@ -252,7 +318,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     const id = await start(h);
     const ap = await get(h, id);
     expect(ap).toMatchObject({ status: "sleeping", stage: "measure" });
-    const fixes = ap.log.filter((e) => e.summary.startsWith("Fix round 1 (iteration 1): applied the Brand Guardian's suggested fix"));
+    const fixes = ap.log.filter((e) => e.summary.startsWith("Fix round 1 (iteration 1): applied the brand check’s suggested fix"));
     expect(fixes).toHaveLength(2);
     const ws = h.p.db.ws(h.wid);
     for (const c of await ws.collection("compositions").getMany(ap.compositionIds)) {
@@ -267,7 +333,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect((await ws.collection("brandPreferences").list({ limit: 50 })).items.filter((x) => x.text.startsWith("Accepted Brand Guardian fix"))).toHaveLength(0);
     // No Spark edit was needed, and only v2 was rendered
     expect((await ws.collection("jobs").list({ limit: 200 })).items.filter((j) => j.type === "composition.edit")).toHaveLength(0);
-    expect(ap.log.filter((e) => e.summary.startsWith("Final render of") && e.summary.includes(" v2 "))).toHaveLength(2);
+    expect(ap.log.filter((e) => e.summary.startsWith("Final video of") && e.summary.includes(" v2 "))).toHaveLength(2);
   });
 
   it("checkpoints after two unsuccessful fix rounds, never overrides the Guardian, and renders only what a person overrode; an unavailable Guardian is never a pass", async () => {
@@ -276,13 +342,19 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     let ap = await get(h, id);
     expect(ap).toMatchObject({ status: "awaiting_user", stage: "verify" });
     expect(tagOf(ap.waitingOn.reason)).toBe("verify:unresolved");
+    expect(ap.waitingOn.reason).toMatch(/2 videos need a look before they’re finished$/);
     expect(ap.log.filter((e) => e.summary.startsWith("Fix round")).length).toBe(4); // 2 rounds × 2 videos
+    // The decision is written for people: plain words, no internal ids or lint jargon.
+    const [ask] = (await h.p.db.ws(h.wid).collection("approvals").list({ where: [["status", "==", "pending"]], limit: 5 })).items;
+    expect(ask!.summary).toMatch(/^We tried 2 automatic fixes, but “.+”, “.+” still have problems: .*brand check: Tone drift/);
+    expect(ask!.summary).toMatch(/Continue finishes the videos; any still flagged are left out\. Pause stops here\.$/);
+    expect(ask!.summary).not.toMatch(/\b(sc|ly|cmp)_\w+|Lint:|Brand Guardian/);
     // Continuing doesn't bypass the render gate: every video is still blocked → honest failure, nothing rendered.
     await decideCheckpoint(h.p, h.wid, id, { decision: "approve" }, "u1");
     await h.p.inline!.drain();
     ap = await get(h, id);
     expect(ap).toMatchObject({ status: "failed", stage: "render" });
-    expect(ap.log.filter((e) => e.summary.startsWith("Left out of the final render: the Brand Guardian blocks"))).toHaveLength(2);
+    expect(ap.log.filter((e) => e.summary.startsWith("Left out of the final videos: the brand check flags"))).toHaveLength(2);
     expect(h.rendered).toHaveLength(0);
     // A person overrides one video's review (with a reason) → resuming renders exactly that one.
     const [first] = await h.p.db.ws(h.wid).collection("compositions").getMany(ap.compositionIds);
@@ -291,14 +363,14 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     await h.p.inline!.drain();
     ap = await get(h, id);
     expect(h.rendered).toEqual([first!.id]);
-    expect(ap.log.some((e) => e.summary.includes("rendering because u1 overrode the Brand Guardian"))).toBe(true);
+    expect(ap.log.some((e) => e.summary.includes("finishing it because u1 went ahead past the brand check"))).toBe(true);
     expect(ap.stage).toBe("measure");
 
     const offline = await autopilotHarness({ reviewPlan: () => "fail", workspaceId: "ws_autopilot_2" });
     const id2 = await start(offline);
     const ap2 = await get(offline, id2);
     expect(ap2.stage).toBe("measure");
-    expect(ap2.log.filter((e) => e.kind === "verification" && e.stage === "verify").every((e) => e.summary.includes("Brand Guardian unavailable"))).toBe(true);
+    expect(ap2.log.filter((e) => e.kind === "verification" && e.stage === "verify").every((e) => e.summary.includes("Brand check unavailable"))).toBe(true);
   });
 
   it("pauses and resumes a single-variant loop; a Wonder decision that never validates fails the loop honestly", async () => {
@@ -326,7 +398,7 @@ describe("Growth Autopilot (autopilot.step state machine)", () => {
     expect(failed).toMatchObject({ status: "failed", stage: "hypothesis" });
     expect(failed.error?.code).toBe("PROVIDER_ERROR");
     expect(failed.log.at(-1)!.kind).toBe("error");
-    const run = (await bad.p.db.ws(bad.wid).collection("agentRuns").getMany(failed.agentRunIds)).find((r) => r.goal.startsWith("Hypothesis"));
+    const run = (await bad.p.db.ws(bad.wid).collection("agentRuns").getMany(failed.agentRunIds)).find((r) => r.goal.startsWith("What to test"));
     expect(run?.status).toBe("failed");
     const steps = (await bad.p.db.ws(bad.wid).collection("agentSteps").list({ where: [["runId", "==", run!.id]], orderBy: { field: "index", dir: "asc" }, limit: 50 })).items;
     expect(steps.some((x) => x.status === "failed" && x.outputSummary?.includes("Provide exactly 1 variant labels"))).toBe(true);

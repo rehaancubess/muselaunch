@@ -308,7 +308,7 @@ function VolumeSlider({ label, value, onCommit, disabled }: { label: string; val
         onChange={(e) => setV(Number(e.target.value))}
         onPointerUp={done}
         onKeyUp={done}
-        className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--color-accent,#0071e3)]"
+        className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--color-accent,#1d1d1f)]"
       />
       <span className="w-9 shrink-0 text-right text-footnote tabular-nums text-ink-2">{v}%</span>
     </label>
@@ -388,7 +388,7 @@ function VoiceSection({
           </Button>
         </div>
       ) : (
-        <p className="text-footnote text-ink-2">{s.storyboard?.voiceover === "tts" ? "The storyboard has narration. Add a voice to speak it." : "No voiceover. Music plays at full level."}</p>
+        <p className="text-footnote text-ink-2">{s.storyboard?.voiceover === "tts" ? "The plan has narration. Add a voice to speak it." : "No voiceover. Music plays at full level."}</p>
       )}
 
       <SegmentedControl

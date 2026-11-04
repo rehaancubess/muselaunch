@@ -217,7 +217,7 @@ function MissingList({ missing, onAction, workspaceId, appId }: { missing: Missi
                 </div>
                 {m.action === "publish_post" ? (
                   <Button asChild size="sm" variant="outline">
-                    <Link href={routes.app(workspaceId, appId).calendar}>Open calendar</Link>
+                    <Link href={routes.app(workspaceId, appId).scheduled}>Open Scheduled</Link>
                   </Button>
                 ) : m.action === "widen_range" ? (
                   <Button size="sm" variant="outline" onClick={() => onAction(m)}>

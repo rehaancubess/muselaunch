@@ -14,6 +14,8 @@ import {
   responsesBody,
   searchRoute,
   seedApp,
+  slidePlanRoute,
+  textPostCopyRoute,
   textRoute,
   toolNames,
   wonderRoute,
@@ -22,8 +24,8 @@ import {
 import { handlers as analyticsHandlers } from "@muselaunch/analytics";
 import { attachAudio, buildFromStoryboard } from "@muselaunch/compositions";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
-import { DEFAULT_AUTOPILOT_SETTINGS, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
-import { AppError, createTestPlatform, workspaceKey, type JobContext } from "@muselaunch/platform";
+import { DEFAULT_AUTOPILOT_SETTINGS, docKindOf, type BrandFinding, type BrandReview, type CompositionDoc, type VideoReviewFinding } from "@muselaunch/contracts";
+import { AppError, createTestPlatform, workspaceKey, type HandlerRegistry, type JobContext } from "@muselaunch/platform";
 import { installAutopilotHooks } from "./hooks";
 import { handlers as autopilotHandlers } from "./index";
 import { setAutopilotClock } from "./state";
@@ -51,6 +53,35 @@ export interface AutopilotHarness {
 
 const DECISIONS = () => fixtureJson<Record<string, unknown>>("wonder-autopilot-decisions.json");
 
+/** Wonder's creative direction per pick (distinct looks; shots that need no presenter footage). */
+const FIXTURE_DIRECTIONS = [
+  {
+    hookApproach: "Open on the real search bar mid-type, then cut to the answer before the viewer can scroll.",
+    pacing: "punchy",
+    visualMotif: "Every scene pushes one step closer to the screen, ending on the result.",
+    signatureShots: ["focus-zoom", "tap-demo"],
+    musicMood: "tech-pulse",
+    avoid: "Long type-only cards.",
+    why: "Fast, product-first cuts isolate whether seeing the app work is what stops the scroll.",
+  },
+  {
+    hookApproach: "Name the everyday frustration in the audience's own words, then let the app resolve it.",
+    pacing: "steady",
+    visualMotif: "Cluttered, busy frames give way to calm, centred ones once the app appears.",
+    signatureShots: ["kinetic-type", "phone-tilt"],
+    musicMood: "warm-keys",
+    why: "A problem-led story with a calmer pace tests the emotional angle against the demo-first control.",
+  },
+  {
+    hookApproach: "Start on the icon and a single bold promise, then prove it on the real screen.",
+    pacing: "slow-burn",
+    visualMotif: "One continuous reveal: icon, phone, then the feature, each shot holding longer.",
+    signatureShots: ["icon-reveal", "device-demo"],
+    musicMood: "cinematic-build",
+    why: "A slower reveal checks whether a premium launch feel beats faster formats.",
+  },
+];
+
 /** Wonder answers each autopilot decision tool (pick_variants is computed from the concepts it is shown). */
 export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}): MetaRoute {
   return (req) => {
@@ -69,7 +100,7 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
       const text = requestText(req);
       const want = Number(String(req.instructions ?? "").match(/Pick exactly (\d+)/)?.[1] ?? 2);
       const rows = [...text.matchAll(/- (var_[a-f0-9]+) \| (\w+) \|/g)].map((m) => ({ id: m[1]!, angle: m[2]! }));
-      const picks: { variantId: string; experimentKey: string }[] = [];
+      const picks: { variantId: string; experimentKey: string; direction: unknown }[] = [];
       // Match each experiment variant's label to a concept angle ("Demo-first hook" → practical_demo), so
       // v1/v2 carry the concept the hypothesis describes; otherwise take distinct angles in order.
       const labels = (text.match(/Experiment variants: (.+)/)?.[1] ?? "").split(";").map((x) => x.replace(/^\s*v\d+(?: \(control\))?:\s*/, "").toLowerCase());
@@ -82,7 +113,7 @@ export function autopilotDecisionRoute(overrides: Record<string, unknown> = {}):
       for (let k = 0; k < want; k++) {
         const hint = ANGLE.find(([l]) => l.test(labels[k] ?? ""))?.[1];
         const r = (hint ? rows.find((x) => hint.test(x.angle) && !used(x.angle)) : undefined) ?? rows.find((x) => !used(x.angle));
-        if (r) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}` });
+        if (r) picks.push({ variantId: r.id, experimentKey: `v${picks.length + 1}`, direction: FIXTURE_DIRECTIONS[picks.length % FIXTURE_DIRECTIONS.length] });
       }
       args = { picks, rationale: "Different angles test the hypothesis directly." };
     }
@@ -119,6 +150,8 @@ export function standardRoutes(extra: MetaRoute[] = []): MetaRoute[] {
     textRoute("Summarise these research findings", "Sources report study-with-me timer videos recur on short-form platforms. This may mean the timer screen is a natural hook."),
     jsonRoute("CampaignConcepts", (req) => resolvePlaceholders(fixtureJson("spark-concepts.json"), req)),
     jsonRoute("Storyboard", (req) => resolvePlaceholders(fixtureJson("spark-storyboard-repaired.json"), req)),
+    slidePlanRoute(),
+    textPostCopyRoute(),
     jsonRoute("CopyPacks", (req) => resolvePlaceholders(fixtureJson<{ repaired: unknown }>("spark-copy.json").repaired, req)),
     jsonRoute("ClaimValidation", (req) => ({ results: requestText(req).split("\n").filter((l) => l.startsWith('{"id":')).map((l) => ({ id: JSON.parse(l).id, issues: [] })) })),
     fixEditRoute,
@@ -133,6 +166,10 @@ export interface PlatformOptions {
   reviewHandler?: boolean;
   /** Spark's video review outcome (default: no findings). */
   videoReviewPlan?: VideoReviewPlan;
+  /** Stand-in for the media module's screenshot check (`media.extract_ui`) taking this long (ms); absent = no handler. */
+  slowScreenCheckMs?: number;
+  /** Extra job handlers (e.g. module E's `post.fix_facts`). */
+  handlers?: HandlerRegistry;
 }
 
 /** Platform with every handler the loop delegates to (real B + F, C's builder, stubs for render/review), hooks and fake Meta. */
@@ -143,6 +180,7 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
   const reviewPlan: ReviewPlan = opts.reviewPlan ?? (() => ({ status: "passed", findings: [] }));
   const videoReviewPlan: VideoReviewPlan = opts.videoReviewPlan ?? (() => ({ score: 8, findings: [] }));
   const p = createTestPlatform({ META_API_KEY: "test-key" }, {
+    ...opts.handlers,
     ...agentHandlers,
     ...analyticsHandlers,
     ...autopilotHandlers,
@@ -158,7 +196,10 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
         { id: "ast_mus_harness", kind: "audio", role: "music", origin: "generated", storagePath: `workspaces/${ctx.workspaceId}/generated/music.m4a`, mimeType: "audio/mp4", status: "ready", durationSec: 60, sourceLabel: "original_music", license: { type: "owned", provider: "MuseLaunch" } },
         { actor: ctx.actor },
       );
-      const doc = attachAudio(buildFromStoryboard({ storyboard: sb, app, brand, assets }), { music: { assetId: music.entity.id, mood: "calm-pad", label: "Original music" } });
+      // Like the real build (packages/render): stills are built as their doc kind, with no soundtrack.
+      const kind = docKindOf(sb.format ?? "video");
+      const built = buildFromStoryboard({ storyboard: sb, app, brand, assets, kind });
+      const doc = kind === "video" ? attachAudio(built, { music: { assetId: music.entity.id, mood: "calm-pad", label: "Original music" } }) : built;
       await createComposition(ctx.ws, { id: ctx.payload.compositionId, appId: sb.appId, campaignId: sb.campaignId, variantId: sb.variantId, storyboardId: sb.id, title: sb.title, doc }, ctx.actor);
       return { refs: [{ entity: "compositions", id: ctx.payload.compositionId }], creditsUsed: 2 };
     },
@@ -171,6 +212,25 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
     // Stand-in for module C's renderer: a labelled stub file, never shown as a real render.
     "render.final": async (ctx: JobContext<"render.final">) => {
       const comp = await ctx.ws.collection("compositions").getOrThrow(ctx.payload.compositionId);
+      const ver = await getVersion(ctx.ws, comp.id, ctx.payload.version);
+      if (ver.doc.kind !== "video") {
+        // Stills: one stub image per slide, with the real worker's ids and labels (slide 1 = ast_r_<key>, slide n = ast_r_<key>_<n>).
+        const key = `${ctx.payload.compositionId.slice(-12)}_v${ctx.payload.version}`;
+        const mime = ctx.payload.format === "jpeg" ? "image/jpeg" : "image/png";
+        const refs: { entity: string; id: string }[] = [];
+        for (let i = 0; i < ver.doc.scenes.length; i++) {
+          const id = i === 0 ? `ast_r_${key}` : `ast_r_${key}_${i + 1}`;
+          const path = workspaceKey(ctx.workspaceId, "renders", `${id}.${ctx.payload.format === "jpeg" ? "jpg" : "png"}`);
+          const put = await ctx.platform.storage.put(path, "FIXTURE: stub slide (test only)", { contentType: mime });
+          await ctx.ws.collection("mediaAssets").createIfAbsent(
+            { id, appId: comp.appId, campaignId: comp.campaignId, kind: "image", role: "render", origin: "render", storagePath: path, mimeType: mime, bytes: put.bytes, status: "ready", width: ver.doc.width, height: ver.doc.height, labels: [`slide:${i + 1}`], render: { compositionId: comp.id, version: ctx.payload.version, quality: "final" } },
+            { actor: ctx.actor },
+          );
+          refs.push({ entity: "mediaAssets", id });
+        }
+        rendered.push(comp.id);
+        return { refs, data: { slides: refs.length, format: ctx.payload.format }, creditsUsed: Math.max(1, Math.ceil(refs.length / 4)) };
+      }
       const id = `ast_render_${ctx.payload.compositionId.slice(-12)}_v${ctx.payload.version}`;
       const key = workspaceKey(ctx.workspaceId, "renders", `${id}.mp4`);
       const put = await ctx.platform.storage.put(key, "FIXTURE: stub render (test only)", { contentType: "video/mp4" });
@@ -179,7 +239,8 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
         { actor: ctx.actor },
       );
       rendered.push(comp.id);
-      return { refs: [{ entity: "mediaAssets", id }], creditsUsed: 8 };
+      // Same output shape as the real render.final handler (packages/render).
+      return { refs: [{ entity: "mediaAssets", id }], data: { assetId: id, durationSec: 15, width: 1080, height: 1920 }, creditsUsed: 8 };
     },
     // Stand-in for Spark watching the render (the stub render above is not a real MP4); follows a scripted plan.
     "video.review": async (ctx: JobContext<"video.review">) => {
@@ -198,6 +259,17 @@ export function autopilotPlatform(opts: PlatformOptions = {}): Omit<AutopilotHar
       await repo.update(review.id, { status: "succeeded", verdict, score: plan.score, summary: `${findings.length} finding(s) (fixture)`, findings, reviewer: { model: "muse-spark-1.3", label: "Muse Spark" }, checkedAt: new Date().toISOString() }, { actor: ctx.actor });
       return { refs: [{ entity: "videoReviews", id: review.id }], creditsUsed: 6 };
     },
+    ...(opts.slowScreenCheckMs === undefined
+      ? {}
+      : {
+          // Stand-in for the media module's screenshot check: slow, then marks the app's screenshots as raw UI.
+          "media.extract_ui": async (ctx: JobContext<"media.extract_ui">) => {
+            await new Promise((r) => setTimeout(r, opts.slowScreenCheckMs));
+            const shots = (await ctx.ws.collection("mediaAssets").list({ where: [["appId", "==", ctx.payload.appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 50 })).items.filter((a) => a.role === "screenshot");
+            for (const a of shots) await ctx.ws.collection("mediaAssets").update(a.id, { screenshotKind: "raw_ui" }, { actor: ctx.actor });
+            return { creditsUsed: 0 };
+          },
+        }),
     ...(opts.reviewHandler === false
       ? {}
       : {

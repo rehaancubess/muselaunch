@@ -1,6 +1,9 @@
+import { installVideoAutofixHooks } from "@muselaunch/agents";
 import { can, type Autopilot, type Job } from "@muselaunch/contracts";
 import { toAppError, type Platform } from "@muselaunch/platform";
+import { advanceCreateRunsForJob, sweepCreateRuns } from "./create-runner";
 import { autopilotSettings } from "./defaults";
+import { advancePostChangesForJob, POST_CHANGE_JOBS } from "./post-change";
 import { enqueueStep } from "./step";
 import { isTerminalJob, nowMs, resumeKey } from "./state";
 
@@ -59,7 +62,8 @@ export async function autoRecommendOnNewData(p: Platform, workspaceId: string, j
 
 /**
  * Job lifecycle hook: when a job a Growth Autopilot is waiting on reaches a terminal state (or
- * pauses for approval), enqueue the loop's next `autopilot.step`. The idempotency key is derived
+ * pauses for approval), enqueue the loop's next `autopilot.step`; when a job a post change waits on
+ * finishes, take that change's next step (post-change.ts). The idempotency key is derived
  * from the awaited job set, so concurrent completions enqueue exactly one resume step. With
  * Autopilot on, new measured data also triggers recommendations (autoRecommendOnNewData).
  * Install once per process (API and worker).
@@ -67,35 +71,46 @@ export async function autoRecommendOnNewData(p: Platform, workspaceId: string, j
 export function installAutopilotHooks(p: Platform): () => void {
   if (installed.has(p)) return () => {};
   installed.add(p);
+  // Spark's automatic preview check first: when a preview finishes, its next step is queued before the
+  // Create runner below looks at the run (so the run waits for the check instead of finishing v1).
+  const offAutofix = installVideoAutofixHooks(p);
   const off = p.jobs.addHooks({
     onStatus: async ({ workspaceId, job, to }) => {
       if (job.type === "autopilot.step" || !job.appId) return;
       if (!isTerminalJob({ status: to })) return;
       await resumeWaiting(p, workspaceId, job.appId, job.id);
+      // "Tell Muse what to change" on a post: its next step (render, then the post uses it).
+      if (POST_CHANGE_JOBS.has(job.type) && to !== "needs_approval") await advancePostChangesForJob(p, workspaceId, job).catch((err) => p.log.warn({ err, jobId: job.id }, "post change step failed"));
       if (to === "succeeded" && MEASURED_DATA_JOBS.has(job.type)) await autoRecommendOnNewData(p, workspaceId, job);
+      // Create ("Generate video"): the run's next step, on the server (create-runner.ts).
+      if (to !== "needs_approval") await advanceCreateRunsForJob(p, workspaceId, job).catch((err) => p.log.warn({ err, jobId: job.id }, "Create run step failed"));
     },
   });
   return () => {
     installed.delete(p);
     off();
+    offAutofix();
   };
 }
 
 /**
  * Cron: wake loops whose sleep (measure window) is over, and resume any loop whose awaited jobs
  * all finished but whose hook was missed (e.g. a process restart). Safe to call every few minutes.
+ * Also the Create runner's safety sweep (`createRuns`: runs looked at again).
  */
-export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: number; woken: number; resumed: number }> {
+export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: number; woken: number; resumed: number; createRuns: number }> {
   let cursor: string | null | undefined;
   let workspaces = 0;
   let woken = 0;
   let resumed = 0;
+  let createRuns = 0;
   const now = nowMs(p);
   do {
     const page = await p.db.top("workspaces").list({ limit: 100, cursor });
     for (const w of page.items) {
       workspaces++;
       const ws = p.db.ws(w.id);
+      createRuns += await sweepCreateRuns(p, w.id).catch((err) => (p.log.warn({ err, workspaceId: w.id }, "Create run sweep failed"), 0));
       const sleeping = await ws.collection("autopilots").list({ where: [["status", "==", "sleeping"]], limit: 100 });
       for (const ap of sleeping.items) {
         if (!ap.waitingOn.until || Date.parse(ap.waitingOn.until) > now) continue;
@@ -124,5 +139,5 @@ export async function wakeDueAutopilots(p: Platform): Promise<{ workspaces: numb
     }
     cursor = page.nextCursor;
   } while (cursor);
-  return { workspaces, woken, resumed };
+  return { workspaces, woken, resumed, createRuns };
 }

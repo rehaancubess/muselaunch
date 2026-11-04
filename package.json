@@ -19,6 +19,7 @@
     "audio:samples": "tsx scripts/audio-samples.ts",
     "seed:dev": "tsx scripts/seed-dev.ts",
     "deploy:gcp": "tsx scripts/deploy.ts",
+    "setup:web-push": "tsx scripts/setup-web-push.ts",
     "dev:fixture": "pnpm --filter @muselaunch/api dev:fixture",
     "e2e": "playwright test -c e2e/playwright.config.ts"
   },

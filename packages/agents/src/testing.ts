@@ -296,6 +296,190 @@ export function textRoute(needle: string, text: string): MetaRoute {
   return (req) => (String(req.instructions ?? "").includes(needle) && !schemaName(req) ? responsesBody({ text }) : undefined);
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const hasWord = (text: string, word: string) => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(word)}(?:$|[^\\p{L}\\p{N}])`, "iu").test(text);
+
+/**
+ * Claim-validator stand-in (FIXTURE ONLY) that behaves like the model on a small vocabulary: a word
+ * from `vocabulary` used in a text is flagged unless the confirmed facts or the listing evidence
+ * sent with the request contain it. `lenient()` true = flag nothing (a model that misses it).
+ */
+export function factCheckRoute(opts: { vocabulary: string[]; statement?: (terms: string[]) => string; lenient?: () => boolean }): MetaRoute {
+  return jsonRoute("ClaimValidation", (req) => {
+    const text = requestText(req);
+    const at = text.indexOf("Texts to check");
+    const support = at >= 0 ? text.slice(0, at) : "";
+    const lines = text
+      .slice(Math.max(0, at))
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; text: string });
+    return {
+      results: lines.map((t) => {
+        const terms = opts.lenient?.() ? [] : opts.vocabulary.filter((w) => hasWord(t.text, w) && !hasWord(support, w));
+        return {
+          id: t.id,
+          issues: terms.length ? [{ quote: terms.join(", "), terms, statement: opts.statement?.(terms) ?? `The app has ${terms.join(" and ")}.`, problem: `no confirmed fact or listing evidence mentions ${terms.join(" or ")}` }] : [],
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * "Remove it" stand-in (FIXTURE ONLY) for the CopyRevision schema: deletes the flagged words from
+ * each item to fix and tidies the punctuation, or returns the items unchanged when `keep()` is true
+ * (a rewrite that didn't remove them).
+ */
+export function copyRevisionRoute(opts: { keep?: () => boolean } = {}): MetaRoute {
+  return jsonRoute("CopyRevision", (req) => {
+    const text = requestText(req);
+    const flagged = text.split("What the fact check flagged:")[1]?.split("Items to fix")[0] ?? "";
+    // The words to drop: the quote at the start of each flagged line (`- item <id>: "<quote>": <issue>`).
+    const words = [...flagged.matchAll(/^- item [^:]+: "([^"]+)":/gm)].flatMap((m) => m[1]!.split(/\s*(?:,|&|\band\b)\s*/)).map((w) => w.trim()).filter((w) => w.length > 1);
+    const items = (text.split("Items to fix (JSON lines):")[1]?.split("Other items of the same post")[0] ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; text: string });
+    const scrub = (s: string) => {
+      let t = s;
+      for (const w of words) t = t.replace(new RegExp(`\\s*#?\\b${escapeRe(w)}\\b`, "gi"), "");
+      return t
+        .replace(/,(\s*,)+/g, ",")
+        .replace(/,\s*&/g, " &")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/[ \t]+([,.!?])/g, "$1")
+        .replace(/^[,&\s]+/, "")
+        .trim()
+        .replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+    };
+    return { items: items.map((it) => ({ id: it.id, text: opts.keep?.() ? it.text : scrub(it.text) || it.text })), summary: `Fixture: removed ${words.join(", ") || "nothing"}` };
+  });
+}
+
+/**
+ * "Tell Muse what to change" stand-in (FIXTURE ONLY) for the CopyRewrite schema: a deterministic edit
+ * of the post's own words (never new claims). "shorter" keeps the first sentence of each long item,
+ * "friendlier"/"energetic"/"excited" ends the caption with "!", anything else moves the caption's
+ * first sentence to the end. Summaries say "Fixture:".
+ */
+export function copyRewriteRoute(): MetaRoute {
+  return jsonRoute("CopyRewrite", (req) => {
+    const text = requestText(req);
+    const ask = (text.match(/<untrusted_content source="founder_request">\n([\s\S]*?)\n<\/untrusted_content>/)?.[1] ?? "").toLowerCase();
+    const items = (text.split("The post's copy now (JSON lines):")[1] ?? "")
+      .split("\n")
+      .filter((l) => l.startsWith('{"id":'))
+      .map((l) => JSON.parse(l) as { id: string; kind: string; text: string });
+    const sentences = (s: string) => s.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g)?.map((x) => x.trim()).filter(Boolean) ?? [s];
+    const edit = (it: { kind: string; text: string }) => {
+      if (it.kind === "hashtags" || it.kind === "title") return it.text;
+      const ss = sentences(it.text);
+      if (/short|brief|tight|concise/.test(ask)) return ss.length > 1 ? `${ss[0]}${it.text.includes("[APP_LINK]") && !ss[0]!.includes("[APP_LINK]") ? " [APP_LINK]" : ""}` : it.text;
+      if (/friend|energ|excit|fun|upbeat/.test(ask)) return it.text.replace(/[.!?]*\s*$/, "!");
+      return ss.length > 1 ? [...ss.slice(1), ss[0]].join(" ") : `${it.text} ✨`;
+    };
+    const how = /short|brief|tight|concise/.test(ask) ? "made the caption shorter" : /friend|energ|excit|fun|upbeat/.test(ask) ? "made the caption more upbeat" : "reordered the caption";
+    return { items: items.map((it) => ({ id: it.id, text: edit(it) })), summary: `Fixture: ${how}` };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stills and text posts (FIXTURES ONLY): slide plans and text-only posts for the sample app
+// ---------------------------------------------------------------------------
+
+/** Carousel beats for Tidy Timer (cover → one idea per slide → call to action). */
+const CAROUSEL_BEATS = [
+  { headline: "Your phone wins. Again?", body: "Three small changes that give your focus back.", visual: "Bold hook over the real timer screen" },
+  { headline: "1. Start one calm session", body: "Pick a length that fits the task and tap start.", visual: "The real timer screen in a phone frame" },
+  { headline: "2. Let the noise wait", body: "Distracting apps stay quiet until the session ends.", visual: "The real session screen, the timer running" },
+  { headline: "3. Watch the streak grow", body: "A weekly report shows the focus you kept.", visual: "The real weekly report screen" },
+  { headline: "Small sessions add up", body: "Short, steady blocks beat one long push.", visual: "Another real screen of the app" },
+  { headline: "Built to stay calm", body: "A quiet design that keeps you on the task.", visual: "A real screen of the app" },
+  { headline: "Focus on what matters", body: "One session at a time, every day.", visual: "A real screen of the app" },
+  { headline: "Make it a habit", body: "Come back tomorrow and keep the streak.", visual: "A real screen of the app" },
+];
+const STORE_BEATS = [
+  { headline: "Focus in one tap", body: "Custom-length Pomodoro sessions" },
+  { headline: "Silence distracting apps", body: "They wait until your session ends" },
+  { headline: "See your weekly streak", body: "Reports that show your focus" },
+  { headline: "Sessions that fit any task", body: "" },
+  { headline: "Stay calm while you work", body: "" },
+  { headline: "Build a focus habit", body: "" },
+  { headline: "Pick up where you left off", body: "" },
+  { headline: "Plan your day in blocks", body: "" },
+  { headline: "Keep distractions away", body: "" },
+  { headline: "Track every focused hour", body: "" },
+];
+
+/**
+ * Muse Spark "SlidePlan" stand-in (FIXTURE ONLY, slides.ts): a labelled Tidy Timer slide plan for the
+ * format and slide count the request asks for. Screens are refs from the request's media list (real
+ * screenshots, cut-outs, walkthrough segments); a proof slide only cites a verified claim id chosen for
+ * the concept. `over(plan, req)` may change the plan (tests).
+ */
+export function slidePlanRoute(over?: (plan: { title: string; slides: Record<string, unknown>[] }, req: MetaRequest) => unknown): MetaRoute {
+  return jsonRoute("SlidePlan", (req) => {
+    const text = requestText(req);
+    const format = text.match(/\(format (post|carousel|thumbnail|store_screenshots), frame/)?.[1] ?? "carousel";
+    const n = Math.max(1, Math.min(10, Number(text.match(/Plan exactly (\d+) slide/)?.[1] ?? (format === "carousel" || format === "store_screenshots" ? 6 : 1))));
+    // Real screens offered in the media list (screenshots, cut-outs, segments), in order.
+    const screens = [...text.matchAll(/^- (\S+) \| (raw screenshot|app-screen cut-out of a store image|walkthrough segment of \S+) \|/gm)].map((m) => ({ ref: m[1]!, segment: m[2]!.startsWith("walkthrough") }));
+    const hint = (i: number) => {
+      const s = screens[i % Math.max(1, screens.length)];
+      return s ? [s.segment ? { kind: "app_recording", segmentId: s.ref } : { kind: "screenshot", assetId: s.ref }] : [];
+    };
+    const concept = text.match(/^Concept: (.+?) \([\w-]+\)$/m)?.[1] ?? "Calm focus";
+    const cta = text.match(/CTA "([^"]+)"/)?.[1] ?? text.match(/Call to action: "([^"]+)"/)?.[1] ?? "Start your first focus session";
+    const claim = text.match(/Claims chosen for this concept: (clm_[A-Za-z0-9_-]+): ([^|\n]+)/);
+    let slides: Record<string, unknown>[];
+    if (format === "thumbnail") slides = [{ template: "thumbnail-bold", purpose: "hook", headline: "Focus in one tap", body: "", visual: "Huge words beside the real timer screen", assets: hint(0) }];
+    else if (format === "post") slides = [{ template: "slide-cover", purpose: "hook", headline: "Your phone wins. Again?", body: "One calm Pomodoro session gives your focus back.", visual: "Bold hook over the real timer screen", assets: hint(0) }];
+    else if (format === "store_screenshots") slides = STORE_BEATS.slice(0, n).map((x, i) => ({ template: "store-screenshot", purpose: "feature", headline: x.headline, body: x.body, visual: "Benefit headline on top, the real screen large below", assets: hint(i) }));
+    else {
+      const middle = Math.max(0, n - 2);
+      slides = [
+        { template: "slide-cover", purpose: "hook", ...CAROUSEL_BEATS[0], assets: hint(0) },
+        ...Array.from({ length: middle }, (_, i) =>
+          claim && i === middle - 1 && middle >= 3
+            ? { template: "slide-proof", purpose: "proof", headline: claim[2]!.trim().split(/\s+/).slice(0, 8).join(" "), body: "", visual: "The verified claim, large", claimIds: [claim[1]] }
+            : { template: "slide-feature", purpose: "feature", ...CAROUSEL_BEATS[1 + (i % (CAROUSEL_BEATS.length - 1))], assets: hint(i + 1) },
+        ),
+        { template: "slide-cta", purpose: "cta", headline: cta.split(/\s+/).slice(0, 8).join(" "), body: "One calm session is all it takes.", visual: "App icon, name and store pills", assets: [] },
+      ].slice(0, n);
+    }
+    const plan = { title: `Fixture: ${concept}`.slice(0, 200), slides };
+    return over ? (over(plan, req) ?? plan) : plan;
+  });
+}
+
+/**
+ * Text-only post stand-in (FIXTURE ONLY) for "CopyPacks" when copy.generate writes a Create text post
+ * (each channel marked "a TEXT-ONLY post"): one labelled Tidy Timer post per channel, within its limit.
+ * Other copy requests fall through. `over(channel)` replaces a channel's caption (tests).
+ */
+export function textPostCopyRoute(over?: (channel: string) => string | undefined): MetaRoute {
+  return (req: MetaRequest) => {
+    if (schemaName(req) !== "CopyPacks") return undefined;
+    const text = requestText(req);
+    const channels = [...text.matchAll(/^- (x|threads|linkedin|reddit|facebook): a TEXT-ONLY post/gm)].map((m) => m[1]!);
+    if (!channels.length) return undefined;
+    const claimId = text.match(/\b(clm_[A-Za-z0-9_-]+)/)?.[1];
+    const POSTS: Record<string, string> = {
+      x: "Your phone wins again? Start one calm Pomodoro session and let distracting apps wait until it ends. Small sessions add up. [APP_LINK]",
+      threads: "Studying with your phone face up never works. Tidy Timer runs custom-length Pomodoro sessions and blocks distracting apps while they run, so the next 25 minutes are yours. [APP_LINK]",
+      linkedin: "Deep work rarely fails for lack of time. It fails at the first notification.\n\nI built Tidy Timer to protect short, focused blocks: pick a session length, start it, and distracting apps stay blocked until it ends. A weekly report shows the streak you kept.\n\nIf you try it, I'd love to hear what you think. [APP_LINK]",
+      facebook: "Need an hour of real focus tonight? Tidy Timer blocks distracting apps during each Pomodoro session and keeps a weekly streak of the focus you kept. [APP_LINK]",
+    };
+    const packs = channels.map((c) =>
+      c === "reddit"
+        ? { channel: c, items: [{ kind: "title", text: "I built a calm Pomodoro timer that blocks distracting apps during sessions" }, { kind: "description", text: "Hi all, I'm the maker. Tidy Timer runs custom-length focus sessions and blocks distracting apps while they run, with a weekly report of your streak. It's early, so honest feedback is very welcome. [APP_LINK]" }] }
+        : { channel: c, items: [{ kind: "caption", text: over?.(c) ?? POSTS[c]!, claimIds: claimId ? [claimId] : [] }] },
+    );
+    return responsesBody({ text: JSON.stringify({ packs }) });
+    };
+}
+
 export interface SeededApp {
   appId: string;
   screenshotIds: string[];

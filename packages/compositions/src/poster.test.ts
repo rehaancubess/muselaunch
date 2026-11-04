@@ -4,7 +4,7 @@ import { sampleDoc } from "./test-fixtures";
 import type { CompositionDoc } from "@muselaunch/contracts";
 
 describe("posterTimeSec", () => {
-  it("parks after the opening scene's entrances have landed (frame 0 is an empty backdrop)", () => {
+  it("parks after the opening scene's layers have settled (frame 0 already shows them)", () => {
     const doc = sampleDoc();
     const s0 = doc.scenes[0]!;
     const settled = Math.max(...s0.layers.filter((l) => !l.hidden && l.timing.start <= Math.min(1.5, s0.durationSec / 2)).map((l) => l.timing.start + (l.animation.enter ? l.animation.enter.delaySec + l.animation.enter.durationSec : 0)));
@@ -23,13 +23,14 @@ describe("posterTimeSec", () => {
       l.timing = { start: 0 };
       l.animation = { loop: "none", enter: { preset: "fade", durationSec: 0.5, delaySec: 0.2, easing: "smooth" } };
     }
-    // A late layer (CTA chip at 1.6 s) must not push the poster frame.
+    // A late layer (CTA chip at 1.6 s) must not push the poster frame. The opening layers are on
+    // screen from frame 0 and settle into place (0.2 s delay + 0.7 s settle) before the poster.
     s0.layers[0]!.timing = { start: 1.6 };
-    expect(posterTimeSec(doc)).toBeCloseTo(0.82, 2);
+    expect(posterTimeSec(doc)).toBeCloseTo(1.02, 2);
     // An exit that starts before everything has landed wins.
     s0.layers[1]!.timing = { start: 0, end: 0.6 };
     s0.layers[1]!.animation.exit = { preset: "fade", durationSec: 0.2, easing: "smooth" };
-    expect(posterTimeSec(doc)).toBeLessThanOrEqual(0.82);
+    expect(posterTimeSec(doc)).toBeLessThanOrEqual(1.02);
   });
 
   it("is 0 for an empty doc", () => {

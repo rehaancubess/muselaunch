@@ -1,10 +1,12 @@
 "use client";
 /**
- * Owner: module E (Growth & distribution). The Discover tab body (tracked accounts story row,
- * personalised feed with sources, opportunities, creator CRM). Rendered by
- * .../a/[appId]/discover/page.tsx inside <PageContainer width="wide">.
+ * Owner: module E (Growth & distribution). Discover → See everything: tracked accounts story row,
+ * the full personalised feed with sources and filters (types, channel, format, effort, age, saved),
+ * opportunities and the creator CRM. Rendered by .../a/[appId]/discover/all/page.tsx inside
+ * <PageContainer width="wide">. The main Discover page ("What Muse found", ./simple.tsx) shows only
+ * the few best ideas and links here.
  */
-import type { Channel, Job, SourceRef } from "@muselaunch/contracts";
+import type { Channel, Job } from "@muselaunch/contracts";
 import { Badge, Button, Card, EmptyState, JobProgress, Notice, SegmentedControl, Select, Skeleton, SourceChip, StoryRingRow, Tabs, TabsContent, TabsList, TabsTrigger, formatShortDate, useToast } from "@muselaunch/ui";
 import { Bookmark, Compass, FlaskConical, Megaphone, RefreshCw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -16,6 +18,7 @@ import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
+import type { FeedItem, FeedResponse } from "./picks";
 import { ProspectsPanel } from "./prospects";
 import { AddTrackerDialog, TrackerSheet, type StoryRowItem } from "./trackers";
 
@@ -23,35 +26,7 @@ export interface DiscoverRootProps {
   appId: string;
 }
 
-type FeedItem = {
-  id: string;
-  type: "opportunity" | "finding" | "tracker_update";
-  refId: string;
-  title: string;
-  summary: string;
-  interpretation?: string;
-  proposedAngle?: string;
-  audience?: string;
-  channels: Channel[];
-  contentType?: string;
-  effort?: "low" | "medium" | "high";
-  geography: string[];
-  tags: string[];
-  sources: SourceRef[];
-  retrievedAt: string;
-  observedAt: string;
-  confidence: number;
-  score: number;
-  freshness: number;
-  rank: number;
-  status?: "new" | "saved" | "dismissed" | "used";
-  campaignId?: string;
-  trackerId?: string;
-  provenance: "research" | "tracked_account";
-};
-type FeedResponse = { items: FeedItem[]; nextCursor: string | null; excluded: { unsourced: number; duplicates: number; filtered: number }; generatedAt: string };
-
-const TYPE_LABEL: Record<FeedItem["type"], string> = { opportunity: "Opportunity", finding: "Research finding", tracker_update: "Tracked account" };
+const TYPE_LABEL: Record<FeedItem["type"], string> = { opportunity: "Idea", finding: "Finding", tracker_update: "Account you follow" };
 const CONTENT_LABEL: Record<string, string> = { short_video: "Short video", carousel: "Carousel", static: "Static", thread: "Thread", long_video: "Long video", community_post: "Community post", creator_collab: "Creator collab", launch: "Launch" };
 
 function freshnessLabel(observedAt: string) {
@@ -74,7 +49,7 @@ export default function DiscoverRoot({ appId }: DiscoverRootProps) {
       const r = await api.post<{ job: Job }>(wsPath(workspaceId, `/apps/${appId}/trackers/refresh`), { trackedCreatorIds: ids }, { idempotent: true });
       setRefreshJob(r.job);
     } catch (e) {
-      toast.error("Couldn’t check tracked accounts", errorMessage(e));
+      toast.error("Couldn’t check the accounts you follow", errorMessage(e));
     }
   };
 
@@ -82,9 +57,9 @@ export default function DiscoverRoot({ appId }: DiscoverRootProps) {
     <div className="space-y-8">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-headline font-semibold">Tracked accounts</h2>
+          <h2 className="text-headline font-semibold">Accounts you follow</h2>
           <Button size="sm" variant="ghost" icon={<RefreshCw aria-hidden />} onClick={() => refresh()} disabled={!stories.data?.items.length || live.connection === "live" || live.connection === "polling"}>
-            Check tracked accounts
+            Check them now
           </Button>
         </div>
         {stories.isLoading ? (
@@ -96,11 +71,11 @@ export default function DiscoverRoot({ appId }: DiscoverRootProps) {
         ) : (
           <StoryRingRow
             onAdd={() => setAdding(true)}
-            addLabel="Track"
+            addLabel="Follow"
             items={(stories.data?.items ?? []).map((s) => ({ id: s.id, label: s.displayName, sublabel: `${CHANNEL_LABEL[s.channel]} · ${s.kind}`, ring: s.hasRecent ? "new" : s.observationCount ? "seen" : "none", onClick: () => setOpenTracker(s.id) }))}
           />
         )}
-        {refreshJob ? <JobProgress job={live.job} title="Checking tracked accounts" variant="row" onCancel={() => void live.cancel()} /> : null}
+        {refreshJob ? <JobProgress job={live.job} title="Checking the accounts you follow" variant="row" onCancel={() => void live.cancel()} /> : null}
       </div>
 
       <Tabs defaultValue="feed">
@@ -142,9 +117,9 @@ function Feed({ appId }: { appId: string }) {
           onChange={setTypes}
           items={[
             { value: "all", label: "All" },
-            { value: "opportunity", label: "Opportunities" },
+            { value: "opportunity", label: "Ideas" },
             { value: "finding", label: "Findings" },
-            { value: "tracker_update", label: "Tracked" },
+            { value: "tracker_update", label: "Followed" },
           ]}
         />
         <Select aria-label="Channel" selectSize="sm" value={channel} onChange={(e) => setChannel(e.target.value)} options={[{ value: "", label: "Any channel" }, ...(["tiktok", "instagram", "youtube", "x", "linkedin", "reddit", "producthunt", "threads"] as Channel[]).map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))]} />
@@ -168,7 +143,7 @@ function Feed({ appId }: { appId: string }) {
             <EmptyState
               icon={<Compass aria-hidden />}
               title="Nothing in your feed yet"
-              description="Use Research market above, or track competitors and creators. Every card here links to the public sources it’s based on."
+              description="Use Research market above, or follow competitors and creators. Every card here links to the public sources it’s based on."
             />
           )
         }
@@ -243,15 +218,15 @@ function FeedCard({ item, appId }: { item: FeedItem; appId: string }) {
         <div className="flex flex-wrap gap-2">
           {item.status === "used" && item.campaignId ? (
             <Button size="sm" variant="secondary" onClick={() => router.push(routes.app(workspaceId, appId).campaign(item.campaignId!))}>
-              Open campaign
+              See its videos
             </Button>
           ) : (
             <Button size="sm" icon={<Megaphone aria-hidden />} disabled={!can("content.write")} loading={busy === "campaign"} onClick={() => act("campaign", "campaign", {}, (r) => r.campaign && router.push(routes.app(workspaceId, appId).campaign(r.campaign.id)))}>
-              Create campaign
+              Make a video
             </Button>
           )}
           <Button size="sm" variant="outline" icon={<FlaskConical aria-hidden />} disabled={!can("content.write")} loading={busy === "investigate"} onClick={() => act("investigate", "investigate", {}, () => toast.success("Research started", "New findings will appear in your feed."))}>
-            Investigate
+            Look into it
           </Button>
           {item.status !== "saved" && item.status !== "used" ? (
             <Button size="sm" variant="ghost" icon={<Bookmark aria-hidden />} loading={busy === "save"} onClick={() => act("save", "save", {})}>
@@ -260,7 +235,7 @@ function FeedCard({ item, appId }: { item: FeedItem; appId: string }) {
           ) : null}
           {item.status !== "used" ? (
             <Button size="sm" variant="ghost" icon={<X aria-hidden />} loading={busy === "dismiss"} onClick={() => act("dismiss", "dismiss", {})}>
-              Dismiss
+              Not for me
             </Button>
           ) : null}
         </div>

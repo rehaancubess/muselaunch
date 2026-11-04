@@ -1,4 +1,4 @@
-import type { CreateInput, EntityName, EntityOf, Invite, UserProfile, Workspace } from "@muselaunch/contracts";
+import type { CreateInput, Device, DeviceLink, EntityName, EntityOf, Invite, UserProfile, WebPushSubscription, Workspace } from "@muselaunch/contracts";
 import type { z } from "zod";
 
 export type WhereOp = "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in" | "array-contains" | "array-contains-any";
@@ -60,8 +60,20 @@ export interface WorkspaceDb {
   state<S extends z.ZodTypeAny>(key: string, schema: S): StateDoc<z.infer<S>>;
 }
 
-export type TopLevelName = "users" | "workspaces" | "invites";
-export type TopLevelOf<N extends TopLevelName> = N extends "users" ? UserProfile : N extends "workspaces" ? Workspace : Invite;
+/**
+ * Top-level collections. `devices` and `deviceLinks` are keyed by the SHA-256 of the phone token /
+ * link code; `webPushSubscriptions` by the SHA-256 of the browser's push endpoint.
+ */
+export interface TopLevelMap {
+  users: UserProfile;
+  workspaces: Workspace;
+  invites: Invite;
+  devices: Device;
+  deviceLinks: DeviceLink;
+  webPushSubscriptions: WebPushSubscription;
+}
+export type TopLevelName = keyof TopLevelMap;
+export type TopLevelOf<N extends TopLevelName> = TopLevelMap[N];
 
 export interface TopLevelRepo<N extends TopLevelName> {
   get(id: string): Promise<TopLevelOf<N> | null>;

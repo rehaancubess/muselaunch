@@ -17,6 +17,8 @@
  *
  *   pnpm dev:fixture            (API on :8080)
  *   Sample listing that imports: https://apps.apple.com/us/app/tidy-timer-focus-pomodoro/id1234567890
+ *   Website-only sample (no screenshots, Autopilot asks for a screen recording): https://tidytimer-web.example.com
+ *   FIXTURE_META_DELAY_MS=1500 slows each text-model answer so a run can be watched step by step.
  *
  * Extending (other modules): drop a file into ./fixture-routes/ (see fixture-routes/_types.ts).
  * Each file's default export returns extra Meta routes and/or a Glimmer reply; they are tried BEFORE
@@ -55,7 +57,7 @@ process.env.MUSELAUNCH_FIXTURE_MODE = "1";
 
 const { serve } = await import("@hono/node-server");
 const { Hono } = await import("hono");
-const { createPlatform, createRunner } = await import("@muselaunch/platform");
+const { createPlatform, createRunner, webPushKeys } = await import("@muselaunch/platform");
 const { installMetaClient, MetaClient } = await import("@muselaunch/providers");
 const agentsT = await import("@muselaunch/agents/testing");
 const mediaT = await import("@muselaunch/media/testing");
@@ -66,6 +68,7 @@ const { handlers } = await import("@muselaunch/worker/registry");
 const { buildApp } = await import("./app");
 
 const p = createPlatform();
+webPushKeys(p); // browser notifications: a temporary key pair unless .env has one (logged once)
 installAnalyticsHooks(p);
 installCampaignHooks(p); // campaigns leave "producing" when their production chains finish
 installAutopilotHooks(p); // Growth Autopilot resumes when the jobs it waits on finish
@@ -89,6 +92,8 @@ agentsT.installFakeWeb(p, [
   { match: /mzstatic\.com\/image\/thumb\/fixture\/shot2/, contentType: "image/png", body: stats },
   { match: /mzstatic\.com\/image\/thumb\/fixture\/shot3/, contentType: "image/png", body: marketing },
   { match: "https://calmstudy.example.com/about", contentType: "text/html", body: "<html><body><h1>CalmStudy</h1><p>Daily study-with-me Pomodoro streams. Business inquiries: hello@calmstudy.example.com</p></body></html>" },
+  // A website-only app (no store link, so no screenshots; like a TV game): Autopilot asks for a screen recording.
+  { match: "https://tidytimer-web.example.com", contentType: "text/html", body: agentsT.fixture("website.html").replace(/<a href="https:\/\/apps\.apple\.com[^"]*">[^<]*<\/a>/, "") },
 ]);
 
 // ---------------------------------------------------------------- fake Meta (text + SAM + voice)
@@ -267,11 +272,14 @@ const media = mediaT.fakeMetaFetch({
   transcribe: () => voiceFx,
 });
 
+// FIXTURE_META_DELAY_MS=1500: answer each text call after a pause, so a run's progress screen can be watched (and screenshotted) step by step.
+const metaDelayMs = Math.max(0, Number(process.env.FIXTURE_META_DELAY_MS ?? 0) || 0);
 const metaFetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   const path = new URL(url).pathname;
   if (path.endsWith("/responses") && typeof init.body === "string") {
     const req = JSON.parse(init.body) as J;
+    if (metaDelayMs) await new Promise((r) => setTimeout(r, metaDelayMs));
     if (String(req.model ?? "").startsWith("sam")) return media.fetch(input, init);
     for (const r of textRoutes) {
       const body = r(req, 0);

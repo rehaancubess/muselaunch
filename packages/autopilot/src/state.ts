@@ -60,20 +60,28 @@ export function delegatedJobIds(log: LogEntry[]): string[] {
  * was charged; open ones count their reservation.
  */
 export async function spentCredits(ws: WorkspaceDb, appId: string, log: LogEntry[]): Promise<number> {
+  let total = 0;
+  for (const j of await runJobs(ws, appId, log)) total += isTerminalJob(j) ? (j.creditsCharged ?? 0) : (j.reservation?.credits ?? 0);
+  return total;
+}
+
+/**
+ * Everything this loop started: the jobs it delegated (logged) plus the follow-ups they chained,
+ * three levels deep (storyboard → b-roll → build → preview). The same set backs the credits a run
+ * used and its model cost (cost.ts).
+ */
+export async function runJobs(ws: WorkspaceDb, appId: string, log: LogEntry[]): Promise<Job[]> {
   const ids = delegatedJobIds(log);
-  if (!ids.length) return 0;
+  if (!ids.length) return [];
   const direct = await ws.collection("jobs").getMany(ids);
   const set = new Set(ids);
   const recent = (await ws.collection("jobs").list({ where: [["appId", "==", appId]], orderBy: { field: "createdAt", dir: "desc" }, limit: 300 })).items;
   const all = new Map(direct.map((j) => [j.id, j]));
-  // three levels of chaining (storyboard → b-roll → build → preview)
   for (let level = 0; level < 3; level++) {
     for (const j of recent) if (j.parentJobId && set.has(j.parentJobId) && !all.has(j.id) && j.type !== "autopilot.step") all.set(j.id, j);
     for (const id of all.keys()) set.add(id);
   }
-  let total = 0;
-  for (const j of all.values()) total += isTerminalJob(j) ? (j.creditsCharged ?? 0) : (j.reservation?.credits ?? 0);
-  return total;
+  return [...all.values()];
 }
 
 /**
@@ -192,16 +200,16 @@ export class LoopEnv {
     const raiseTo = Math.max(max, spent + rest);
     if (approved) {
       this.set({ budget: { ...this.ap.budget, maxCredits: raiseTo } });
-      this.note("budget", `Budget raised to ${raiseTo} credits after your approval: enough for ${what} and the rest of this iteration (≈${rest}).`);
+      this.note("budget", `Credit limit raised to ${raiseTo} after your approval: enough for ${what} and the rest of this round (about ${rest}).`);
       return null;
     }
-    this.note("budget", `Paused: ${what} needs ≈${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit budget remain. The rest of this iteration is estimated at ≈${rest}.`);
+    this.note("budget", `Paused: ${what} needs about ${credits} credits but only ${Math.max(0, max - spent)} of the ${max}-credit limit are left. The rest of this round is estimated at about ${rest}.`);
     return this.checkpoint(
       "spend",
-      `Growth Autopilot needs more credits: ≈${credits} for ${what}, ≈${rest} to finish this iteration (budget ${max}, used ${spent}). Approve to raise the budget to ${raiseTo} credits and continue.`,
+      `Autopilot has used ${spent} of its ${max}-credit limit. Next is ${what} (about ${credits} credits); finishing this round takes about ${rest}. Approve to raise the limit to ${raiseTo} credits and keep going.`,
       rest,
       `budget@${this.currentTag ?? "enter"}`,
-      `Budget reached before ${what}`,
+      `Credit limit reached before ${what}`,
     );
   }
 

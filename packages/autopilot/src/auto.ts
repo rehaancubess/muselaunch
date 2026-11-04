@@ -53,7 +53,7 @@ export async function planAutoStart(p: Platform, workspaceId: string, appId: str
   const autoApproveCredits = preApprove ? Math.min(MAX_AUTO_APPROVE, maxCredits) : 0;
   if (settings.autoApproveRenders && !preApprove) notes.push("Final renders will ask first: only members who manage billing can let them run without asking.");
   if (!settings.autoApproveRenders) notes.push("Final renders will ask first (your workspace setting).");
-  if (!fromDna) notes.push("The goal is refined from your App DNA once the app has been analysed.");
+  if (!fromDna) notes.push("The goal is refined from what we learn about your app once it has been read.");
 
   let shortfall: AutopilotAutoPlan["shortfall"];
   let smaller: AutopilotAutoPlan["smaller"] = null;
@@ -84,7 +84,7 @@ export async function planAutoStart(p: Platform, workspaceId: string, appId: str
     fits: !shortfall,
     shortfall,
     smaller,
-    breakdown: [...est.breakdown, { label: "Room for automatic fixes", credits: fixRoom(variants) }, ...(loopAnalysis ? [{ label: "App DNA analysis (Muse Spark)", credits: loopAnalysis }] : [])],
+    breakdown: [...est.breakdown, { label: "Room for automatic fixes", credits: fixRoom(variants) }, ...(loopAnalysis ? [{ label: "Learning about your app (Muse Spark)", credits: loopAnalysis }] : [])],
     notes,
   };
 }
@@ -95,7 +95,7 @@ export async function planAutoStart(p: Platform, workspaceId: string, appId: str
  * (incl. a smaller run that fits) when the default doesn't fit — it never silently spends less or more.
  */
 export async function startAutoAutopilot(p: Platform, workspaceId: string, appId: string, opts: { variants?: number; member: Member; actor: string }): Promise<{ autopilot: Autopilot; job: Job; plan: AutopilotAutoPlan }> {
-  if (!can(opts.member, "content.write")) throw new AppError("FORBIDDEN", "Starting Growth Autopilot requires content.write", { userMessage: "Only editors, admins and owners can start Growth Autopilot." });
+  if (!can(opts.member, "content.write")) throw new AppError("FORBIDDEN", "Starting Growth Autopilot requires content.write", { userMessage: "Only editors, admins and owners can start Autopilot." });
   const plan = await planAutoStart(p, workspaceId, appId, opts);
   if (!plan.fits) {
     const s = plan.shortfall!;

@@ -23,4 +23,18 @@ export {
   type RequestVideoReviewInput,
   type VideoFixPlan,
 } from "./video-review";
+export {
+  videoAutofixHandler,
+  installVideoAutofixHooks,
+  autofixStepFor,
+  autofixRoundOf,
+  autofixRoundOfPatch,
+  autofixPatchId,
+  autofixRunId,
+  autofixRoundCredits,
+  autopilotOwning,
+  videoReviewSettings,
+  AUTOFIX_MAX_ROUNDS,
+  AUTOFIX_TRIGGER_JOBS,
+} from "./autofix";
 export { sceneFacts, readingFindings, frameInFrameFindings, repetitionFindings, blankFrameFindings, frameStats, wordCount, READING_WPS, HOOK_BLOCKER_WPS, type SceneFacts, type MeasuredFinding, type FrameStats } from "./measure";

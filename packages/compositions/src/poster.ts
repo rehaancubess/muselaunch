@@ -1,9 +1,11 @@
 /**
- * Poster frame: the first moment the opening scene's hook is fully on screen. Entrance animations
- * start from invisible at t=0, so frame 0 is often an empty backdrop; the paused preview, the
- * render poster and the export thumbnail all use this time instead so they show the hook.
+ * Poster frame: the first moment the opening scene's hook has fully settled. The opening scene is on
+ * screen from frame 0 (./opening.ts: its entrances play as a short settle), so frame 0 already shows
+ * the hook; the paused preview, the render poster and the export thumbnail park a beat later, once
+ * the settle (and any entrance of a layer that starts a little later) has finished.
  */
 import type { CompositionDoc } from "@muselaunch/contracts";
+import { enterEndSec } from "./opening";
 
 /** Layers that appear later than this (scene-relative) are not part of the opening frame. */
 const OPENING_WINDOW_SEC = 1.5;
@@ -17,8 +19,7 @@ export function posterTimeSec(doc: CompositionDoc): number {
   let earliestExit = scene.durationSec;
   for (const l of scene.layers) {
     if (l.hidden || l.timing.start > window) continue;
-    const enter = l.animation.enter;
-    settled = Math.max(settled, l.timing.start + (enter ? enter.delaySec + enter.durationSec : 0));
+    settled = Math.max(settled, l.timing.start + enterEndSec(0, l));
     const end = l.timing.end ?? scene.durationSec;
     const exit = l.animation.exit ? end - l.animation.exit.durationSec : end;
     if (exit > settled) earliestExit = Math.min(earliestExit, exit);

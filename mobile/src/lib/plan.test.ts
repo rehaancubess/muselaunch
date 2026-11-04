@@ -1,0 +1,195 @@
+import type { Campaign, CreateRunView, Job } from "../api/types";
+import { campaignRequest, clampLength, clampSlideCount, makeById, stillCampaignRequest, stillEstimateSteps, defaultFormat, displayFromServer, estimateSteps, featurePrompt, formatById, ideaPrompt, lengthOptions, promotePrompt, runLine, runView, stepState, stepStateOf, topIdeas } from "./plan";
+
+const now = Date.parse("2026-11-03T12:00:00Z");
+const campaign = (over: Partial<Campaign> = {}): Campaign => ({
+  id: "cmp_1",
+  appId: "app_1",
+  name: "Tidy Timer",
+  goal: "awareness",
+  status: "planning",
+  channels: ["instagram"],
+  deliverables: [{ kind: "short_video", channel: "instagram", aspectRatio: "9:16", durationSec: 20, count: 1 }],
+  origin: "create",
+  createdAt: "2026-11-03T11:50:00Z",
+  ...over,
+});
+const job = (over: Partial<Job> & Pick<Job, "type">): Job => ({ id: `job_${Math.random().toString(36).slice(2, 8)}`, status: "running", payload: { campaignId: "cmp_1" }, progress: { pct: 50, stage: "writing" }, createdAt: "2026-11-03T11:51:00Z", ...over });
+
+describe("Create's request", () => {
+  it("is the web's campaign request for one video, marked origin create", () => {
+    expect(campaignRequest({ kind: "feature", prompt: "  Show how Focus Mode blocks distractions. ", format: formatById("tiktok"), lengthSec: 30 })).toEqual({
+      request: "Show how Focus Mode blocks distractions.",
+      goal: "feature_announcement",
+      channels: ["tiktok"],
+      deliverables: [{ kind: "feature_promo", channel: "tiktok", aspectRatio: "9:16", durationSec: 30, count: 1 }],
+      opportunityIds: [],
+      conceptCount: 3,
+      origin: "create",
+    });
+    expect(campaignRequest({ kind: "idea", prompt: "An idea worth a video.", format: formatById("square_post"), lengthSec: 15, ideaId: "opp_9" }).opportunityIds).toEqual(["opp_9"]);
+  });
+
+  it("suggests prompts from what's known about the app", () => {
+    expect(promotePrompt("Tidy Timer: Focus & Pomodoro", { oneLiner: "Helps you focus in short sessions. More text." })).toBe("Introduce Tidy Timer, which helps you focus in short sessions.");
+    expect(promotePrompt("Tidy Timer")).toBe("Introduce Tidy Timer and what makes it worth trying.");
+    expect(featurePrompt({ name: "Focus Mode", description: "Blocks distracting apps while you work." })).toBe("Show how Focus Mode blocks distracting apps while you work.");
+    expect(ideaPrompt({ title: "Desk setup tours", proposedAngle: "Show the timer on a real desk." })).toBe("Desk setup tours. Show the timer on a real desk.");
+  });
+
+  it("keeps lengths within the plan and formats from where the person posts", () => {
+    expect(lengthOptions(30)).toEqual([15, 20, 30]);
+    expect(clampLength(45, 30)).toBe(30);
+    expect(defaultFormat(["youtube", "instagram"]).id).toBe("youtube_short");
+    expect(estimateSteps(20, { aiVoice: true }).map((s) => s.operation)).toEqual(["campaign.generate_concepts", "storyboard.generate", "composition.build", "media.voiceover", "render.final"]);
+  });
+
+  it("only offers ideas that name a real source", () => {
+    const base = { summary: "", sources: [], retrievedAt: "2026-11-01T00:00:00Z" };
+    const items = [
+      { ...base, id: "1", type: "opportunity" as const, refId: "o1", title: "No source" },
+      { ...base, id: "2", type: "opportunity" as const, refId: "o2", title: "Sourced", sources: [{ url: "https://example.com/a", kind: "web" }] },
+      { ...base, id: "3", type: "opportunity" as const, refId: "o3", title: "Model only", sources: [{ kind: "model_inference" }] },
+      { ...base, id: "4", type: "finding" as const, refId: "f4", title: "A finding", sources: [{ url: "https://example.com/b" }] },
+    ];
+    expect(topIdeas(items).map((i) => i.title)).toEqual(["Sourced"]);
+  });
+});
+
+describe("where a run stands (stored records only)", () => {
+  it("writing the idea, with the job's own progress", () => {
+    const v = runView({ campaign: campaign(), variants: [], compositions: [], jobs: [job({ type: "campaign.generate_concepts" })], finals: [], now });
+    expect(v).toMatchObject({ step: "idea", working: true, pct: 10, detail: "writing" });
+    expect(runLine(v)).toBe("Writing the idea · writing");
+    expect(stepState(v, "idea")).toBe("current");
+    expect(stepState(v, "finish")).toBe("todo");
+  });
+
+  it("says a failed job failed, in its own words", () => {
+    const v = runView({ campaign: campaign(), variants: [], compositions: [], jobs: [job({ type: "campaign.generate_concepts", status: "failed", error: { userMessage: "Not enough credits." } })], finals: [], now });
+    expect(v.failure).toMatchObject({ step: "idea", message: "Not enough credits.", retry: true });
+    expect(runLine(v)).toBe("Not enough credits.");
+  });
+
+  it("an idea picked but not planned yet waits for the server (the phone takes no step)", () => {
+    const v = runView({ campaign: campaign({ status: "ready" }), variants: [{ id: "var_1", title: "Focus in 20 seconds", status: "proposed" }], compositions: [], jobs: [], finals: [], now });
+    expect(v).toMatchObject({ step: "plan", working: false, ideaTitle: "Focus in 20 seconds" });
+    expect(v.next).toMatchObject({ kind: "produce", variantId: "var_1", aspectRatio: "9:16", targetDurationSec: 20 });
+    expect(runLine(v)).toBe("Up next: planning the video");
+  });
+
+  it("done when a final render of its video is ready", () => {
+    const v = runView({
+      campaign: campaign({ status: "producing" }),
+      variants: [{ id: "var_1", title: "Focus", status: "selected", compositionIds: ["cmp_v1"] }],
+      compositions: [{ id: "cmp_v1", status: "rendered", currentVersion: 2, variantId: "var_1", createdAt: "2026-11-03T11:55:00Z" }],
+      jobs: [],
+      finals: [{ id: "ast_final", status: "ready", kind: "video", render: { compositionId: "cmp_v1", quality: "final", version: 2 } }],
+      now,
+    });
+    expect(v).toMatchObject({ step: "done", pct: 100, finalAssetId: "ast_final" });
+    expect(runLine(v)).toBe("Your video is ready");
+  });
+
+  it("a run left for over a day doesn't carry on by itself", () => {
+    const v = runView({ campaign: campaign({ status: "ready", createdAt: "2026-11-01T00:00:00Z" }), variants: [{ id: "var_1", title: "Focus", status: "proposed" }], compositions: [], jobs: [], finals: [], now });
+    expect(v).toMatchObject({ stale: true, next: null });
+  });
+});
+
+describe("a run the server carries (GET /apps/:appId/create-runs)", () => {
+  const view = (over: Partial<CreateRunView> = {}): CreateRunView => ({
+    campaignId: "cmp_1",
+    appId: "app_1",
+    request: "Show how Focus Mode blocks distractions. And more.",
+    name: "Focus Mode",
+    kind: "feature",
+    format: { aspectRatio: "9:16", lengthSec: 20, channel: "instagram" },
+    startedBy: "u1",
+    createdAt: "2026-11-03T11:50:00Z",
+    stage: "make",
+    status: "working",
+    pct: 60,
+    detail: "rendering preview",
+    ideaCount: 3,
+    decision: null,
+    failure: null,
+    wait: null,
+    video: null,
+    actions: ["stop"],
+    ...over,
+  });
+
+  it("shows the step it's on in the job's own words", () => {
+    const d = displayFromServer(view());
+    expect(d).toMatchObject({ title: "Show how Focus Mode blocks distractions.", status: "working", line: "Making it · rendering preview", action: null });
+    expect(stepStateOf(d, "plan")).toBe("done");
+    expect(stepStateOf(d, "make")).toBe("current");
+    expect(stepStateOf(d, "check")).toBe("todo");
+  });
+
+  it("offers only what the server offers: finish at the new price (that exact step), try again; the Brand check stays on the web", () => {
+    const spend = displayFromServer(
+      view({ stage: "check", status: "needs_you", decision: { kind: "spend", stepKey: "final:cmp_v:v2", stage: "check", message: "It came out longer: finishing costs 40 credits, not 30.", at: "", credits: 40, shown: 30 }, actions: ["approve_spend", "stop"] }),
+    );
+    expect(spend).toMatchObject({ line: "It came out longer: finishing costs 40 credits, not 30.", action: { kind: "approve_spend", label: "Finish it · 40 credits", stepKey: "final:cmp_v:v2" } });
+    expect(stepStateOf(spend, "check")).toBe("failed");
+    const failed = displayFromServer(view({ status: "failed", failure: { stage: "make", message: "Making the video failed.", canRetry: true }, actions: ["retry", "stop"] }));
+    expect(failed.action).toEqual({ kind: "retry", label: "Try again" });
+    const brand = displayFromServer(view({ stage: "check", status: "needs_you", decision: { kind: "brand", stepKey: "final:x:v1", stage: "check", message: "The Brand check blocked it.", at: "", canOverride: true }, actions: ["override", "retry", "stop"] }));
+    expect(brand.action).toBeNull();
+    // Without content.write the server offers nothing, so the phone offers nothing.
+    expect(displayFromServer(view({ status: "failed", failure: { stage: "make", message: "x", canRetry: true }, actions: [] })).action).toBeNull();
+  });
+
+  it("done: the finished video to watch", () => {
+    const d = displayFromServer(view({ stage: "done", status: "done", pct: 100, ideaTitle: "Focus in 20 seconds", video: { assetId: "ast_final" } }));
+    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final", noun: "video" });
+    expect(stepStateOf(d, "finish")).toBe("done");
+  });
+
+  it("stills and text posts: their own words, the slides in order, the text", () => {
+    const making = displayFromServer(view({ stage: "plan", format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 6 } }));
+    expect(making).toMatchObject({ noun: "carousel", line: "Planning the slides · rendering preview" });
+    const carousel = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 3 }, stills: { assetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] } }),
+    );
+    expect(carousel).toMatchObject({ noun: "carousel", line: "Your carousel is ready · 3 slides", stillAssetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] });
+    expect(carousel.videoAssetId).toBeUndefined();
+    const text = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "9:16", channel: "x", output: "text_post" }, text: { copyPackId: "cp_1", channel: "x", text: "Focus mode, finally.", ok: true } }),
+    );
+    expect(text).toMatchObject({ noun: "text post", line: "Your text post is ready", text: { text: "Focus mode, finally.", channel: "x", ok: true } });
+    // Runs started before stills have no output: a video.
+    expect(displayFromServer(view()).noun).toBe("video");
+  });
+});
+
+describe("making stills and text posts from the phone (same requests as the web)", () => {
+  it("asks for the right deliverable for each choice", () => {
+    const carousel = stillCampaignRequest({ kind: "promote", prompt: "Introduce Tidy Timer.", make: makeById("carousel"), channel: "linkedin", slides: 14 });
+    expect(carousel.deliverables).toEqual([{ kind: "carousel", channel: "linkedin", aspectRatio: "4:5", count: 1, slides: 10 }]);
+    expect(carousel.channels).toEqual(["linkedin"]);
+    expect(carousel.origin).toBe("create");
+    const play = stillCampaignRequest({ kind: "feature", prompt: "Show Focus Mode.", make: makeById("google_play"), channel: "instagram", slides: 10 });
+    expect(play.deliverables[0]).toMatchObject({ kind: "store_screenshots", store: "android", aspectRatio: "9:16", slides: 8, channel: "google_play" });
+    expect(play.goal).toBe("feature_announcement");
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("app_store"), channel: "x", slides: 4 }).deliverables[0]).toMatchObject({ store: "ios", aspectRatio: "9:19.5", slides: 4 });
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("text_post"), channel: "x", slides: 0 }).deliverables[0]).toMatchObject({ kind: "text_post", channel: "x" });
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("thumbnail"), channel: "x", slides: 0 }).deliverables[0]).toMatchObject({ kind: "thumbnail", channel: "youtube", aspectRatio: "16:9" });
+  });
+
+  it("prices each step the way the server does", () => {
+    expect(stillEstimateSteps(makeById("carousel"), 6).map((s) => [s.operation, s.params])).toEqual([
+      ["campaign.generate_concepts", {}],
+      ["storyboard.generate", { format: "carousel", slides: 6 }],
+      ["composition.build", {}],
+      ["render.final", { slides: 6 }],
+    ]);
+    expect(stillEstimateSteps(makeById("post"), 1)[1]!.params).toEqual({ format: "post" });
+    expect(stillEstimateSteps(makeById("google_play"), 9)[1]!.params).toEqual({ format: "store_screenshots", slides: 8, store: "android" });
+    expect(stillEstimateSteps(makeById("text_post"), 0).map((s) => s.operation)).toEqual(["campaign.generate_concepts", "copy.generate"]);
+    expect(clampSlideCount(makeById("carousel"), null)).toBe(6);
+    expect(clampSlideCount(makeById("post"), 7)).toBe(1);
+  });
+});

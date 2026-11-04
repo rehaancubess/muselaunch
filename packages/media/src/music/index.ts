@@ -67,7 +67,8 @@ export function moodFromText(text: string | undefined | null, fallback: MusicMoo
 
 function paramsKey(p: MusicParams): string {
   const accents = [...(p.accents ?? [])].map((a) => Math.round(a * 1000) / 1000).sort((a, b) => a - b);
-  return sha256(JSON.stringify({ v: MUSIC_ENGINE_VERSION, mood: p.mood, d: Math.round(p.durationSec * 1000) / 1000, seed: p.seed, accents })).slice(0, 32);
+  // A fixed tempo (beat sync) is part of the key; renders without one keep their earlier ids.
+  return sha256(JSON.stringify({ v: MUSIC_ENGINE_VERSION, mood: p.mood, d: Math.round(p.durationSec * 1000) / 1000, seed: p.seed, accents, ...(p.bpm ? { bpm: Math.round(p.bpm * 100) / 100 } : {}) })).slice(0, 32);
 }
 
 /** Deterministic asset id of a music render in a workspace (the cache key). */

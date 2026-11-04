@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CompositionDoc, Job, Storyboard } from "@muselaunch/contracts";
-import { compileToHtml, validateDoc } from "@muselaunch/compositions";
+import { beatGrid, compileToHtml, cutsOnGrid, readableSec, sceneStarts, tempoFor, totalDuration, validateDoc } from "@muselaunch/compositions";
 import { ensureNodeCompileRuntime } from "@muselaunch/compositions/node";
 import { createComposition, getVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform, type JobContext, type Platform } from "@muselaunch/platform";
@@ -208,10 +208,10 @@ describe("media.voiceover (OpenAI TTS → Muse Voice Transcribe check)", () => {
 });
 
 describe("build-pipeline sound pass (prepareSoundtrack)", () => {
-  it("gives every new video original music + effects by default; narration waits for the workspace's AI-voice switch", async () => {
+  it("gives every new video original music + effects + AI voice by default; a workspace that switched the voice off gets no narration", async () => {
     const p = createTestPlatform({ OPENAI_API_KEY: "sk-test", META_API_KEY: "test-meta-key" }, handlers);
     const wid = "ws_build";
-    await makeWorkspace(p, wid);
+    await makeWorkspace(p, wid, { music: true, sfx: true, aiVoiceover: false });
     const { tts } = await wire(p, ["Meet Focusly. Plan your whole day in three taps, and get twenty percent more done."]);
     const r = await prepareSoundtrack(ctxFor(p, wid, "job_b1"), { doc: videoDoc(), compositionId: "cmp_b", appId: "app_1", storyboard: storyboard("tts"), app: { name: "Focusly" } });
     expect(tts).toHaveLength(0);
@@ -226,9 +226,9 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     const html = compileToHtml(r.doc, { assetUrl: (id) => `assets/${id}.m4a`, mode: "render", gsapSource: "inline" }).html;
     expect(html.match(/<audio /g)).toHaveLength(3);
 
-    // AI voice on (workspace setting) → the storyboard's narration is spoken, credits held + settled
-    await makeWorkspace(p, wid, { music: true, sfx: true, aiVoiceover: true });
-    expect(soundSettings(await p.db.top("workspaces").get(wid))).toMatchObject({ aiVoiceover: true });
+    // AI voice on (the default: no sound settings saved) → the storyboard's narration is spoken, credits held + settled
+    await makeWorkspace(p, wid);
+    expect(soundSettings(await p.db.top("workspaces").get(wid))).toEqual({ music: true, sfx: true, aiVoiceover: true });
     await p.credits.ensureAccount(wid, { grant: 10, reason: "test" });
     const v = await prepareSoundtrack(ctxFor(p, wid, "job_b2"), { doc: videoDoc(), compositionId: "cmp_v", appId: "app_1", storyboard: storyboard("tts", "calm ambient"), app: { name: "Focusly" } });
     expect(tts).toHaveLength(1);
@@ -313,6 +313,75 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     expect(tts).toHaveLength(2);
   });
 
+  it("cuts to the beat: scene changes land on the music's beats and the music is rendered at that tempo", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_beat";
+    await makeWorkspace(p, wid, { music: true, sfx: true, aiVoiceover: false });
+    const doc = videoDoc();
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_beat"), { doc, compositionId: "cmp_beat", appId: "app_1", storyboard: storyboard("none", "upbeat"), app: null });
+    const bpm = tempoFor("bright-pluck", "cmp_beat");
+    expect(r.doc.beat).toEqual({ bpm, offsetSec: 0 });
+    const grid = beatGrid(bpm);
+    expect(cutsOnGrid(r.doc, grid)).toMatchObject({ cuts: 2, onBeat: 2 });
+    // Each scene moved by ≤ 20 % and is still long enough to read.
+    r.doc.scenes.forEach((s, i) => {
+      expect(Math.abs(s.durationSec - doc.scenes[i]!.durationSec)).toBeLessThanOrEqual(doc.scenes[i]!.durationSec * 0.2 + 1e-6);
+      expect(s.durationSec).toBeGreaterThanOrEqual(Math.min(doc.scenes[i]!.durationSec, readableSec(doc.scenes[i]!, i)) - 1e-6);
+    });
+    // The end is whole bars + the ring-out, and the music asset is that tempo at that length.
+    const total = totalDuration(r.doc);
+    const music = await p.db.ws(wid).collection("mediaAssets").getOrThrow(r.music!.assetId);
+    expect(music.labels).toContain(`bpm:${Math.round(bpm)}`);
+    expect(JSON.parse(music.generation!.prompt)).toMatchObject({ bpm, durationSec: total });
+    // Effects follow the new cuts (the whoosh peaks inside the moved transition).
+    const whoosh = r.doc.audio.find((a) => a.sfx === "whoosh")!;
+    expect(whoosh.startSec).toBeGreaterThan(sceneStarts(r.doc)[1]! - 0.5);
+    expect(r.notes.join(" ")).toMatch(/Cut to the beat: 2 of 2 scene changes/);
+    expect(validateDoc(r.doc).ok).toBe(true);
+  }, 60_000);
+
+  it("keeps a founder recording's timing (no beat sync), says so", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_beat_founder";
+    await makeWorkspace(p, wid, { music: true, sfx: false, aiVoiceover: false });
+    const base = videoDoc();
+    const doc = { ...base, audio: [{ id: "aud_voiceover", kind: "voiceover" as const, assetId: "ast_fc", startSec: 0, trimInSec: 0, volume: 1, fadeInSec: 0, fadeOutSec: 0.3, duckUnderVoice: false, sourceLabel: "founder_recording" as const }] };
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_bf"), { doc, compositionId: "cmp_bf", appId: "app_1", storyboard: storyboard("none"), app: null });
+    expect(r.doc.beat).toBeUndefined();
+    expect(r.doc.scenes.map((s) => s.durationSec)).toEqual([3, 4, 3]);
+    expect(r.notes.join(" ")).toMatch(/Cuts keep their timing \(the founder's own voice sets the timing\)/);
+  }, 60_000);
+
+  it("narrated scenes hold their lines on the beat grid (each line inside its scene, every cut on a beat)", async () => {
+    const p = createTestPlatform({ OPENAI_API_KEY: "sk-test", META_API_KEY: "test-meta-key" }, handlers);
+    const wid = "ws_beat_vo";
+    await makeWorkspace(p, wid, { music: true, sfx: false, aiVoiceover: true });
+    await p.credits.ensureAccount(wid, { grant: 50, reason: "test" });
+    await wire(p, ["Meet Focusly. Plan your whole day in three taps."]);
+    const sb = {
+      id: "sbd_bv",
+      voiceover: { source: "tts", script: "Meet Focusly. Plan your whole day in three taps." },
+      music: { mood: "tech" },
+      scenes: [
+        { id: "hook", order: 0, narration: "Meet Focusly." },
+        { id: "demo", order: 1, narration: "Plan your whole day in three taps." },
+        { id: "cta", order: 2, narration: "" },
+      ],
+    } as unknown as Storyboard;
+    const r = await prepareSoundtrack(ctxFor(p, wid, "job_bv"), { doc: videoDoc(), compositionId: "cmp_bv", appId: "app_1", storyboard: sb, app: { name: "Focusly" } });
+    const grid = beatGrid(tempoFor("tech-pulse", "cmp_bv"));
+    expect(r.doc.beat?.bpm).toBe(grid.bpm);
+    expect(cutsOnGrid(r.doc, grid)).toMatchObject({ cuts: 2, onBeat: 2 });
+    const starts = sceneStarts(r.doc);
+    const vo = r.doc.audio.find((a) => a.kind === "voiceover")!;
+    vo.speech!.forEach((sp, i) => {
+      expect(sp.startSec).toBeGreaterThanOrEqual(starts[i]!);
+      expect(sp.endSec).toBeLessThanOrEqual(starts[i]! + r.doc.scenes[i]!.durationSec);
+    });
+    // Karaoke captions are the default for a voiced video built here.
+    expect(r.doc.captions).toMatchObject({ enabled: true, source: "transcript" });
+  }, 60_000);
+
   it("without a voice, script captions are switched off (no unspoken caption fragments)", async () => {
     const p = createTestPlatform({}, handlers);
     const wid = "ws_novoice";
@@ -321,6 +390,25 @@ describe("build-pipeline sound pass (prepareSoundtrack)", () => {
     const doc = { ...base, captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
     const r = await prepareSoundtrack(ctxFor(p, wid, "job_nv"), { doc, compositionId: "cmp_nv", appId: "app_1", storyboard: storyboard("none"), app: null });
     expect(r.doc.captions).toMatchObject({ enabled: false, cues: [{ text: "Meet Focusly." }] });
+  });
+
+  it("AI voice on by default but no external TTS key: no voice, no charge, captions off, said so", async () => {
+    const p = createTestPlatform({}, handlers);
+    const wid = "ws_nokey";
+    await makeWorkspace(p, wid); // defaults: AI voice on
+    expect(soundSettings(await p.db.top("workspaces").get(wid)).aiVoiceover).toBe(true);
+    await p.credits.ensureAccount(wid, { grant: 10, reason: "test" });
+    const base = videoDoc();
+    const doc = { ...base, captions: { ...base.captions, enabled: true, source: "script" as const, cues: [{ id: "cue_1", startSec: 0, endSec: 1, text: "Meet Focusly." }] } };
+    // The storyboard planned no voice (storyboard.ts checks the key): nothing is spoken, script captions go off.
+    const none = await prepareSoundtrack(ctxFor(p, wid, "job_nk1"), { doc, compositionId: "cmp_nk", appId: "app_1", storyboard: storyboard("none"), app: null });
+    expect(none.doc.audio.some((a) => a.kind === "voiceover")).toBe(false);
+    expect(none.doc.captions.enabled).toBe(false);
+    // Even a storyboard that asked for TTS doesn't break the build: an honest warning, no credits spent.
+    const tts = await prepareSoundtrack(ctxFor(p, wid, "job_nk2"), { doc, compositionId: "cmp_nk2", appId: "app_1", storyboard: storyboard("tts"), app: null });
+    expect(tts.warnings.join(" ")).toMatch(/external TTS isn't connected/);
+    expect(tts.doc.audio.some((a) => a.kind === "voiceover")).toBe(false);
+    expect((await p.credits.balance(wid)).available).toBe(10);
   });
 
   it("reads the narration script from the storyboard", () => {

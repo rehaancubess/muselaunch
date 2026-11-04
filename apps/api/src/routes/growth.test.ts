@@ -246,6 +246,23 @@ describe("Module E: Discover, publishing, approvals, outreach, OAuth", () => {
     expect(conns.body.providers.find((x: J) => x.provider === "youtube")).toMatchObject({ configured: true, state: "pending_review" });
   });
 
+  it("OAuth return page: the quick setup and Settings come back to their own fixed page (signed), never a URL from the request", async () => {
+    const back = async (body: Record<string, unknown>) => {
+      const start = await alice.post(`${A}/connections/youtube/start`, body);
+      expect(start.status).toBe(200);
+      const state = new URL(start.body.authorizeUrl).searchParams.get("state")!;
+      // Cancelled at the consent screen: nothing is parked, the browser just goes back.
+      const res = await app.request(`/v1/oauth/youtube/callback?error=access_denied&state=${encodeURIComponent(state)}`);
+      expect(res.status).toBe(302);
+      return res.headers.get("location")!;
+    };
+    expect(await back({ appId, back: "autopilot" })).toMatch(new RegExp(`^https://app\\.example\\.com/w/${wsA}/a/${appId}/autopilot\\?connections=1&provider=youtube&status=cancelled`));
+    expect(await back({ appId, back: "settings" })).toMatch(new RegExp(`^https://app\\.example\\.com/w/${wsA}/settings\\?connections=1&provider=youtube&status=cancelled`));
+    // Without an app the progress screen has nowhere to go: workspace integrations, as before.
+    expect(await back({ back: "autopilot" })).toMatch(new RegExp(`^https://app\\.example\\.com/w/${wsA}/settings/integrations\\?connections=1`));
+    expect((await alice.post(`${A}/connections/youtube/start`, { appId, back: "https://evil.example.com" })).status).toBe(422);
+  });
+
   let postId = "";
   it("publishing requires an approval of the exact snapshot and the publish capability", async () => {
     const created = await alice.post(`${A}/apps/${appId}/posts`, { campaignId, compositionId, channel: "youtube", accountId, title: "Plan your week in 15 seconds", caption: "Plan on the laptop, check on your phone.", tags: ["productivity"] });

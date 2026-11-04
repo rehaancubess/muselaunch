@@ -1,4 +1,4 @@
-import { AngleType, AUTO_VIDEO_DURATION, Channel, type CampaignVariant, type Deliverable, type DeliverableKind } from "@muselaunch/contracts";
+import { AngleType, AUTO_VIDEO_DURATION, Channel, clampSlides, FORMAT_LABEL, formatOfDeliverable, isTextDeliverable, TEXT_POST_LIMITS, type CampaignVariant, type Deliverable, type DeliverableKind } from "@muselaunch/contracts";
 import { createHash } from "node:crypto";
 import { AppError, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
@@ -61,6 +61,25 @@ export async function planMaxVideoSec(p: Platform, workspaceId: string): Promise
   const ws = await p.db.top("workspaces").get(workspaceId);
   const plans = p.credits.plans as Record<string, { limits: { maxVideoSec: number } } | undefined>;
   return (plans[ws?.planId ?? "free"] ?? plans.free)?.limits.maxVideoSec ?? AUTO_VIDEO_DURATION.max;
+}
+
+/**
+ * What the concepts are for when the campaign asks for no video: one still piece (a post, a carousel,
+ * a thumbnail, a store screenshot set) or a text-only post. Null when a video is (or may be) made.
+ */
+export function nonVideoFormatLine(deliverables: Deliverable[]): string | null {
+  if (!deliverables.length || deliverables.some((d) => formatOfDeliverable(d.kind) === "video")) return null;
+  const text = deliverables.find((d) => isTextDeliverable(d.kind));
+  if (text) {
+    const ch = text.channel && text.channel in TEXT_POST_LIMITS ? (text.channel as keyof typeof TEXT_POST_LIMITS) : "x";
+    return `Format: one text-only post on ${ch} (at most ${TEXT_POST_LIMITS[ch]} characters, no image or video). Each concept is a different angle for that post; scriptOutline is the post's beats in order (hook first). No video length (leave targetDurationSec out).`;
+  }
+  const still = deliverables.find((d) => formatOfDeliverable(d.kind));
+  if (!still) return null;
+  const f = formatOfDeliverable(still.kind)!;
+  const n = clampSlides(f, still.slides, still.store);
+  const what = f === "carousel" ? `a ${n}-slide carousel (slide 1 is the cover hook, the last the call to action)` : f === "store_screenshots" ? `a set of ${n} ${still.store === "android" ? "Google Play" : "App Store"} screenshots (benefit-first headlines on the real screens)` : f === "thumbnail" ? "one YouTube thumbnail (at most 5 words)" : "one single-image post";
+  return `Format: ${FORMAT_LABEL[f].toLowerCase()}: ${what}, made of still slides showing the real app. scriptOutline is the slides in order. No video length (leave targetDurationSec out).`;
 }
 
 /** The founder's video length for this campaign, if they chose one (else concepts pick their own). */
@@ -154,7 +173,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
     const input = [
       `Founder's request: ${clip(campaign.request ?? campaign.name, 4000)}`,
       `Goal: ${campaign.goal} · Channels: ${channels.join(", ")} · Deliverables: ${deliverables.map((d) => `${d.count}× ${d.kind} ${d.aspectRatio}${d.durationSec ? ` ${d.durationSec}s` : ""}`).join(", ")}`,
-      fixedDuration ? `Video length: ${Math.min(fixedDuration, planMax)} s for every concept (the founder's choice).` : `Video length: pick targetDurationSec per concept between ${Math.min(AUTO_VIDEO_DURATION.min, autoMax)} and ${autoMax} s, varied across concepts.`,
+      nonVideoFormatLine(deliverables) ?? (fixedDuration ? `Video length: ${Math.min(fixedDuration, planMax)} s for every concept (the founder's choice).` : `Video length: pick targetDurationSec per concept between ${Math.min(AUTO_VIDEO_DURATION.min, autoMax)} and ${autoMax} s, varied across concepts.`),
       `Produce exactly ${count} concepts. Allowed angle types: ${allowed.join(", ")}.`,
       memory.items.length ? `Team memory (id: kind — text):\n${memory.items.map((m) => `- ${m.id}: ${m.kind} — ${m.text}`).join("\n")}\nSummary: ${memory.summary}` : "Team memory: (none yet)",
       "",
@@ -167,7 +186,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       `Audience segments (id: name): ${segmentsPage.items.map((s) => `${s.id}: ${s.name}`).join("; ") || "(none)"}`,
     ].join("\n");
 
-    await ctx.progress(30, `${plannedEngine(p, "concepts.generate").name} is developing concepts`);
+    await ctx.progress(30, `${plannedEngine(p, "concepts.generate").name} is coming up with ideas`);
     let out = await sparkJson(p, rec, "concepts.generate", { ctx: rec.callCtx("concepts.generate"), instructions: INSTRUCTIONS, input, schema: ConceptsOutput, schemaName: "CampaignConcepts", maxOutputTokens: 10_000, reasoningEffort: "medium", cacheKey: "agents.concepts" });
     await rec.modelStep(`Generate brief + concepts (${engineName(out.model)})`, out, { findings: findings.length, opportunities: opps.length, memory: memory.items.length }, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
     let problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
@@ -180,11 +199,11 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
       await rec.modelStep(`Repair: make concepts distinct (${engineName(out.model)})`, out, problems, out.data.variants.map((v) => `${v.angleType}: ${v.title}`).join("\n"));
       problems = distinctnessProblems(out.data.variants.slice(0, count), allowed);
       if (problems.length || out.data.variants.length < count) {
-        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: `${engineName(out.model)} couldn't produce clearly different concepts. Please retry or refine the request.` });
+        throw new AppError("PROVIDER_ERROR", `Concepts were not strategically distinct after repair: ${problems.join(" ")}`, { retryable: true, userMessage: `${engineName(out.model)} couldn't come up with clearly different ideas. Try again or say more about what you want.` });
       }
     }
     ctx.throwIfCancelled();
-    await ctx.progress(75, "saving concepts");
+    await ctx.progress(75, "saving the ideas");
 
     const verifiedIds = new Set(app.verifiedClaims.map((c) => c.id));
     const findingIds = new Set(findings.map((f) => f.id));
@@ -258,7 +277,7 @@ export async function generateConceptsHandler(ctx: JobContext<"campaign.generate
     const rename = spokenName && campaign.request && campaign.name === autoCampaignName(campaign.request) ? { name: spokenName } : {};
     await ws.collection("campaigns").update(campaignId, { status: "concepts_ready", briefId: brief.id, ...rename }, { actor: ctx.actor });
     await rec.finish("succeeded", { outputRefs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id }))], memoryRefs: memory.items.map((m) => m.id) });
-    await ctx.progress(100, "concepts ready");
+    await ctx.progress(100, "ideas ready");
     return { refs: [{ entity: "campaignBriefs", id: brief.id }, ...variants.map((v) => ({ entity: "campaignVariants", id: v.id })), { entity: "agentRuns", id: rec.id }], data: { usedGlimmer: memory.usedGlimmer, angleTypes: variants.map((v) => v.angleType), durationsSec: variants.map((v) => v.targetDurationSec) } };
   } catch (raw) {
     const err = toAppError(raw);

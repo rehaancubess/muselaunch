@@ -47,7 +47,7 @@ const SECTIONS = [
   { id: "founder", label: "Founder brief" },
   { id: "features", label: "Features" },
   { id: "audiences", label: "Audiences" },
-  { id: "claims", label: "Claims" },
+  { id: "claims", label: "Facts" },
   { id: "brand", label: "Brand kit" },
   { id: "competitors", label: "Competitors" },
   { id: "memory", label: "Memory" },
@@ -96,8 +96,8 @@ function AnalyzeDialog({ open, onOpenChange, workspaceId, appId, onStarted, refr
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={refresh ? "Re-analyse App DNA" : "Analyse your app"}
-      description="Muse Spark reads your listing, screenshots and uploads to draft features, audiences and claims with evidence. Fields you edited are kept."
+      title={refresh ? "Analyse your app again" : "Analyse your app"}
+      description="Muse Spark reads your listing, screenshots and uploads to draft features, audiences and facts, each linked to where it came from. Fields you edited are kept."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -120,7 +120,7 @@ function AnalyzeDialog({ open, onOpenChange, workspaceId, appId, onStarted, refr
               }
             }}
           >
-            {refresh ? "Re-analyse" : "Analyse"}
+            {refresh ? "Analyse again" : "Analyse"}
           </Button>
         </>
       }
@@ -193,12 +193,12 @@ function ReviewAside({ profile, claims, app, workspaceId, appId, canEdit }: { pr
           <StatusPill status={confirmed ? "success" : "attention"}>{confirmed ? "Confirmed" : "Draft"}</StatusPill>
         </div>
         <p className="text-footnote text-ink-2">
-          {confirmed && profile.confirmedAt ? `Confirmed ${relativeTime(profile.confirmedAt)}. Campaigns use this version.` : "Check the facts, verify claims you can stand behind, then confirm."}
+          {confirmed && profile.confirmedAt ? `Confirmed ${relativeTime(profile.confirmedAt)}. Campaigns use this version.` : "Check what we learned, confirm the facts you can stand behind, then confirm the whole page."}
         </p>
       </div>
       <dl className="grid grid-cols-2 gap-3">
         <div className="rounded-lg bg-mist px-3 py-2.5">
-          <dt className="text-caption text-ink-2">Verified claims</dt>
+          <dt className="text-caption text-ink-2">Confirmed facts</dt>
           <dd className="text-title-3 font-semibold tabular">{verified}</dd>
         </div>
         <div className={cn("rounded-lg px-3 py-2.5", toReview ? "bg-warning-soft" : "bg-mist")}>
@@ -217,7 +217,7 @@ function ReviewAside({ profile, claims, app, workspaceId, appId, canEdit }: { pr
             try {
               await api.post(wsPath(workspaceId, `/apps/${appId}/dna/confirm`), { version: profile.version });
               await invalidate(wsPath(workspaceId, `/apps/${appId}/dna`), wsPath(workspaceId, "/apps"));
-              toast.success("App DNA confirmed", toReview ? `${toReview} claim${toReview === 1 ? " stays" : "s stay"} unused until verified.` : "Campaigns will use this version.");
+              toast.success("What we learned is confirmed", toReview ? `${toReview} fact${toReview === 1 ? " stays" : "s stay"} unused until you confirm ${toReview === 1 ? "it" : "them"}.` : "Campaigns will use this version.");
             } catch (e) {
               toast.error("Couldn’t confirm", errorMessage(e));
             } finally {
@@ -225,7 +225,7 @@ function ReviewAside({ profile, claims, app, workspaceId, appId, canEdit }: { pr
             }
           }}
         >
-          {confirmed ? "Confirm again" : "Confirm App DNA"}
+          {confirmed ? "Confirm again" : "Confirm what we learned"}
         </Button>
       ) : null}
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-4">
@@ -233,7 +233,7 @@ function ReviewAside({ profile, claims, app, workspaceId, appId, canEdit }: { pr
         {profile.userEditedPaths.length ? <ProvenanceBadge kind="manual" label={`${profile.userEditedPaths.length} edited by you`} /> : null}
         <span className="text-caption text-ink-3">Version {profile.version}</span>
       </div>
-      <nav aria-label="App DNA sections" className="hidden border-t border-line pt-4 lg:block">
+      <nav aria-label="About your app sections" className="hidden border-t border-line pt-4 lg:block">
         <ul className="space-y-0.5">
           {SECTIONS.map((s) => (
             <li key={s.id}>
@@ -258,7 +258,7 @@ function FounderBrief({ workspaceId, appId }: { workspaceId: string; appId: stri
       purpose="founder_brief"
       onTranscript={() => {
         void invalidate(wsPath(workspaceId, `/apps/${appId}/dna`));
-        toast.success("Founder brief added", "Its transcript is now evidence in your App DNA. Re-analyse to fold it into features and claims.");
+        toast.success("Founder brief added", "Its transcript is now a source for About your app. Analyse again to add it to features and facts.");
       }}
     />
   );
@@ -295,7 +295,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
               </div>
               <div>
                 <dt className="text-caption text-ink-2">Platforms</dt>
-                <dd className="text-body-sm font-medium">{profile.platforms.length ? profile.platforms.map((p) => (p === "ios" ? "iOS" : p === "macos" ? "macOS" : p[0]!.toUpperCase() + p.slice(1))).join(", ") : "Not set"}</dd>
+                <dd className="text-body-sm font-medium">{profile.platforms.length ? profile.platforms.map((p) => (p === "ios" ? "iOS" : p === "macos" ? "macOS" : p === "tv" ? "TV" : p[0]!.toUpperCase() + p.slice(1))).join(", ") : "Not set"}</dd>
               </div>
               <div>
                 <dt className="text-caption text-ink-2">Business model</dt>
@@ -360,7 +360,7 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
               ))}
             </ul>
           ) : (
-            <p className="rounded-xl bg-mist/60 px-4 py-6 text-center text-body-sm text-ink-2">No features found yet. Upload screenshots in the Library and re-analyse.</p>
+            <p className="rounded-xl bg-mist/60 px-4 py-6 text-center text-body-sm text-ink-2">No features found yet. Upload screenshots in Create → Videos and analyse again.</p>
           )}
         </DnaSection>
 
@@ -396,12 +396,12 @@ function ProfileView({ data, app, workspaceId, appId, canEdit, canApprove }: { d
             </ul>
           ) : (
             <div className="rounded-xl bg-mist/60">
-              <EmptyState size="sm" icon={<Users aria-hidden />} title="No audiences yet" description="Audiences come from your listing and, later, from research in Discover." />
+              <EmptyState size="sm" icon={<Users aria-hidden />} title="No audiences yet" description="Audiences come from your listing and, later, from Muse’s research." />
             </div>
           )}
         </DnaSection>
 
-        <DnaSection id="claims" title="Claims" description="Only verified claims appear in creative. Rejected ones are never used.">
+        <DnaSection id="claims" title="Facts" description="Videos and posts only say facts you’ve confirmed. Rejected ones are never used.">
           <ClaimsSection claims={claims} evidence={evidence} workspaceId={workspaceId} appId={appId} canEdit={canEdit} canApprove={canApprove} />
         </DnaSection>
 
@@ -491,17 +491,17 @@ export function DnaPage() {
       <div className="space-y-6">
         {runningJob ? <AnalysisJob workspaceId={workspaceId} job={runningJob} /> : null}
         <div className="rounded-2xl bg-mist/60">
-          <UnavailableState feature="App DNA analysis" description="Your features, audiences, claims and brand kit will appear here for review once the analysis service is deployed. Nothing is generated in the meantime." />
+          <UnavailableState feature="App analysis" description="Your features, audiences, facts and brand kit will appear here for review once the analysis service is deployed. Nothing is generated in the meantime." />
         </div>
         <div className="flex justify-center">
           <Button variant="secondary" asChild>
-            <Link href={r.library}>Upload screenshots to the Library</Link>
+            <Link href={r.videos}>Upload screenshots</Link>
           </Button>
         </div>
       </div>
     );
   } else if (dna.error) {
-    body = <ErrorState title="App DNA didn’t load" message={errorMessage(dna.error)} onRetry={() => dna.refetch()} retrying={dna.isFetching} reference={dna.error.requestId} />;
+    body = <ErrorState title="About your app didn’t load" message={errorMessage(dna.error)} onRetry={() => dna.refetch()} retrying={dna.isFetching} reference={dna.error.requestId} />;
   } else if (!hasProfile) {
     body = runningJob ? (
       <div className="mx-auto max-w-xl space-y-4 py-6">
@@ -517,7 +517,7 @@ export function DnaPage() {
           description={
             app.dnaStatus === "failed" && lastFailed?.error?.userMessage
               ? lastFailed.error.userMessage
-              : "Muse Spark analyses your listing, screenshots and uploads into features, audiences and claims, each linked to evidence, for you to review and confirm."
+              : "Muse Spark reads your listing, screenshots and uploads and writes down features, audiences and facts, each linked to where it came from, for you to check and confirm."
           }
           action={
             canEdit ? (
@@ -528,7 +528,7 @@ export function DnaPage() {
           }
           secondaryAction={
             <Button variant="ghost" asChild>
-              <Link href={r.library}>Add screenshots first</Link>
+              <Link href={r.videos}>Add screenshots first</Link>
             </Button>
           }
         />
@@ -559,11 +559,12 @@ export function DnaPage() {
         <div className="flex min-w-0 items-start gap-4">
           <AppIcon app={app} workspaceId={workspaceId} size={64} />
           <div className="min-w-0 space-y-2">
+            <p className="text-footnote font-medium text-ink-3">About your app</p>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-title-1 font-semibold">{app.name}</h1>
               <StatusPill status={statusKindOf(app.dnaStatus === "none" ? "draft" : app.dnaStatus)}>{app.dnaStatus === "none" ? "Not analysed" : humanizeStatus(app.dnaStatus)}</StatusPill>
             </div>
-            <p className="text-body text-ink-2">App DNA: what Muse knows about your product, and what it’s allowed to say.</p>
+            <p className="text-body text-ink-2">What MuseLaunch knows about your app, and what it’s allowed to say about it.</p>
             <div className="flex flex-wrap items-center gap-1.5">
               <SourceLinks app={app} />
             </div>
@@ -572,7 +573,7 @@ export function DnaPage() {
         {canEdit && hasProfile ? (
           <div className="flex shrink-0 gap-2">
             <Button variant="outline" size="sm" icon={<RefreshCw className="size-3.5" aria-hidden />} onClick={() => setAnalyzeOpen(true)} disabled={Boolean(runningJob)}>
-              Re-analyse
+              Analyse again
             </Button>
           </div>
         ) : null}

@@ -4,16 +4,20 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppEnv } from "./context";
-import { accessLog, authenticate, errorResponse, rateLimit, requestId, workspaceScope } from "./middleware";
+import { accessLog, authenticate, errorResponse, rateLimit, requestId, webSessionOnly, workspaceScope } from "./middleware";
+import { deviceRoutes, publicDeviceRoutes } from "./routes/devices";
 import { analyticsRoutes } from "./routes/analytics";
 import { appDnaRoutes } from "./routes/app-dna";
 import { appRoutes } from "./routes/apps";
 import { assetRoutes } from "./routes/assets";
+import { alwaysOnRoutes } from "./routes/always-on";
+import { appSetupRoutes } from "./routes/app-setup";
 import { autopilotRoutes } from "./routes/autopilot";
 import { adminRoutes, billingRoutes } from "./routes/billing";
 import { campaignRoutes } from "./routes/campaigns";
 import { compositionRoutes } from "./routes/compositions";
 import { creditRoutes } from "./routes/core-billing";
+import { createRunRoutes } from "./routes/create-runs";
 import { discoverRoutes } from "./routes/discover";
 import { guardianRoutes } from "./routes/guardian";
 import { jobRoutes } from "./routes/jobs";
@@ -25,8 +29,10 @@ import { publicLinkRoutes } from "./routes/public-links";
 import { publishingRoutes } from "./routes/publishing";
 import { soundRoutes } from "./routes/sound";
 import { statusRoutes } from "./routes/status";
+import { todayRoutes } from "./routes/today";
 import { localStorageRoutes } from "./routes/storage-local";
 import { videoReviewRoutes } from "./routes/video-reviews";
+import { webPushRoutes } from "./routes/web-push";
 import { workspaceRoutes } from "./routes/workspace";
 
 export function buildApp(platform: Platform) {
@@ -62,12 +68,20 @@ export function buildApp(platform: Platform) {
   app.route("/v1/storage/local", localStorageRoutes);
   app.route("/v1/oauth", oauthRoutes);
   app.route("/r", publicLinkRoutes);
+  // The phone app redeems a link code here (it has no token yet; rate-limited per address).
+  app.route("/v1/device-links", publicDeviceRoutes);
 
-  // Authenticated API.
+  // Authenticated API (a Firebase session, or a linked phone's `mld_` token).
   const v1 = new Hono<AppEnv>();
   v1.use("*", authenticate);
   v1.use("*", rateLimit({ perMinute: 240 }));
+  // A linked phone can't accept invites or open the operator console (and can't make phone links).
+  v1.use("/invites/*", webSessionOnly);
+  v1.use("/admin/*", webSessionOnly);
   v1.route("/", meRoutes);
+  v1.route("/", deviceRoutes);
+  // Notifications in the browser (Web Push): the server's public key and this person's browsers.
+  v1.route("/", webPushRoutes);
   v1.route("/", statusRoutes);
   // Operator console (ADMIN_UIDS only; the routes check it themselves).
   v1.route("/admin", adminRoutes);
@@ -82,7 +96,10 @@ export function buildApp(platform: Platform) {
   ws.route("/", appDnaRoutes);
   ws.route("/jobs", jobRoutes);
   ws.route("/", campaignRoutes);
+  ws.route("/", createRunRoutes);
   ws.route("/", autopilotRoutes);
+  ws.route("/", alwaysOnRoutes);
+  ws.route("/", appSetupRoutes);
   ws.route("/", compositionRoutes);
   ws.route("/", mediaRoutes);
   ws.route("/", soundRoutes);
@@ -93,6 +110,7 @@ export function buildApp(platform: Platform) {
   ws.route("/", guardianRoutes);
   ws.route("/", videoReviewRoutes);
   ws.route("/", needsYouRoutes);
+  ws.route("/", todayRoutes);
   v1.route("/workspaces/:workspaceId", ws);
 
   app.route("/v1", v1);

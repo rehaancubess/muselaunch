@@ -1,9 +1,9 @@
 import { commitVersion } from "@muselaunch/compositions/store";
 import { createTestPlatform } from "@muselaunch/platform";
 import { beforeAll, describe, expect, it } from "vitest";
-import { installFakeMeta, jsonRoute, requestText, seedApp, seedRenderedVideo, type MetaRequest, type SeededApp } from "../testing";
+import { installFakeMeta, jsonRoute, requestText, responsesBody, schemaName, seedApp, seedRenderedVideo, type MetaRequest, type SeededApp } from "../testing";
 import { mergeVideoFindings, requestVideoFix, requestVideoReview, videoFixPlan, videoReviewHandler } from "./index";
-import { readingFindings, repetitionFindings, sceneFacts } from "./measure";
+import { blankFrameFindings, readingFindings, repetitionFindings, sceneFacts } from "./measure";
 import { reviewTestDoc } from "./testing";
 
 /**
@@ -142,6 +142,28 @@ describe("Spark video review (video.review)", () => {
     expect((await off.credits.balance(w)).available).toBe(100);
   });
 
+  it("asks once more with lighter reasoning when Spark's answer runs out of room (max_output_tokens)", async () => {
+    const q = createTestPlatform({ META_API_KEY: "test-key" }, { "video.review": videoReviewHandler });
+    const w = "ws_vreview_long";
+    await q.credits.ensureAccount(w, { grant: 100, reason: "test" });
+    const s = await seedApp(q, w);
+    const efforts: unknown[] = [];
+    installFakeMeta(q, [
+      (req) => {
+        if (schemaName(req) !== "VideoReview") return undefined;
+        efforts.push(req.reasoning?.effort);
+        if (efforts.length === 1) return { ...responsesBody({ text: "" }), status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
+        return responsesBody({ text: JSON.stringify({ score: 8, summary: "Clear and readable. (fixture)", rubric: [{ check: "honesty", verdict: "ok" }], findings: [] }) });
+      },
+    ]);
+    const v = await seedRenderedVideo(q, w, { appId: s.appId, screenshotId: s.screenshotIds[0]! });
+    const { review, job } = await requestVideoReview(q, w, { compositionId: v.compositionId, actor: "u1", requestedFrom: "studio" });
+    await q.inline!.drain();
+    expect((await q.jobs.get(w, job!.id))?.status).toBe("succeeded");
+    expect(efforts).toEqual(["medium", "low"]);
+    expect(await q.db.ws(w).collection("videoReviews").getOrThrow(review.id)).toMatchObject({ status: "succeeded", score: 8 });
+  });
+
   it("refuses a version with no render, other compositions' renders, and other workspaces", async () => {
     const ws = p.db.ws(wid);
     const v = await seedRenderedVideo(p, wid, { appId: seed.appId, screenshotId: seed.screenshotIds[0]!, hook: "Focus in one tap" });
@@ -184,6 +206,17 @@ describe("video review measurements and fix plans (pure)", () => {
     expect(repetitionFindings(sceneFacts(tripled))).toEqual([expect.objectContaining({ sceneId: "sc_demo3", check: "repetition", severity: "warn" })]);
     const block = { ...doc.scenes[0]!, id: "sc_block", layers: [{ id: "ly_b", type: "block" as const, blockId: "lower-third", params: { title: "Plan your week in seconds", color: "#ffffff" }, box: { x: 0, y: 0, w: 1, h: 0.2, rotation: 0, opacity: 1, z: 1 }, timing: { start: 0 }, animation: { loop: "none" as const }, locked: false, hidden: false }] };
     expect(sceneFacts({ ...doc, scenes: [block] })[0]).toMatchObject({ words: 5 });
+  });
+
+  it("the opening scene's text is readable from the first frame (its entrance only settles it); a flat first frame is a blocker", () => {
+    const doc = reviewTestDoc(theme, "ast_shot", { hook: "Focus in one tap" });
+    const enter = { preset: "mask-reveal" as const, durationSec: 0.85, delaySec: 0.1, easing: "smooth" as const };
+    const withEnter = (s: (typeof doc.scenes)[number]) => ({ ...s, layers: s.layers.map((l) => (l.type === "text" ? { ...l, animation: { ...l.animation, enter } } : l)) });
+    const facts = sceneFacts({ ...doc, scenes: [withEnter(doc.scenes[0]!), withEnter(doc.scenes[1]!)] });
+    expect(facts[0]!.texts.every((t) => t.readableFrom === 0)).toBe(true);
+    expect(facts[1]!.texts.every((t) => t.readableFrom === 0.95)).toBe(true);
+    const blank = blankFrameFindings([{ ref: "f1", sceneId: "sc_hook", kind: "first", atSec: 0, mean: 8, stdev: 0.5 }], facts);
+    expect(blank).toEqual([expect.objectContaining({ sceneId: "sc_hook", severity: "blocker", check: "broken_frame" })]);
   });
 
   it("builds a scene-scoped instruction from findings, and nothing when every finding is about the whole video", () => {

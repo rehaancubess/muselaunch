@@ -1,15 +1,8 @@
-"use client";
-import { PageHeader } from "@muselaunch/ui";
-import { PageContainer } from "@/components/page-container";
-import InsightsRoot from "@/features/insights";
-import { useCurrentApp } from "@/lib/workspace";
+import { redirect } from "next/navigation";
+import { routes, withQuery } from "@/lib/routes";
 
-export default function InsightsPage() {
-  const { appId } = useCurrentApp();
-  return (
-    <PageContainer width="wide">
-      <PageHeader title="Insights" description="Measured results from the sources you connect, what your experiments show, and what to try next." />
-      <InsightsRoot appId={appId} />
-    </PageContainer>
-  );
+/** "How it's going" became Results. Old links keep working; Insights → Details (./details) stays, under the Results tab. */
+export default async function InsightsRedirect({ params, searchParams }: { params: Promise<{ workspaceId: string; appId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { workspaceId, appId } = await params;
+  redirect(withQuery(routes.app(workspaceId, appId).results, await searchParams));
 }

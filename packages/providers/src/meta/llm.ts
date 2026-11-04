@@ -10,6 +10,9 @@ import { MetaClient, metaClient, type CallContext } from "./client";
  * - Structured output: `text.format = { type: "json_schema", name, schema }` (Meta docs: strict=false
  *   still constrains output; we validate with Zod and do one repair pass on mismatch).
  * - Images: `input_image` parts with `image_url` (public URL or data URL) or `file_id`.
+ * - PDFs: `input_file` parts with `file_data` (base64 data URL + `filename`), `file_url` (public URL
+ *   the server fetches) or `file_id` (docs: file-handling; text from the first 100 pages, page images
+ *   from the first 50, which count toward the 50-images-per-request limit).
  * - Search grounding: `tools: [{ type: "web_search" }]`; citations come back as `url_citation`
  *   annotations on `output_text` parts and are returned as `SourceRef`s.
  */
@@ -18,7 +21,8 @@ export type ModelRole = "spark" | "wonder";
 
 export type InputPart =
   | { type: "input_text"; text: string }
-  | { type: "input_image"; image_url?: string; file_id?: string; detail?: "low" | "high" | "auto" };
+  | { type: "input_image"; image_url?: string; file_id?: string; detail?: "low" | "high" | "auto" }
+  | { type: "input_file"; file_data?: string; filename?: string; file_url?: string; file_id?: string };
 
 /** Function tool declaration (Responses API: flat object, not nested under `function`). */
 export interface FunctionTool {
@@ -218,10 +222,12 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
   const items: ResponseInputItem[] = typeof call.input === "string" ? [{ role: "user", content: [{ type: "input_text", text: call.input }] }] : call.input;
   let inputText = "";
   let imageCount = 0;
+  let fileCount = 0;
   for (const it of items) {
     if ("role" in it) {
       for (const part of it.content) {
         if (part.type === "input_text") inputText += `${part.text}\n`;
+        else if (part.type === "input_file") fileCount++;
         else imageCount++;
       }
     } else inputText += `${it.type === "function_call" ? it.arguments : it.output}\n`;
@@ -250,7 +256,8 @@ async function callResponses(p: Platform, call: RespondCall, format?: { name: st
   // With previous_response_id the server replays earlier turns; budget a conservative history allowance.
   const historyAllowance = call.previousResponseId ? 20_000 : 0;
   const searchPrice = p.cfg.standIn ? PRICES.openaiWebSearchPerQuery : PRICES.metaWebSearchPerQuery;
-  const estimatedUsd = estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + 2000 + historyAllowance, maxOut) + (ws ? 5 * searchPrice : 0);
+  // A PDF is up to 100 pages of text plus up to 50 page images: estimate generously (billing is per token used).
+  const estimatedUsd = estimateTokenCost(model, approxTokens(inputText) + imageCount * 1500 + fileCount * 60_000 + 2000 + historyAllowance, maxOut) + (ws ? 5 * searchPrice : 0);
   return client.metered(call.ctx, { model, operation: "responses", estimatedUsd }, async () => {
     const res = (await client.openai.responses.create(request as never, { signal: call.ctx.signal })) as unknown as ResponsesResult;
     // Failed, incomplete and refused responses still used (and were billed for) tokens: meter them.
@@ -381,6 +388,13 @@ function weight(v: unknown): number {
   if (Array.isArray(v)) return 1 + v.length;
   if (typeof v === "object") return 1 + Object.keys(v as object).length;
   return 1;
+}
+
+/** Build an input_file part for a PDF from a signed/public URL or raw bytes (inline ≤ 50 MB). */
+export function filePart(source: { url: string } | { bytes: Buffer; mimeType: string; filename: string } | { fileId: string }): InputPart {
+  if ("fileId" in source) return { type: "input_file", file_id: source.fileId };
+  if ("url" in source) return { type: "input_file", file_url: source.url };
+  return { type: "input_file", filename: source.filename.slice(0, 200), file_data: `data:${source.mimeType};base64,${source.bytes.toString("base64")}` };
 }
 
 /** Build an input_image part from a signed/public URL or raw bytes. */

@@ -26,7 +26,7 @@ const MAX_SECONDS = { founder_brief: 15 * 60, captions: 15 * 60, voice_command: 
 const MIME_PREFS = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
 const LANGS = ["English", "Hindi", "Tamil", "Telugu", "Bengali", "Marathi", "Kannada", "Spanish"] as const;
 const COPY = {
-  founder_brief: { title: "Founder brief", hint: "Tell us about your app in your own words: who it's for, what it does, why it's different. We'll add it to your App DNA as evidence for review.", role: "founder_clip" as const },
+  founder_brief: { title: "Founder brief", hint: "Tell us about your app in your own words: who it's for, what it does, why it's different. We'll add it to About your app as a source for you to check.", role: "founder_clip" as const },
   captions: { title: "Record narration", hint: "Record a voice track; we'll transcribe it into captions with speaker turns.", role: "voiceover" as const },
   voice_command: { title: "Speak an edit", hint: "Say what to change, e.g. “Make the opening more engaging.”", role: "other" as const },
 };

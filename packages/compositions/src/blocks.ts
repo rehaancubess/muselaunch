@@ -16,6 +16,8 @@ export const BLOCK_PARAMS = {
   "store-badges": z.object({ ios: z.boolean().optional(), android: z.boolean().optional(), web: z.boolean().optional(), label: z.string().max(60).optional(), full: z.boolean().optional(), stack: z.boolean().optional() }).strict(),
   /** Thin progress bar across the box width, filled over the layer's lifetime. */
   "progress-bar": z.object({ color: Color.optional() }).strict(),
+  /** Slide position dots for carousels (`active` of `count`, 1-based); the active dot is a short pill. */
+  "page-dots": z.object({ count: z.number().int().min(1).max(20), active: z.number().int().min(1).max(20), color: Color.optional(), inactive: Color.optional(), align: z.enum(["left", "center"]).optional() }).strict(),
   /** Small rounded label with a dot, used for callouts. */
   "callout-chip": z.object({ text: z.string().min(1).max(80), color: Color.optional() }).strict(),
 } as const;

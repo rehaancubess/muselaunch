@@ -1,8 +1,7 @@
-import { ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
-import { CTA_TEMPLATES, DEVICE_TEMPLATES, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT } from "@muselaunch/compositions";
-import { AppError, assertKeyInWorkspace, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
-import { imagePart, runSam, untrusted, type InputPart } from "@muselaunch/providers";
-import sharp from "sharp";
+import { isStillFormat, ScenePurpose, TEMPLATE_IDS, WorkspaceSoundSettings, type AspectRatio, type MediaAsset, type ProductMediaOption, type RecordingSegment, type Storyboard, type StoryboardScene, type TemplateId } from "@muselaunch/contracts";
+import { BUNDLED_FONTS, CTA_TEMPLATES, DEVICE_TEMPLATES, isLandscapeMedia, PRODUCT_SCENE_TEMPLATES, TEMPLATE_CATALOG, TEMPLATE_SHOT, TYPEFACE_NAMES } from "@muselaunch/compositions";
+import { AppError, STORYBOARD_MAX_FOCUS_LOOKUPS, toAppError, type JobContext, type JobResult, type Platform } from "@muselaunch/platform";
+import { runSam, untrusted, type InputPart } from "@muselaunch/providers";
 import { z } from "zod";
 import { validateClaims } from "./claims";
 import { planMaxVideoSec, seededDuration } from "./concepts";
@@ -10,7 +9,10 @@ import { dnaSummary, loadAppContext, productAssets, requireDna } from "./context
 import { productMediaOptions } from "./media-options";
 import { retrieveMemory } from "./memory";
 import { engineName, fallbackTo, plannedEngine, sparkJson } from "./models";
+import { creativeDirectionLines, directionFollowed, directorLabel } from "./direction";
+import { imageInput } from "./images";
 import { RunRecorder } from "./runs";
+import { slidesHandler } from "./slides";
 import { clip, hashId } from "./util";
 
 const HintKind = z.enum(["screenshot", "app_recording", "founder_clip", "generated_image", "stock_video", "stock_image", "logo", "none"]);
@@ -40,14 +42,15 @@ export const StoryboardOutput = z.object({
           .max(4)
           .default([]),
         claimIds: z.array(z.string()).max(5).default([]),
-        focus: Box01.optional().describe("focus-zoom / tap-demo: the UI element to push in on, as fractions (0-1) of the attached image of this scene's media"),
-        focusQuery: z.string().max(120).optional().describe("focus-zoom / tap-demo when you cannot point precisely: a short noun phrase naming the element, e.g. 'save button'"),
+        focus: Box01.optional().describe("focus-zoom / tap-demo: the UI element to push in on; ui-popout: the element that lifts off the screen; fullscreen-recording: the action to keep in view. As fractions (0-1) of the attached image of this scene's media"),
+        focusQuery: z.string().max(120).optional().describe("focus-zoom / tap-demo / ui-popout when you cannot point precisely: a short noun phrase naming the element, e.g. 'save button'"),
       }),
     )
     .min(2)
     .max(18),
   voiceover: z.object({ source: z.enum(["none", "founder_recording", "tts"]), script: z.string().max(4000).optional() }),
   music: z.object({ mood: z.string().max(120).optional() }).default({}),
+  typeface: z.enum(TYPEFACE_NAMES).optional().describe("Headline typeface for this video, from the list given"),
 });
 type StoryboardOutput = z.infer<typeof StoryboardOutput>;
 type OutScene = StoryboardOutput["scenes"][number];
@@ -58,12 +61,19 @@ const SUPPORT_KINDS = new Set(["generated_image", "stock_video", "stock_image"])
 const PROOF_TEMPLATES = new Set<TemplateId>(["quote-proof", "stat-card"]);
 /** Object-aware templates need real presenter footage (SAM tracks it); never generated media. */
 const OBJECT_TEMPLATES = new Set<TemplateId>(["presenter-depth", "object-spotlight", "product-in-hand"]);
-const FOCUS_TEMPLATES = new Set<TemplateId>(["focus-zoom", "tap-demo"]);
+const FOCUS_TEMPLATES = new Set<TemplateId>(["focus-zoom", "tap-demo", "ui-popout"]);
 const TEXT_TEMPLATES = new Set<TemplateId>(["hook-title", "kinetic-type"]);
 /** Cards with no app on screen. */
 const TYPE_ONLY = new Set<TemplateId>(["hook-title", "kinetic-type", "icon-reveal"]);
-/** Cards allowed after the last app scene, before the CTA (an icon-reveal). */
-const MAX_CLOSING = 1;
+/**
+ * Cards allowed after the last app scene, before the end card: none. One ending: an icon-reveal or a
+ * tagline card there repeats the end card (which already shows the icon, name and call to action).
+ */
+const MAX_CLOSING = 0;
+/** The one end card every video ends on. */
+const END_CARD: TemplateId = "store-cta";
+/** Wide device shots that can show landscape footage full screen instead (close-ups keep their device). */
+const FULL_BLEED_FROM = new Set<TemplateId>(["device-demo", "phone-tilt"]);
 /** A natural narration pace for short app videos. */
 export const NARRATION_WORDS_PER_SEC = 2.5;
 
@@ -117,6 +127,8 @@ export interface StoryboardCheckContext {
   targetDurationSec?: number;
   /** Who will speak the narration: an AI voice (workspace switch on), the founder's recording, or nobody. */
   voice?: StoryboardVoice;
+  /** The video's frame: landscape footage goes full screen in tall and square frames. */
+  aspectRatio?: AspectRatio;
 }
 
 export type StoryboardVoice = "ai" | "founder" | "none";
@@ -134,7 +146,7 @@ function mediaCatalog(c: StoryboardCheckContext) {
   const truth = [...c.assets.values()].filter(isTruth);
   const segmented = new Set([...segments.values()].map((s) => s.assetId));
   // Framable items (one key each): walkthrough segments, raw screenshots and SAM cut-outs, recordings without segments.
-  const framable: { key: string; hint: Hint; features: string[] }[] = [
+  const framable: FramableItem[] = [
     ...[...segments.values()]
       .filter((s) => c.assets.has(s.assetId))
       .sort((a, b) => b.quality - a.quality)
@@ -143,10 +155,46 @@ function mediaCatalog(c: StoryboardCheckContext) {
       .filter((a) => a.kind === "image" && !isMarketing(a))
       .map((a) => ({ key: a.id, hint: { kind: "screenshot" as const, assetId: a.id }, features: [...c.featureAssets.entries()].filter(([, ids]) => ids.includes(a.id) || (a.derivedFromAssetId && ids.includes(a.derivedFromAssetId))).map(([f]) => f) })),
     ...truth.filter((a) => a.kind === "video" && !segmented.has(a.id)).map((a) => ({ key: a.id, hint: { kind: "app_recording" as const, assetId: a.id }, features: [] as string[] })),
-  ];
+  ].map((m) => ({ ...m, landscape: landscapeHint(c, m.hint) }));
   const marketing = truth.filter((a) => isMarketing(a)).map((a) => a.id);
   const segmentByKeyframe = new Map([...segments.values()].filter((s) => s.keyframeAssetId).map((s) => [s.keyframeAssetId!, s.id]));
   return { segments, segmentByKeyframe, cropOf, framable, marketing, productIds: truth.map((a) => a.id) };
+}
+
+interface FramableItem {
+  key: string;
+  hint: Hint;
+  features: string[];
+  /** Landscape footage (TV, desktop, web): may go full screen (fullscreen-recording). */
+  landscape?: boolean;
+}
+
+/** Whether a product hint shows landscape footage (a segment's hint carries its recording's id). */
+function landscapeHint(c: Pick<StoryboardCheckContext, "assets">, h: Pick<Hint, "assetId"> | undefined): boolean {
+  const a = h?.assetId ? c.assets.get(h.assetId) : undefined;
+  return !!a && !isMarketing(a) && isLandscapeMedia(a);
+}
+
+/** Tall and square frames, where landscape footage in a device sits small in empty space. */
+const tallFrame = (ar: AspectRatio | undefined) => ar !== undefined && ar !== "16:9";
+
+/**
+ * fullscreen-recording only shows landscape footage: a designed marketing screenshot goes full screen
+ * as itself (fullscreen-showcase), portrait (phone) media keeps its device (device-demo).
+ */
+function normalizeFullBleed(scenes: OutScene[], c: StoryboardCheckContext, fixes: string[]) {
+  scenes.forEach((s, i) => {
+    if (s.template !== "fullscreen-recording") return;
+    const h = firstProduct(s);
+    const a = h?.assetId ? c.assets.get(h.assetId) : undefined;
+    if (a && isMarketing(a)) {
+      s.template = "fullscreen-showcase";
+      fixes.push(`Scene ${i + 1}: marketing screenshot ${a.id} shown as itself (fullscreen-showcase), not as a full-screen recording`);
+    } else if (!landscapeHint(c, h)) {
+      s.template = "device-demo";
+      fixes.push(`Scene ${i + 1}: fullscreen-recording → device-demo (${h ? "portrait footage keeps its device frame" : "no footage to show"})`);
+    }
+  });
 }
 
 /**
@@ -226,7 +274,8 @@ export function checkStoryboard(sb: StoryboardOutput, c: StoryboardCheckContext)
       const featureId = s.assets.find((h) => h.featureId)?.featureId;
       const byFeature = featureId ? cat.framable.find((m) => m.features.includes(featureId)) : undefined;
       const marketing: { hint: Hint }[] = cat.marketing.map((id) => ({ hint: { kind: "screenshot", assetId: id } }));
-      const pool = template === "fullscreen-showcase" && marketing.length ? marketing : cat.framable;
+      const wide = cat.framable.filter((m) => m.landscape);
+      const pool = template === "fullscreen-showcase" && marketing.length ? marketing : template === "fullscreen-recording" && wide.length ? wide : cat.framable;
       let pick = byFeature ?? pool[rr++ % Math.max(1, pool.length)];
       if (!pick && marketing.length && !OBJECT_TEMPLATES.has(template) && template !== "founder-cutout") {
         // Only designed store screenshots (no cut-outs yet): show one full screen.
@@ -264,6 +313,7 @@ export function checkStoryboard(sb: StoryboardOutput, c: StoryboardCheckContext)
     problems.push("At least one scene must show the real app (device-demo, focus-zoom or feature-callout with a screenshot, cut-out or walkthrough segment).");
   }
   dedupeMedia(scenes, cat, fixes);
+  normalizeFullBleed(scenes, c, fixes);
   // Enforced deterministically by fitDurations' minimums: no repair call needed.
   if (scenes[0] && scenes[0].durationSec < HOOK_MIN_SEC) fixes.push(`Scene 1 (hook) held for at least ${HOOK_MIN_SEC}s (was ${scenes[0].durationSec}s)`);
   soft.push(...pacingProblems(scenes, target, long, cat.framable.length > 0, c.voice ?? "none"));
@@ -282,8 +332,10 @@ function dedupeMedia(scenes: OutScene[], cat: ReturnType<typeof mediaCatalog>, f
       return;
     }
     const fullScreen = s.template === "fullscreen-showcase";
-    const pool: { key: string; hint: Hint; features: string[] }[] = fullScreen ? cat.marketing.map((id) => ({ key: id, hint: { kind: "screenshot", assetId: id }, features: [] })) : cat.framable;
-    const free = pool.filter((m) => !used.has(m.key));
+    const pool: FramableItem[] = fullScreen ? cat.marketing.map((id) => ({ key: id, hint: { kind: "screenshot", assetId: id }, features: [] })) : cat.framable;
+    const unused = pool.filter((m) => !used.has(m.key));
+    // Full-screen footage swaps to other landscape footage while there is some.
+    const free = s.template === "fullscreen-recording" && unused.some((m) => m.landscape) ? unused.filter((m) => m.landscape) : unused;
     const pick = (h.featureId ? free.find((m) => m.features.includes(h.featureId!)) : undefined) ?? free.find((m) => (m.hint.kind === "app_recording") === (h.kind === "app_recording")) ?? free[0];
     if (!pick) return; // fewer items than scenes: the builder shows another crop/zoom of it
     s.assets[s.assets.indexOf(h)] = { ...pick.hint, featureId: h.featureId ?? pick.hint.featureId };
@@ -304,7 +356,7 @@ function pacingProblems(scenes: OutScene[], target: number, long: boolean, hasPr
     }
   }
   const closing = closingScenes(scenes);
-  if (closing.length > MAX_CLOSING) out.push(`${closing.length} closing cards after the last app scene (${closing.map((i) => scenes[i]!.template).join(", ")}); end with at most an icon-reveal, then the CTA.`);
+  if (closing.length > MAX_CLOSING) out.push(`${closing.length} closing card(s) after the last app scene (${closing.map((i) => scenes[i]!.template).join(", ")}): they repeat the end card. End on the app, then the store-cta end card (it already shows the icon, name and call to action).`);
   const seen = new Map<string, number>();
   scenes.forEach((s, i) => {
     const key = s.onScreenText.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -356,19 +408,75 @@ function pacingProblems(scenes: OutScene[], target: number, long: boolean, hasPr
   return out;
 }
 
+type PolishContext = Pick<StoryboardCheckContext, "targetDurationSec" | "aspectRatio"> & { assets?: StoryboardCheckContext["assets"]; segments?: StoryboardCheckContext["segments"] };
+
+/** The opening that stops the scroll: the walkthrough segment (or raw screenshot) most worth showing first. */
+export function openingMedia(c: PolishContext): Hint | undefined {
+  const segs = [...(c.segments?.values() ?? [])].filter((s) => !c.assets || c.assets.has(s.assetId));
+  // A clear, high-quality moment where something happens (not a wait, not personal info to blur).
+  const score = (s: RecordingSegment) => s.quality + (s.action === "wait" || s.action === "other" ? -0.3 : 0) + (s.privacy.flagged ? -0.15 : 0) + (s.featureIds.length ? 0.1 : 0);
+  const best = segs.sort((a, b) => score(b) - score(a))[0];
+  if (best && best.quality >= 0.5) return { kind: "app_recording", assetId: best.assetId, segmentId: best.id, featureId: best.featureIds[0] };
+  const shot = [...(c.assets?.values() ?? [])].find((a) => isTruth(a) && a.kind === "image" && !isMarketing(a));
+  return shot ? { kind: "screenshot", assetId: shot.id } : undefined;
+}
+
+/**
+ * Landscape footage in a tall or square frame: a TV or browser there is small in a lot of empty space,
+ * so about half of the scenes showing it go full screen (fullscreen-recording), while the first one
+ * keeps its device (the "it runs on your TV" moment) and close-ups keep theirs. Nothing changes for
+ * portrait (phone) footage or 16:9 videos.
+ */
+function mixFullBleed(scenes: OutScene[], c: PolishContext, fixes: string[]) {
+  const assets = c.assets;
+  if (!assets || !tallFrame(c.aspectRatio)) return;
+  const wide = scenes.map((s, i) => ({ s, i })).filter(({ s }) => landscapeHint({ assets }, firstProduct(s)));
+  let full = wide.filter(({ s }) => s.template === "fullscreen-recording").length;
+  const framed = wide.filter(({ s }) => DEVICE_TEMPLATES.has(s.template));
+  const want = Math.floor(wide.length / 2);
+  if (full < want) {
+    // Wide device shots after the first one go full screen: first those with no full-screen scene next
+    // to them (so the two alternate), then any, until about half of the footage scenes are full screen.
+    const candidates = framed.slice(1).filter(({ s }) => FULL_BLEED_FROM.has(s.template));
+    const nextToFull = (i: number) => scenes[i - 1]?.template === "fullscreen-recording" || scenes[i + 1]?.template === "fullscreen-recording";
+    for (const alternate of [true, false]) {
+      for (const { s, i } of candidates) {
+        if (full >= want || s.template === "fullscreen-recording" || (alternate && nextToFull(i))) continue;
+        fixes.push(`Scene ${i + 1}: ${s.template} → fullscreen-recording (landscape footage fills the tall frame)`);
+        s.template = "fullscreen-recording";
+        full++;
+      }
+    }
+  } else if (!framed.length && full >= 2) {
+    const { s, i } = wide.find(({ s: x }) => x.template === "fullscreen-recording")!;
+    fixes.push(`Scene ${i + 1}: fullscreen-recording → device-demo (one scene shows the footage on its device)`);
+    s.template = "device-demo";
+  }
+}
+
 /** Same-shot alternatives an editor would cut to, for scenes that show the product (in preference order). */
 const DEVICE_ALTERNATIVES: TemplateId[] = ["focus-zoom", "phone-tilt", "device-demo", "tap-demo"];
 
 /**
- * Deterministic polish for what the repair round left: a ≤ 5-word hook, an end card, no template more
- * than twice in a row, enough different templates and a close-up in 30 s+ videos.
+ * Deterministic polish for what the repair round left: a ≤ 5-word hook, one end card (store-cta,
+ * nothing repeating it before), landscape footage mixed full screen and on its device in tall frames,
+ * no template more than twice in a row, enough different templates and a close-up in 30 s+ videos.
  */
-export function polishStoryboard(input: StoryboardOutput["scenes"], c: Pick<StoryboardCheckContext, "targetDurationSec">, cta: string): { scenes: StoryboardOutput["scenes"]; fixes: string[] } {
+export function polishStoryboard(input: StoryboardOutput["scenes"], c: PolishContext, cta: string): { scenes: StoryboardOutput["scenes"]; fixes: string[] } {
   const scenes = input.map((s) => ({ ...s, assets: [...s.assets] }));
   const fixes: string[] = [];
   const target = c.targetDurationSec ?? scenes.reduce((n, s) => n + s.durationSec, 0);
   const long = target >= 30;
   const hook = scenes[0];
+  // Open on real footage, not a text card, when there is real product media to show.
+  if (hook && TEXT_TEMPLATES.has(hook.template) && !hook.assets.some((h) => SUPPORT_KINDS.has(h.kind))) {
+    const media = openingMedia(c);
+    if (media) {
+      fixes.push(`Scene 1: ${hook.template} → hook-footage (opens on real footage: ${media.segmentId ?? media.assetId})`);
+      hook.template = "hook-footage";
+      hook.assets = [media, ...hook.assets.filter((h) => !PRODUCT_KINDS.has(h.kind))].slice(0, 4);
+    }
+  }
   if (hook && countWords(hook.onScreenText) > HOOK_MAX_WORDS) {
     const clause = hook.onScreenText.split(/(?<=[.!?:;—])\s+/)[0]!.trim();
     const short = countWords(clause) <= HOOK_MAX_WORDS ? clause : hook.onScreenText.split(/\s+/).slice(0, HOOK_MAX_WORDS).join(" ").replace(/[,;:—-]+$/, "");
@@ -379,32 +487,37 @@ export function polishStoryboard(input: StoryboardOutput["scenes"], c: Pick<Stor
   const last = scenes[scenes.length - 1];
   if (last && !CTA_TEMPLATES.has(last.template)) {
     if (last.purpose === "cta") {
-      last.template = "store-cta";
+      last.template = END_CARD;
       fixes.push("Last scene uses the store-cta end card");
     } else {
-      scenes.push({ purpose: "cta", durationSec: 3, onScreenText: clip(cta, 60), narration: "", visual: "App icon, name and store pills", template: "store-cta", assets: [], claimIds: [] });
+      scenes.push({ purpose: "cta", durationSec: 3, onScreenText: clip(cta, 60), narration: "", visual: "App icon, name and store pills", template: END_CARD, assets: [], claimIds: [] });
       fixes.push("Added a store-cta end card");
     }
+  } else if (last && last.template !== END_CARD) {
+    last.template = END_CARD;
+    fixes.push("The end card is the store-cta (app icon, name and call to action)");
   }
-  // A short ending: at most one card (preferably the icon-reveal) between the last app scene and the CTA.
+  // One ending: no card between the last app scene and the end card (an icon-reveal or a tagline card
+  // there repeats the end card's icon, name or line). Their time goes to the scenes before.
   const closing = closingScenes(scenes);
   if (closing.length > MAX_CLOSING) {
-    const keep = closing.find((i) => scenes[i]!.template === "icon-reveal") ?? closing[closing.length - 1]!;
-    const drop = new Set(closing.filter((i) => i !== keep));
+    const drop = new Set(closing.slice(0, closing.length - MAX_CLOSING));
     const freed = [...drop].reduce((n, i) => n + scenes[i]!.durationSec, 0);
-    fixes.push(`Shorter ending: removed ${drop.size} repeated closing card(s) (${[...drop].map((i) => `scene ${i + 1} ${scenes[i]!.template}`).join(", ")}); their ${freed.toFixed(1)} s went to the scenes before.`);
+    fixes.push(`One ending: removed ${drop.size} closing card(s) before the end card (${[...drop].map((i) => `scene ${i + 1} ${scenes[i]!.template}`).join(", ")}); their ${freed.toFixed(1)} s went to the scenes before.`);
     const kept = scenes.filter((_, i) => !drop.has(i));
     const before = kept.slice(0, -1);
     const weight = before.reduce((n, x) => n + x.durationSec, 0) || 1;
     for (const x of before) x.durationSec = Math.round((x.durationSec + (freed * x.durationSec) / weight) * 10) / 10;
     scenes.splice(0, scenes.length, ...kept);
   }
+  mixFullBleed(scenes, c, fixes);
   const hasProduct = (s: OutScene) => s.assets.some((h) => PRODUCT_KINDS.has(h.kind));
   const swappable = (s: OutScene) => DEVICE_TEMPLATES.has(s.template) && !OBJECT_TEMPLATES.has(s.template) && s.template !== "founder-cutout" && hasProduct(s);
   const swap = (i: number, avoid: Set<TemplateId>, why: string) => {
     const s = scenes[i]!;
     let next: TemplateId | undefined;
     if (swappable(s)) next = DEVICE_ALTERNATIVES.find((t) => t !== s.template && !avoid.has(t));
+    else if (s.template === "fullscreen-recording" && hasProduct(s)) next = DEVICE_ALTERNATIVES.find((t) => !avoid.has(t));
     else if (TEXT_TEMPLATES.has(s.template) && i > 0) next = s.template === "kinetic-type" ? "hook-title" : "kinetic-type";
     else if (s.template === "cta-endcard") next = "store-cta";
     if (!next || avoid.has(next)) return false;
@@ -508,21 +621,26 @@ Story arc, in this order: hook → problem → demo (the app solving it) → fea
 - Then name the problem in the audience's own words (kinetic-type, hook-title or text-over-media).
 - Demo and feature scenes show the REAL app: walkthrough segments (real motion, best), screenshots or SAM screen cut-outs from the media list. Never ask for generated or stock images of the app UI.
 - Proof only with a verified claim id (quote-proof / stat-card). If there is no real proof, skip it; never invent reviews, numbers, quotes, awards or user counts.
-- End with the call to action (store-cta or cta-endcard); an icon-reveal right before it works well.
+- End with ONE end card: store-cta (app icon, name and the call to action). Go straight to it from the last scene that shows the app.
 
 Editing rules:
-- Vary shot sizes like an editor: wide device shots (device-demo, phone-tilt, feature-callout), close-ups (focus-zoom, tap-demo), type (kinetic-type, hook-title) and full-bleed (fullscreen-showcase, text-over-media). Never use the same template more than twice in a row; a video of 30 s or more uses at least 5 different templates and at least one close-up.
+- Scene 1 is also the thumbnail: its hook text and key visual are on screen from the very first frame.
+- Open on real footage: scene 1 uses hook-footage with the most striking real moment (a walkthrough segment where something visibly happens or a result appears; else the best raw screenshot) and the hook text over it. Use hook-title only when there is no real product media.
+- Typeface: pick one headline typeface for the whole video from the list (match the app's category and the concept's mood; Inter when unsure).
+- Vary shot sizes like an editor: wide device shots (device-demo, phone-tilt, feature-callout), close-ups (focus-zoom, tap-demo, ui-popout), type (kinetic-type, hook-title) and full-bleed (fullscreen-showcase, text-over-media, fullscreen-recording). Never use the same template more than twice in a row; a video of 30 s or more uses at least 5 different templates and at least one close-up.
+- Landscape footage (TV, desktop and web apps and games; marked "landscape" in the media list): in a tall 9:16 or square frame a TV or browser is small with a lot of empty space around it. Mix fullscreen-recording scenes (the footage itself fills the frame, cropped around the action; give focus on the attached image to keep the action in view) with device scenes, and keep at least one device scene for the "it runs on your TV / computer" moment. Footage is cropped, never stretched. Phone apps (portrait media) never use fullscreen-recording.
 - Reading pace: about 3 words per second of on-screen text, after a ~0.6 s entrance (a 6-word line needs at least 2.6 s). onScreenText ≤ 8 words per scene (hook ≤ 5); put anything longer in the narration.
 - Scene lengths 2–5 s (hook 1.5–2.5 s, CTA 2.5–4 s); durations should add up to the target.
 - Use each real media item at most once per video. Only when there are fewer items than demo scenes, reuse one with a different focus region (focus-zoom on another part of the screen).
 - focus-zoom / tap-demo: look at the attached image of the media item and give focus {x,y,w,h} as fractions (0–1) of that image, tight around the UI element that proves the point (a button, a list row, a result). If you cannot point precisely, give focusQuery (a short noun phrase such as "save button") instead.
+- ui-popout: the same focus box, around ONE self-contained element worth lifting toward the viewer (an analytics card, a chart, a stat tile, a pricing card, a floating nav bar). It must be readable on its own and not cut by the screen edge; at most one ui-popout per video, ideally on a screenshot or a calm walkthrough segment.
 - Walkthrough segments: hint {kind:"app_recording", segmentId:"<ref>"}. Screenshots and cut-outs: {kind:"screenshot", assetId:"<ref>"}.
 - Marketing screenshots (FULL SCREEN ONLY) already have their own phone frame and headline: only in fullscreen-showcase, never inside a device template. Their app-screen cut-outs go in device templates.
 - generated_image / stock_* hints are only for supporting visuals (moods, people, settings) and need a query; they never depict the app UI.
 - founder-cutout and presenter templates only if a founder_clip exists in the list.
 - Product claims in onScreenText/narration must come from the verified claims (list their ids in claimIds).
 - Never more than two type-only cards (hook-title, kinetic-type, icon-reveal) in a row, and never the same line twice, on screen or spoken.
-- A short ending: after the last scene that shows the app, at most one card (an icon-reveal), then the CTA. Don't restate the tagline on several cards.
+- One ending: after the last scene that shows the app comes the store-cta end card and nothing else. No icon-reveal, logo or tagline card right before it: the end card already shows the icon and name. An icon-reveal belongs early, introducing the app after the problem.
 - Narration (only when the input says a voice is available): one short spoken line per scene, said while that scene is on screen, about ${NARRATION_WORDS_PER_SEC} words per second of the scene. It adds to the on-screen text rather than reading it out, and the lines together tell the story in the brand voice. With no voice, leave narration empty and set voiceover.source "none".
 - Respect the brand voice and team memory.`;
 
@@ -532,12 +650,16 @@ const VOICE_LINE: Record<StoryboardVoice, string> = {
   none: "Voice: no voiceover for this video. Set voiceover.source to \"none\" and leave narration empty: the on-screen text carries the story.",
 };
 
-/** Who can speak this video's narration (workspace AI-voice switch + an external TTS key, or a founder clip). */
-async function storyboardVoice(p: Platform, workspaceId: string, hasFounderClip: boolean): Promise<StoryboardVoice> {
+/**
+ * Who can speak this video's narration (the workspace AI-voice switch, on by default, plus an
+ * external TTS key; or a founder clip), and why there is no AI voice when there isn't one.
+ */
+async function storyboardVoice(p: Platform, workspaceId: string, hasFounderClip: boolean): Promise<{ voice: StoryboardVoice; noAiVoice: string }> {
   const ws = await p.db.top("workspaces").get(workspaceId).catch(() => null);
   const sound = WorkspaceSoundSettings.safeParse((ws?.settings as { sound?: unknown } | undefined)?.sound ?? {});
-  if (sound.success && sound.data.aiVoiceover && p.cfg.OPENAI_API_KEY) return "ai";
-  return hasFounderClip ? "founder" : "none";
+  const on = sound.success && sound.data.aiVoiceover;
+  if (on && p.cfg.OPENAI_API_KEY) return { voice: "ai", noAiVoice: "" };
+  return { voice: hasFounderClip ? "founder" : "none", noAiVoice: on ? "external TTS isn't connected on this deployment" : "workspace AI voice is off" };
 }
 
 /** Images Spark can look at to point at UI (raw screenshots, cut-outs, walkthrough keyframes). 8 = Muse Spark Open's cap, so the route can still fall back. */
@@ -549,27 +671,10 @@ interface Visual {
   image: MediaAsset;
 }
 
-async function imageInput(p: Platform, workspaceId: string, a: MediaAsset): Promise<{ part: InputPart; bytes: Buffer; width: number; height: number } | null> {
-  assertKeyInWorkspace(workspaceId, a.storagePath);
-  let buf: Buffer;
-  try {
-    buf = await p.storage.get(a.storagePath);
-  } catch {
-    return null;
-  }
-  const small = await sharp(buf).resize(1024, 1024, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true }).catch(() => null);
-  if (!small) return null;
-  if (p.storage.driver === "gcs") {
-    const { url } = await p.storage.signedDownloadUrl(a.storagePath, { expiresSec: 900 });
-    return { part: imagePart({ url }), bytes: small.data, width: small.info.width, height: small.info.height };
-  }
-  return { part: imagePart({ bytes: small.data, mimeType: "image/jpeg" }), bytes: small.data, width: small.info.width, height: small.info.height };
-}
-
-function optionLine(o: ProductMediaOption, imageNo: number | undefined, crops: Map<string, string>): string {
-  const where = o.deviceFrameOk ? "device frame OK" : `FULL SCREEN ONLY (fullscreen-showcase)${crops.get(o.ref) ? `; its app-screen cut-out ${crops.get(o.ref)} is the device version` : ""}`;
+function optionLine(o: ProductMediaOption, imageNo: number | undefined, crops: Map<string, string>, landscape = false): string {
+  const where = o.deviceFrameOk ? `device frame OK${landscape ? "; landscape: fullscreen-recording OK" : ""}` : `FULL SCREEN ONLY (fullscreen-showcase)${crops.get(o.ref) ? `; its app-screen cut-out ${crops.get(o.ref)} is the device version` : ""}`;
   const trim = o.trim && o.kind === "recording_segment" ? ` of ${o.assetId}, ${o.trim.inSec.toFixed(1)}–${o.trim.outSec.toFixed(1)} s (${(o.trim.outSec - o.trim.inSec).toFixed(1)} s)` : "";
-  return `- ${o.ref} | ${o.kind}${trim} | ${clip(o.title, 140)} | features: ${o.featureIds.join(", ") || "—"} | ${where}${imageNo ? ` | image ${imageNo}` : ""}`;
+  return `- ${o.ref} | ${o.kind}${landscape ? " (landscape)" : ""}${trim} | ${clip(o.title, 140)} | features: ${o.featureIds.join(", ") || "—"} | ${where}${imageNo ? ` | image ${imageNo}` : ""}`;
 }
 
 /** SAM 3.1 finds `focusQuery` on the scene's real still when Spark gave no box (at most STORYBOARD_MAX_FOCUS_LOOKUPS). */
@@ -606,6 +711,8 @@ async function resolveFocusQueries(ctx: JobContext, rec: RunRecorder, scenes: St
 }
 
 export async function storyboardHandler(ctx: JobContext<"storyboard.generate">): Promise<JobResult> {
+  // Stills (post, carousel, thumbnail, store screenshots): one scene per slide (slides.ts).
+  if (isStillFormat(ctx.payload.format)) return slidesHandler(ctx);
   const p = ctx.platform;
   const { appId, campaignId, variantId, aspectRatio } = ctx.payload;
   const ws = ctx.ws;
@@ -659,8 +766,16 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       imageNo.set(v.ref, parts.length);
     }
     const range = sceneRange(targetDurationSec);
-    const voice = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
+    // Muse Wonder's creative direction (Growth Autopilot), when the concept has one.
+    const direction = variant.creativeDirection;
+    if (direction) await rec.step({ kind: "decision", title: `Working to ${directorLabel(direction)}'s creative direction`, model: direction.model, output: creativeDirectionLines(direction) });
+    const { voice, noAiVoice } = await storyboardVoice(p, ctx.workspaceId, usable.some((a) => a.role === "founder_clip"));
     const demoMedia = options.filter((o) => o.deviceFrameOk && !["founder_clip", "logo", "icon"].includes(o.kind)).length;
+    const landscapeOf = (o: ProductMediaOption) => {
+      const a = assetMap.get(o.assetId);
+      return o.deviceFrameOk && ["raw_screenshot", "ui_crop", "recording_segment", "app_recording"].includes(o.kind) && !!a && isLandscapeMedia(a);
+    };
+    const landscapeFootage = tallFrame(aspectRatio) && options.some(landscapeOf);
 
     const input = [
       `Concept: ${variant.title} (${variant.angleType})`,
@@ -669,17 +784,22 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       `Key message: ${variant.keyMessage}`,
       `Script outline:\n${variant.scriptOutline.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
       brief ? `Brief: CTA "${brief.cta}" · USP: ${brief.usp}${brief.visualDirection ? ` · Visual direction: ${brief.visualDirection}` : ""}` : "",
+      direction ? creativeDirectionLines(direction) : "",
       `Format: ${aspectRatio}, target ${targetDurationSec} seconds total, ${range.min}-${range.max} scenes (about 3.5 s each; hook 1.5–2.5 s with ≤ ${HOOK_MAX_WORDS} words; CTA 2.5–4 s).`,
       VOICE_LINE[voice],
       targetDurationSec >= 30 ? `This is a ${targetDurationSec} s video: at least ${MIN_TEMPLATES_LONG} different templates, at least one close-up (focus-zoom or tap-demo), no template more than twice in a row.` : "",
+      landscapeFootage ? `This app's footage is landscape (TV / desktop / web) and the video is ${aspectRatio}: mix fullscreen-recording scenes (the footage fills the frame) with device scenes; keep at least one device scene.` : "",
       variantClaims.length ? `Claims chosen for this concept: ${variantClaims.map((c) => `${c.id}: ${c.text}`).join(" | ")}` : "",
       memory.items.length ? `Team memory:\n${memory.summary}` : "",
       "",
       "Allowlisted templates:",
       templateGuide(),
       "",
+      "Typefaces (headline face for this video):",
+      ...BUNDLED_FONTS.map((f) => `- ${f.name}: ${f.mood}`),
+      "",
       `Real product media (ref | kind | what it shows | features | where it may appear | attached image). ${demoMedia} item(s) can go in a device frame: use each at most once.`,
-      options.length ? options.map((o) => optionLine(o, imageNo.get(o.ref), crops)).join("\n") : "- (no product media uploaded; avoid device and close-up templates)",
+      options.length ? options.map((o) => optionLine(o, imageNo.get(o.ref), crops, landscapeOf(o))).join("\n") : "- (no product media uploaded; avoid device and close-up templates)",
       parts.length ? "\nImages attached, in order (point focus boxes into these):" : "",
       ...visuals.filter((v) => imageNo.has(v.ref)).map((v) => `Image ${imageNo.get(v.ref)}: asset ${v.image.id}${v.image.id !== v.ref ? ` (keyframe of ${v.ref})` : ""}`),
       "",
@@ -688,10 +808,10 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       .filter((x) => x !== "")
       .join("\n");
     const callInput = parts.length ? ([{ type: "input_text", text: input }, ...parts] as InputPart[]) : input;
-    const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets, segments, targetDurationSec, voice };
+    const checkCtx: StoryboardCheckContext = { assets: assetMap, verifiedClaimIds: new Set(app.verifiedClaims.map((c) => c.id)), featureAssets, segments, targetDurationSec, voice, aspectRatio };
     const sceneSummary = (o: StoryboardOutput) => o.scenes.map((s) => `${s.template} ${s.durationSec}s: ${s.onScreenText}${s.focus ? " [focus]" : s.focusQuery ? ` [focus: ${s.focusQuery}]` : ""}`).join("\n");
 
-    await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is writing the storyboard`);
+    await ctx.progress(30, `${plannedEngine(p, "storyboard.generate").name} is planning the video`);
     const maxOutputTokens = targetDurationSec >= 30 ? 14_000 : 8000;
     let out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.generate"), instructions: INSTRUCTIONS, input: callInput, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
     await rec.modelStep(`Write storyboard (${engineName(out.model)})`, out, { media: options.length, images: parts.length, target: targetDurationSec }, sceneSummary(out.data));
@@ -706,10 +826,11 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       out = await sparkJson(p, rec, "storyboard.generate", { ctx: rec.callCtx("storyboard.repair"), instructions: INSTRUCTIONS, input: parts.length ? ([{ type: "input_text", text: repair }, ...parts] as InputPart[]) : repair, schema: StoryboardOutput, schemaName: "Storyboard", maxOutputTokens, reasoningEffort: "medium", cacheKey: "agents.storyboard" });
       await rec.modelStep(`Repair storyboard (${engineName(out.model)})`, out, issues, sceneSummary(out.data));
       check = checkStoryboard(out.data, checkCtx);
-      if (check.problems.length) throw new AppError("PROVIDER_ERROR", `Storyboard still invalid after repair: ${check.problems.join(" ")}`, { retryable: true, userMessage: "The storyboard couldn't be built from your real app media. Add screenshots or retry." });
+      if (check.problems.length) throw new AppError("PROVIDER_ERROR", `Storyboard still invalid after repair: ${check.problems.join(" ")}`, { retryable: true, userMessage: "The video couldn't be planned from your real app media. Add screenshots or try again." });
       claimCheck = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: claimTexts(check.scenes), onFallback: fallbackTo(rec) });
     }
     const polished = polishStoryboard(check.scenes, checkCtx, brief?.cta || dna.preferredCtas[0] || `Get ${app.app.name}`);
+    const typeface = out.data.typeface && (TYPEFACE_NAMES as readonly string[]).includes(out.data.typeface) ? out.data.typeface : undefined;
     const fixes = [...check.fixes, ...polished.fixes];
     if (fixes.length) await rec.step({ kind: "decision", title: "Deterministic storyboard fixes", output: fixes });
     await rec.step({ kind: "decision", title: claimCheck.ok ? "Claim check passed" : `Claim check: ${claimCheck.issues.length} issue(s) for review`, status: claimCheck.ok ? "succeeded" : "failed", output: claimCheck.issues });
@@ -743,6 +864,12 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
       ...(s.focus ? { focus: s.focus } : {}),
       ...(s.focusQuery ? { focusQuery: s.focusQuery } : {}),
     }));
+    // The director's music mood is applied as chosen; the run says which signature shots made it in.
+    const music = direction ? { ...out.data.music, mood: direction.musicMood } : out.data.music;
+    if (direction) {
+      const followed = directionFollowed(direction, { scenes, music: out.data.music });
+      await rec.step({ kind: "decision", title: followed.missing.length ? `Direction followed in part (${followed.used.length}/${direction.signatureShots.length} signature shots)` : "Direction followed", output: followed.summary });
+    }
     const founderClip = usable.find((a) => a.role === "founder_clip");
     // Only a voice that exists: AI narration when the workspace turned AI voice on (and lines were
     // written), otherwise nothing is "spoken" and no script captions appear.
@@ -753,17 +880,17 @@ export async function storyboardHandler(ctx: JobContext<"storyboard.generate">):
         : voice === "ai" && lines.length && out.data.voiceover.source !== "founder_recording"
           ? { source: "tts", script: lines.join(" ") }
           : { source: "none" };
-    if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: "No AI voice for this video (workspace AI voice is off): narration kept in the storyboard, not spoken" });
+    if (out.data.voiceover.source === "tts" && voiceover.source !== "tts") await rec.step({ kind: "decision", title: `No AI voice for this video (${noAiVoice || "no narration lines were written"}): narration kept in the storyboard, not spoken` });
     const storyboard = (
       await ws.collection("storyboards").createIfAbsent(
-        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music: out.data.music, generatedByRunId: rec.id },
+        { id: storyboardId, appId, campaignId, variantId, title: out.data.title, aspectRatio, targetDurationSec, scenes, voiceover, music, ...(typeface ? { typeface } : {}), generatedByRunId: rec.id },
         { actor: ctx.actor },
       )
     ).entity;
     await ws.collection("campaignVariants").update(variantId, { storyboardId, status: variant.status === "proposed" ? "selected" : variant.status, compositionIds: [...new Set([...variant.compositionIds, compositionId])] }, { actor: ctx.actor });
     // Producing (again): the campaign returns to `review` when every production chain has finished (campaign-status.ts).
     if (campaign.status === "planning" || campaign.status === "concepts_ready" || campaign.status === "review") await ws.collection("campaigns").update(campaignId, { status: "producing" }, { actor: ctx.actor });
-    await ctx.progress(90, "queueing b-roll and composition build");
+    await ctx.progress(90, "queueing b-roll and the video build");
     const media = await ctx.enqueue("storyboard.resolve_media", { appId, storyboardId, compositionId }, { idempotencyKey: `storyboard.resolve_media:${storyboardId}` });
     await rec.finish("succeeded", { outputRefs: [{ entity: "storyboards", id: storyboard.id }], memoryRefs: memory.items.map((m) => m.id) });
     // Charged: the storyboard at this length, plus the SAM focus lookups actually made.

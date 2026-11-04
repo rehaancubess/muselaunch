@@ -4,7 +4,7 @@ import { config as loadDotenv } from "dotenv";
 loadDotenv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), quiet: true });
 
 const { serve } = await import("@hono/node-server");
-const { createPlatform, createRunner } = await import("@muselaunch/platform");
+const { createPlatform, createRunner, webPushKeys } = await import("@muselaunch/platform");
 const { buildApp } = await import("./app");
 
 const { installAnalyticsHooks } = await import("@muselaunch/analytics");
@@ -12,6 +12,8 @@ const { installCampaignHooks } = await import("@muselaunch/agents");
 const { installAutopilotHooks } = await import("@muselaunch/autopilot");
 
 const platform = createPlatform();
+// Browser notifications: resolve the keys now, so a temporary local pair (or "off") is logged at startup.
+webPushKeys(platform);
 // Plan quotas, monthly credit top-ups and ops counters (module F).
 installAnalyticsHooks(platform);
 // Growth Autopilot (module B): job cancellations/terminal transitions made by the API resume waiting loops.

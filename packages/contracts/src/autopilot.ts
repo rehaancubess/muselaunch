@@ -55,6 +55,11 @@ export const Autopilot = BaseEntity.extend({
     autoApproveCredits: z.number().int().nonnegative().default(0),
     variants: z.number().int().min(1).max(3).default(2),
   }),
+  /**
+   * `credits`: everything the run started (delegated jobs and their follow-ups). `usd`: only the
+   * loop's OWN Muse Wonder decision calls, not the jobs it started; the run's full model cost is
+   * read from usage records (`GET /autopilots/:id` → `cost`, AutopilotRunCost).
+   */
   spent: z.object({ credits: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0) }).default({ credits: 0, usd: 0 }),
   audience: z
     .object({ segmentId: Id.optional(), description: z.string().max(1000), rationale: z.string().max(2000), findingIds: z.array(Id).default([]) })
@@ -81,6 +86,21 @@ export const Autopilot = BaseEntity.extend({
    * automatically when it's ready (the founder can review it any time).
    */
   auto: z.object({ goal: z.boolean().default(false), acceptDna: z.boolean().default(false) }).optional(),
+  /**
+   * Set while this loop is the app's "Always on" loop (apps.alwaysOn): rounds continue without the
+   * `maxIterations` cap, each new round only within the weekly credit allowance of the app's pace,
+   * posts are spread across the week, and the measure stage waits only until the queue of ready posts
+   * runs low. Cleared when Always on is turned off (the loop then finishes like a one-off run).
+   */
+  alwaysOn: z
+    .object({
+      since: IsoDateTime,
+      /** Next round's focus, from an approved research suggestion (Needs you). */
+      focus: z.object({ approvalId: Id, subject: EntityRef, text: z.string().max(1000) }).optional(),
+      /** The focus of the round in progress (shown in its decisions). */
+      roundFocus: z.string().max(1000).optional(),
+    })
+    .optional(),
 });
 export type Autopilot = z.infer<typeof Autopilot>;
 
@@ -142,14 +162,128 @@ export const AutopilotAutoStart = z.object({
 export type AutopilotAutoStart = z.infer<typeof AutopilotAutoStart>;
 
 /**
- * "Needs you": the approvals that really need a person (publish a post, send outreach, spend beyond a
- * budget, continue a loop), ready for one-tap decisions. `approve`/`reject` name the existing decision
- * routes (relative to the workspace), which keep their own permission and snapshot checks.
+ * The run in plain steps (`GET /autopilots/:id` → `progress`), for the first-run progress screen and
+ * the Autopilot views. Derived from real state only: the loop's stage and status, the jobs it waits
+ * on (their own progress), and counts read from what was actually produced. Nothing is estimated:
+ * a fact that hasn't been measured is absent, and a step that hasn't started is "pending".
+ *
+ *   read (import) → learn (App DNA) → research (+ audience, what we're testing) → ideas
+ *   → make (plans + editable videos) → check (lint, facts, brand check) → finish (final MP4s,
+ *   Spark watches each) → ready (posts drafted, waiting for you)
  */
+export const AUTOPILOT_PROGRESS_STEPS = ["read", "learn", "research", "ideas", "make", "check", "finish", "ready"] as const;
+export const AutopilotProgressStepKey = z.enum(AUTOPILOT_PROGRESS_STEPS);
+export type AutopilotProgressStepKey = z.infer<typeof AutopilotProgressStepKey>;
+
+export const AutopilotProgressStep = z.object({
+  key: AutopilotProgressStepKey,
+  /** needs_you = waiting on a decision; stopped = the run was cancelled before this step finished. */
+  state: z.enum(["pending", "active", "needs_you", "paused", "failed", "done", "skipped", "stopped"]),
+  /** Real counts behind the step's one-line result ("Found 9 features"); absent = not measured. */
+  facts: z
+    .object({
+      screenshots: z.number().int().nonnegative(),
+      features: z.number().int().nonnegative(),
+      audiences: z.number().int().nonnegative(),
+      /** Confirmed facts (verified claims) creative may use. */
+      facts: z.number().int().nonnegative(),
+      findings: z.number().int().nonnegative(),
+      ideas: z.number().int().nonnegative(),
+      picked: z.number().int().nonnegative(),
+      videos: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      withNotes: z.number().int().nonnegative(),
+      blocked: z.number().int().nonnegative(),
+      fixed: z.number().int().nonnegative(),
+      rendered: z.number().int().nonnegative(),
+      posts: z.number().int().nonnegative(),
+    })
+    .partial()
+    .default({}),
+  /** While active: the jobs behind the step, with their own progress (message, %), never invented. */
+  live: z.object({ message: z.string().max(300).optional(), pct: z.number().min(0).max(100).optional(), done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }).optional(),
+});
+export type AutopilotProgressStep = z.infer<typeof AutopilotProgressStep>;
+
+/** A final MP4 this run rendered (the newest rendered version of each video). */
+export const AutopilotFinishedVideo = z.object({
+  compositionId: Id,
+  title: z.string().max(200),
+  version: z.number().int().min(1),
+  assetId: Id,
+  posterAssetId: Id.optional(),
+  aspectRatio: z.string().max(10),
+  durationSec: z.number().nonnegative().optional(),
+  renderedAt: IsoDateTime.optional(),
+});
+export type AutopilotFinishedVideo = z.infer<typeof AutopilotFinishedVideo>;
+
+export const AutopilotProgress = z.object({
+  /** Where the app was learned from (null: nothing to import, e.g. added by name only). */
+  source: z.enum(["app_store", "google_play", "website", "description"]).nullable(),
+  steps: z.array(AutopilotProgressStep),
+  /** Finished videos, first rendered first. */
+  videos: z.array(AutopilotFinishedVideo),
+  /** Models and labelled external services that actually ran for this app during this run (metered calls). */
+  madeWith: z.array(z.string().max(80)),
+  /**
+   * Real footage of the app that videos can use: screenshots and screen recordings saved as the real
+   * product (ready, or still being processed). `ask`: "early" = there is none yet and the videos
+   * aren't made yet (e.g. an app added from its website), so the screen asks for a recording up
+   * front; "waiting" = the run stopped before making videos until some is added (the
+   * `produce:media` decision); null = nothing to ask.
+   */
+  media: z.object({
+    screenshots: z.number().int().nonnegative(),
+    recordings: z.number().int().nonnegative(),
+    ask: z.enum(["early", "waiting"]).nullable(),
+  }),
+});
+export type AutopilotProgress = z.infer<typeof AutopilotProgress>;
+
+/**
+ * What a run's AI calls cost (`GET /autopilots/:id` → `cost`), read from usage records: every metered
+ * call made by the run's own Muse Wonder decisions and by every job it started, including the
+ * follow-ups those chained (storyboard → b-roll → build → preview). Estimated provider cost in USD,
+ * not the credit price people pay. Nothing is estimated beyond what each call recorded.
+ */
+export const AutopilotRunCost = z.object({
+  usd: z.number().nonnegative(),
+  /** Metered calls counted (including ones that ended in an error, which can still be billed). */
+  calls: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  /** Jobs the run started (with their follow-ups) whose calls were looked up. */
+  jobs: z.number().int().nonnegative(),
+  /** false: not every record could be read (a very large run), so `usd` is a lower bound. */
+  complete: z.boolean(),
+  /** Per model or service, most expensive first. */
+  byModel: z.array(z.object({ name: z.string().max(80), usd: z.number().nonnegative(), calls: z.number().int().nonnegative() })).max(12),
+});
+export type AutopilotRunCost = z.infer<typeof AutopilotRunCost>;
+
+/**
+ * "Needs you": everything that is waiting on a person, ready for one-tap decisions:
+ *  - approvals (publish a post, send outreach, spend beyond a budget, continue a loop):
+ *    `approve`/`reject` name the existing decision routes (relative to the workspace), which keep
+ *    their own permission and snapshot checks;
+ *  - `app_dna`: App DNA ("About your app") is waiting for review (apps.dnaStatus = needs_review);
+ *  - `brand_check`: a video's current version is blocked by the Brand Guardian (latest review of
+ *    that version is `blocked`, not overridden);
+ *  - `suggestion`: Always on's weekly research found something timely ("People are talking about X
+ *    this week: make a video about it?"); approve starts a round focused on it, reject notes it.
+ *  - `decision` with action `create_run`: a Create video stopped for the person (credits, a plan
+ *    limit, the facts or Brand check, a longer video, a failed step): approve/reject name
+ *    POST /create-runs/:campaignId/resolve (see create-run.ts).
+ * The last two have no one-tap route (`approve`/`reject` are null): the decision is made where
+ * `reviewPath` points (About your app, or the video in the Studio), with that page's own checks.
+ */
+export const NeedsYouKind = z.enum(["post", "outreach", "spend", "decision", "app_dna", "brand_check", "suggestion"]);
+export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
+
 export const NeedsYouItem = z.object({
-  /** The approval id. */
+  /** The approval id (approvals), the app id (`app_dna`), the brand review id (`brand_check`) or the campaign id (`create_run`). */
   id: Id,
-  kind: z.enum(["post", "outreach", "spend", "decision"]),
+  kind: NeedsYouKind,
   action: z.string().max(40),
   appId: Id.optional(),
   title: z.string().max(200),
@@ -167,6 +301,15 @@ export const NeedsYouItem = z.object({
   reject: z.object({ path: z.string().max(300), body: z.record(z.string(), z.unknown()).default({}) }).nullable(),
   /** Where to review it in full (path under the web app's /w/:workspaceId). */
   reviewPath: z.string().max(300).optional(),
+  /** Button words when the kind's defaults don't fit (e.g. "Make a video" / "Not now"); `review`: the link to `reviewPath` ("Open it"). */
+  labels: z
+    .object({ approve: z.string().max(40), reject: z.string().max(40), approved: z.string().max(200).optional(), rejected: z.string().max(200).optional(), review: z.string().max(40).optional() })
+    .optional(),
+  /**
+   * Approving needs a short reason typed by the person, sent as `reason` in the approve body (e.g.
+   * finishing a video past the Brand check). Clients without a text field link to `reviewPath` instead.
+   */
+  approveReason: z.object({ label: z.string().max(120), placeholder: z.string().max(200).optional() }).optional(),
   preview: z
     .object({
       channel: z.string().max(40).optional(),
@@ -176,6 +319,12 @@ export const NeedsYouItem = z.object({
       compositionTitle: z.string().max(200).optional(),
       to: z.string().max(320).optional(),
       subjectLine: z.string().max(300).optional(),
+      /** `app_dna`: claims still waiting for review ("facts to check"). */
+      factsToCheck: z.number().int().nonnegative().optional(),
+      /** `brand_check`: open blocking findings on the reviewed version. */
+      blockingIssues: z.number().int().nonnegative().optional(),
+      /** `decision`: the run needs real footage of the app (a screen recording or screenshots) before it makes videos. */
+      needsMedia: z.boolean().optional(),
     })
     .optional(),
 });

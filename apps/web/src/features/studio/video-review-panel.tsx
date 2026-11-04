@@ -187,7 +187,7 @@ export function VideoReviewPanel({ workspaceId, base, doc, version, onShow, onAp
               size="sm"
               icon={<ScanEye aria-hidden />}
               title={previous ? `Changed since Spark watched v${previous.version}` : "Not watched yet"}
-              description={`Spark looks at frames of the ${data.render.quality} render: hooks too fast to read, cut-off text, a phone inside a phone, blank frames, repeats, pacing, the CTA, brand fit and invented claims.`}
+              description={`Spark looks at frames of the ${data.render.quality} render: hooks too fast to read, cut-off text, a phone inside a phone, blank frames, repeats, pacing, the call to action, brand fit and made-up facts.`}
               action={canWrite ? reviewButton("Review with Spark") : undefined}
             />
           ) : (

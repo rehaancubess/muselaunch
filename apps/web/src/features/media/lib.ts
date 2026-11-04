@@ -1,8 +1,8 @@
 "use client";
 import type { CaptionCue, ClipAnalysis, Job, MediaAsset, Segmentation, TracksFile, Transcript } from "@muselaunch/contracts";
 import { TERMINAL_JOB_STATUSES } from "@muselaunch/contracts";
-import { api, wsPath } from "@/lib/api";
-import type { EstimateResponse, JobResponse, SignedUrl } from "@/lib/api-types";
+import { api, uploadToSignedUrl, wsPath } from "@/lib/api";
+import type { CompleteUploadResponse, EstimateResponse, JobResponse, SignedUrl, UploadResponse } from "@/lib/api-types";
 import { useApiQuery } from "@/lib/query";
 
 /** Response shapes of module D routes (apps/api/src/routes/media.ts). */
@@ -51,6 +51,32 @@ export function fmtClock(sec: number): string {
 
 /** Strip codec parameters so the declared upload type matches the API allowlist (e.g. `audio/webm`). */
 export const baseMime = (t: string) => t.split(";")[0]!.trim().toLowerCase();
+
+/**
+ * A spoken instruction ("Make the opening shorter") → its text, with Muse Voice Transcribe: the same
+ * path as the Studio's "Speak an edit" (upload as the person's own `voice_command`, no consent step,
+ * POST /assets/:id/transcribe answers with the text when it's quick, else the job is followed).
+ */
+export async function transcribeVoiceCommand(workspaceId: string, blob: Blob, opts: { appId?: string; signal?: AbortSignal; onStage?: (stage: "uploading" | "transcribing") => void } = {}): Promise<{ text: string; transcriptId: string }> {
+  const mimeType = baseMime(blob.type || "audio/webm");
+  const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
+  opts.onStage?.("uploading");
+  const up = await api.post<UploadResponse>(wsPath(workspaceId, "/uploads"), { filename: `spoken-change-${Date.now()}.${ext}`, mimeType, bytes: blob.size, role: "other", appId: opts.appId });
+  await uploadToSignedUrl(up.upload, new Blob([blob], { type: mimeType }), undefined, opts.signal);
+  const done = await api.post<CompleteUploadResponse>(wsPath(workspaceId, `/assets/${up.asset.id}/complete`));
+  if (done.job) {
+    const probe = await waitForJob(workspaceId, done.job.id, { signal: opts.signal });
+    if (probe.status !== "succeeded") throw new Error(probe.error?.userMessage ?? "That recording couldn’t be read. Try again, or type it.");
+  }
+  opts.onStage?.("transcribing");
+  const tr = await api.post<TranscribeResponse>(wsPath(workspaceId, `/assets/${up.asset.id}/transcribe`), { purpose: "voice_command" }, { idempotent: true });
+  if (tr.job && tr.transcript.status !== "succeeded") {
+    const j = await waitForJob(workspaceId, tr.job.id, { signal: opts.signal });
+    if (j.status !== "succeeded") throw new Error(j.error?.userMessage ?? "Muse couldn’t hear that. Try again, or type it.");
+  }
+  const view = await api.get<TranscriptView>(wsPath(workspaceId, `/transcripts/${tr.transcript.id}`));
+  return { text: view.transcript.text.trim(), transcriptId: view.transcript.id };
+}
 
 /** Clip analysis routes (object-aware editing). */
 export type AnalyzeClipResponse = { job: Job | null; analysis: ClipAnalysis };

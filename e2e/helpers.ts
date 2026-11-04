@@ -29,7 +29,16 @@ export async function expectFixtureMode(request: { get: (url: string) => Promise
   expect(health.fixtureMode, "API must run in fixture mode (pnpm dev:fixture)").toBe(true);
 }
 
-export const nav = (page: Page, tab: "Discover" | "Creator" | "Insights") => page.getByRole("navigation", { name: "Primary" }).first().getByRole("link", { name: tab }).click();
+/** The three tabs (Home's accessible name carries its count: "Home, 2 waiting for you"). */
+export const nav = (page: Page, tab: "Home" | "Create" | "Results") =>
+  page
+    .getByRole("navigation", { name: "Primary" })
+    .first()
+    .getByRole("link", { name: tab === "Home" ? /^Home\b/ : tab, exact: tab !== "Home" })
+    .click();
+
+/** `/w/:wid/a/:appId` of the app the page is on. */
+export const appBase = (page: Page) => page.url().replace(/(\/w\/[^/]+\/a\/[^/]+)\/.*$/, "$1");
 
 /**
  * Landing (paste the sample listing) → dev sign-in → one-step onboarding. Falls back to signing in with
@@ -58,38 +67,55 @@ export async function signUp(page: Page, shot: (page: Page, name: string, fullPa
   });
 }
 
-/** One-step onboarding with the default ("Let MuseLaunch run it"): Go → the app's Home with Growth Autopilot running. */
+/**
+ * One-step onboarding: paste → Go (no other choice) → Home, which shows the first run's progress
+ * screen (Autopilot working) until the first posts are drafted. The progress screen also offers the
+ * quick setup ("Where do you post?", "How often…?"); it never blocks the run, so the journey leaves
+ * it unanswered.
+ */
 export async function onboardWithAutopilot(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { shots?: boolean } = {}) {
-  await test.step("onboarding: paste → Go (Autopilot is the default)", async () => {
-    await expect(page.getByRole("radio", { name: /Let MuseLaunch run it/ })).toHaveAttribute("aria-checked", "true");
+  await test.step("onboarding: paste → Go → Home with the run's progress screen", async () => {
     if (opts.shots !== false) await shot(page, "onboarding");
     await page.getByRole("button", { name: "Go" }).click();
-    await page.waitForURL(/\/creator$/);
-    await expect(page.getByText(/^Now:/).first()).toBeVisible();
+    await page.waitForURL(/\/home$/);
+    await expect(page.getByRole("progressbar", { name: "How far Muse has got" })).toBeVisible();
   });
 }
 
-/** Hands-on path: sign up, "I'll do it myself" → import → verify a claim → confirm App DNA. */
+/** The automatic start is a workspace setting (Settings → Autopilot): create the workspace with it off, before Go. */
+async function workspaceWithAutopilotOff(page: Page) {
+  const token = await page.evaluate(() => (JSON.parse(localStorage.getItem("ml.devSession") ?? "{}") as { token?: string }).token);
+  const headers = { authorization: `Bearer ${token}` };
+  const created = await page.request.post(`${API}/v1/workspaces`, { headers, data: { name: "Maya’s studio" } });
+  expect(created.ok(), "create workspace").toBe(true);
+  const wid = ((await created.json()) as { workspace: { id: string } }).workspace.id;
+  expect((await page.request.patch(`${API}/v1/workspaces/${wid}`, { headers, data: { settings: { autopilot: { enabled: false } } } })).ok(), "turn the automatic start off").toBe(true);
+  expect((await page.request.patch(`${API}/v1/me`, { headers, data: { defaultWorkspaceId: wid } })).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByLabel("Your app’s link")).toHaveValue(SAMPLE_LISTING);
+}
+
+/** Hands-on path: sign up, a workspace with Autopilot's automatic start off → import → confirm a fact → confirm what we learned. */
 export async function signUpAndImport(page: Page, shot: (page: Page, name: string, fullPage?: boolean) => Promise<void>, opts: { email: string; shots?: boolean }) {
   await signUp(page, shot, opts);
 
-  await test.step("onboarding: I'll do it myself → import", async () => {
-    await page.getByRole("radio", { name: /I’ll do it myself/ }).click();
+  await test.step("onboarding with Autopilot off (Settings) → import", async () => {
+    await workspaceWithAutopilotOff(page);
     if (opts.shots !== false) await shot(page, "onboarding-manual");
     await page.getByRole("button", { name: "Go" }).click();
     await expect(page.getByText("Listing imported")).toBeVisible();
     if (opts.shots !== false) await shot(page, "onboarding-imported");
-    await page.getByRole("button", { name: "Review App DNA" }).click();
+    await page.getByRole("button", { name: "Check what we learned" }).click();
   });
 
-  await test.step("App DNA: verify a claim, confirm", async () => {
+  await test.step("About your app: confirm a fact, then confirm what we learned", async () => {
     await page.waitForURL(/\/brand$/);
-    await expect(page.getByRole("button", { name: "Confirm App DNA" })).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByRole("button", { name: "Confirm what we learned" })).toBeVisible({ timeout: 120_000 });
     if (opts.shots !== false) await shot(page, "app-dna", true);
-    const verify = page.getByRole("button", { name: "Verify" }).first();
-    if (await verify.isVisible()) await verify.click();
-    await page.getByRole("button", { name: "Confirm App DNA" }).click();
-    await expect(page.getByText("App DNA confirmed")).toBeVisible();
+    const confirmFact = page.getByRole("button", { name: "Confirm", exact: true }).first();
+    if (await confirmFact.isVisible()) await confirmFact.click();
+    await page.getByRole("button", { name: "Confirm what we learned" }).click();
+    await expect(page.getByText("What we learned is confirmed")).toBeVisible();
   });
 }
 

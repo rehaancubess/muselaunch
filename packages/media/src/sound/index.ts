@@ -14,7 +14,7 @@ import {
   type Storyboard,
   type Workspace,
 } from "@muselaunch/contracts";
-import { attachAudio, musicAccents, totalDuration, validateDoc, type AttachVoiceover } from "@muselaunch/compositions";
+import { attachAudio, beatGrid, beatSyncBlocker, cutsOnGrid, musicAccents, snapToBeats, tempoFor, totalDuration, validateDoc, type AttachVoiceover, type BeatGrid } from "@muselaunch/compositions";
 import { commitVersion, getVersion } from "@muselaunch/compositions/store";
 import { AppError, toAppError, type JobContext, type Platform } from "@muselaunch/platform";
 import { transcriptToCaptionCues } from "../captions";
@@ -96,6 +96,15 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
   const sb = input.storyboard;
   const out: SoundtrackResult = { doc, notes, warnings };
 
+  // 0. Beat sync. We compose the music, so its tempo is known up front: the cuts are placed on its
+  //    beats (while the voice is fitted, when there is one), then the music is rendered at that tempo.
+  const mood = moodFromText(sb?.music.mood);
+  const userMusic = doc.audio.some((a) => a.kind === "music" && !a.auto);
+  const blocker = settings.music && !userMusic ? beatSyncBlocker(doc) : "no original music";
+  const grid: BeatGrid | null = blocker ? null : beatGrid(tempoFor(mood, input.compositionId));
+  let snapped = false;
+  if (blocker && settings.music && !userMusic && blocker !== "not a video" && blocker !== "a single scene") notes.push(`Cuts keep their timing (${blocker}).`);
+
   // 1. Voiceover first: it can lengthen the video, and the music is fitted to the final length.
   const wantsTts = sb?.voiceover.source === "tts";
   const script = narrationScript(sb);
@@ -114,15 +123,20 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
         if (lines.length) {
           // Spoken scene by scene: each narrated scene holds its own line, so voice and picture match.
           const brand = await ctx.ws.collection("brandProfiles").get(input.appId).catch(() => null);
-          const sv = await produceSceneVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, doc, lines, voice: settings.voice, tone: brand?.tone.voice.slice(0, 4).join(", "), keywords, maxTotalSec: await maxVideoSec(p, ctx.workspaceId) });
+          const sv = await produceSceneVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, doc, lines, voice: settings.voice, tone: brand?.tone.voice.slice(0, 4).join(", "), keywords, maxTotalSec: await maxVideoSec(p, ctx.workspaceId), ...(grid ? { beat: grid } : {}) });
           r = sv;
           doc = attachAudio(sv.fit.doc, { voiceover: { ...voiceAttach(sv, "external_tts"), startSec: 0 } });
+          // The lines were placed on the beat-synced scenes, so the cuts are already on the grid.
+          if (grid) snapped = true;
           const longer = sv.fit.changed.filter(([, a, b]) => b > a).length;
           notes.push(`AI voiceover: ${lines.length} narration lines (OpenAI TTS, external), each on its own scene${longer ? `; ${longer} scene(s) held longer for their line` : ""}${sv.tempo > 1.001 ? `; spoken ${Math.round((sv.tempo - 1) * 100)}% faster to fit` : ""}.`);
         } else {
           r = await produceAiVoiceover(ctx, { appId: input.appId, compositionId: input.compositionId, text: script, voice: settings.voice, keywords, maxDurationSec: Math.max(2, total - VOICE_START - 0.4) });
           const ext = extendForVoice(doc, VOICE_START, r.durationSec);
-          doc = attachAudio(ext.doc, { voiceover: { ...voiceAttach(r, "external_tts"), startSec: VOICE_START } });
+          // One continuous narration: the cuts can move onto the beat as long as the video outlasts it.
+          const base = grid ? snapToBeats(ext.doc, grid, { minTotalSec: VOICE_START + r.durationSec + 0.4, maxTotalSec: Math.max(VOICE_START + r.durationSec + 0.4, await maxVideoSec(p, ctx.workspaceId)) }) : null;
+          if (base) snapped = true;
+          doc = attachAudio(base?.doc ?? ext.doc, { voiceover: { ...voiceAttach(r, "external_tts"), startSec: VOICE_START } });
           if (ext.extendedSec) notes.push(`Extended the last scene by ${ext.extendedSec}s so the narration isn't cut off.`);
         }
         const credits = voiceoverCredits(p.credits.prices as Record<string, number>, r);
@@ -160,21 +174,37 @@ export async function prepareSoundtrack(ctx: JobContext, input: { doc: Compositi
     }
   }
 
-  // 2. Original music, fitted to the final length (a storyboard's own music asset wins).
+  // Cuts onto the beat (no voice, or one already placed: scene lengths are free to move a little).
+  if (grid) {
+    if (!snapped) doc = snapToBeats(doc, grid, { maxTotalSec: await maxVideoSec(p, ctx.workspaceId) }).doc;
+    else doc = { ...doc, beat: { bpm: grid.bpm, offsetSec: grid.offsetSec } };
+  }
+
+  // 2. Original music, fitted to the final length (a storyboard's own music asset wins); at the
+  //    beat-sync tempo when the cuts were placed on it.
   const total = totalDuration(doc);
   const hasUserMusic = doc.audio.some((a) => a.kind === "music" && !a.auto);
   if (settings.music && !hasUserMusic) {
     try {
-      const mood = moodFromText(sb?.music.mood);
-      const { asset, reused } = await ensureMusicAsset(p, ctx.workspaceId, { params: { mood, durationSec: total, seed: input.compositionId, accents: musicAccents(doc) }, appId: input.appId, actor: ctx.actor, signal: ctx.signal });
+      const bpm = doc.beat?.bpm;
+      const { asset, reused } = await ensureMusicAsset(p, ctx.workspaceId, { params: { mood, durationSec: total, seed: input.compositionId, accents: musicAccents(doc), ...(bpm ? { bpm } : {}) }, appId: input.appId, actor: ctx.actor, signal: ctx.signal });
       doc = attachAudio(doc, { music: { assetId: asset.id, mood, label: `Original music · ${MUSIC_MOOD_INFO[mood].label}` } });
       out.music = { assetId: asset.id, mood, reused };
       notes.push(`Original music: ${MUSIC_MOOD_INFO[mood].label}${sb?.music.mood ? ` (storyboard asked for “${sb.music.mood}”)` : ""}.`);
+      if (bpm) {
+        const c = cutsOnGrid(doc, beatGrid(bpm, doc.beat!.offsetSec));
+        notes.push(`Cut to the beat: ${c.onBeat} of ${c.cuts} scene changes land on the music's beat at ${Math.round(bpm)} BPM (${c.onBar} on a downbeat).`);
+      }
     } catch (raw) {
       const err = toAppError(raw);
       if (err.code === "CANCELLED") throw err;
       warnings.push(`Music skipped: ${err.message}`);
     }
+  }
+  // No music after all: the doc doesn't claim a beat grid.
+  if (doc.beat && !out.music) {
+    const { beat: _b, ...rest } = doc;
+    doc = rest as CompositionDoc;
   }
   // 3. Sound effects on transitions, taps and the end card.
   if (settings.sfx) {
@@ -270,13 +300,15 @@ export async function musicHandler(ctx: JobContext<"media.music">) {
   await ctx.progress(10, `composing ${MUSIC_MOOD_INFO[mood].label.toLowerCase()} music`);
   const cur = await getVersion(ctx.ws, compositionId, comp.currentVersion);
   if (cur.doc.kind !== "video") throw new AppError("BAD_REQUEST", "Only videos have music");
-  const { asset, reused } = await ensureMusicAsset(ctx.platform, ctx.workspaceId, { params: { mood, durationSec: totalDuration(cur.doc), seed, accents: musicAccents(cur.doc) }, appId, actor: ctx.actor, signal: ctx.signal });
+  // A beat-synced video keeps its tempo, so its cuts stay on the new music's beats.
+  const tempo = (doc: CompositionDoc) => (doc.beat?.bpm ? { bpm: doc.beat.bpm } : {});
+  const { asset, reused } = await ensureMusicAsset(ctx.platform, ctx.workspaceId, { params: { mood, durationSec: totalDuration(cur.doc), seed, accents: musicAccents(cur.doc), ...tempo(cur.doc) }, appId, actor: ctx.actor, signal: ctx.signal });
   ctx.throwIfCancelled();
   await ctx.progress(80, "adding it to the video");
   const committed = await commitSound({ p: ctx.platform, wid: ctx.workspaceId, actor: ctx.actor }, compositionId, async (doc) => {
-    // the length may have changed while composing: re-fit if so
+    // the length (or tempo) may have changed while composing: re-fit if so
     const d = totalDuration(doc);
-    const a = Math.abs(d - totalDuration(cur.doc)) < 0.01 ? asset : (await ensureMusicAsset(ctx.platform, ctx.workspaceId, { params: { mood, durationSec: d, seed, accents: musicAccents(doc) }, appId, actor: ctx.actor })).asset;
+    const a = Math.abs(d - totalDuration(cur.doc)) < 0.01 && doc.beat?.bpm === cur.doc.beat?.bpm ? asset : (await ensureMusicAsset(ctx.platform, ctx.workspaceId, { params: { mood, durationSec: d, seed, accents: musicAccents(doc), ...tempo(doc) }, appId, actor: ctx.actor })).asset;
     return attachAudio(doc, { music: { assetId: a.id, mood, volume, label: `Original music · ${MUSIC_MOOD_INFO[mood].label}` } });
   }, `Original music: ${MUSIC_MOOD_INFO[mood].label}`);
   await ctx.progress(100, "done");
@@ -315,11 +347,14 @@ export async function voiceoverHandler(ctx: JobContext<"media.voiceover">) {
   const music = await currentMusic(ctx, cur.doc);
   const committed = await commitSound({ p, wid: ctx.workspaceId, actor: ctx.actor }, compositionId, async (doc) => {
     const ext = extendForVoice(doc, VOICE_START, r.durationSec);
+    const hadCaptions = doc.captions.enabled;
     let next = attachAudio(ext.doc, { voiceover: { ...voiceAttach(r, label), startSec: VOICE_START }, sfx: autoSfxRefresh(ext.doc) });
+    // Captions that appear with the voice are karaoke style (the word being said lights up).
+    if (!hadCaptions && next.captions.enabled) next = { ...next, captions: { ...next.captions, preset: "word-pop" } };
     if (ext.extendedSec) {
       notes.push(`Extended the last scene by ${ext.extendedSec}s so the voice isn't cut off.`);
       if (music) {
-        const m = await ensureMusicAsset(p, ctx.workspaceId, { params: { mood: music.mood, durationSec: totalDuration(next), seed: music.seed, accents: musicAccents(next) }, appId, actor: ctx.actor });
+        const m = await ensureMusicAsset(p, ctx.workspaceId, { params: { mood: music.mood, durationSec: totalDuration(next), seed: music.seed, accents: musicAccents(next), ...(next.beat?.bpm ? { bpm: next.beat.bpm } : {}) }, appId, actor: ctx.actor });
         next = attachAudio(next, { music: { assetId: m.asset.id, mood: music.mood, volume: music.volume, label: `Original music · ${MUSIC_MOOD_INFO[music.mood].label}` } });
       }
     }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BaseEntity, HttpUrl, Id, IsoDateTime, Percent01 } from "./common";
+import { BaseEntity, HttpUrl, Id, IsoDateTime, Percent01, PrivacyFinding, RegionPath } from "./common";
 
 export const MediaKind = z.enum(["image", "video", "audio", "document", "mask", "captions", "archive", "json"]);
 export type MediaKind = z.infer<typeof MediaKind>;
@@ -89,6 +89,12 @@ export const MediaAsset = BaseEntity.extend({
    * their app screen is cut out by SAM 3.1 into a derived asset with `sourceLabel: "sam_ui_crop"`.
    */
   screenshotKind: z.enum(["raw_ui", "marketing"]).optional(),
+  /**
+   * Screenshots: personal or secret information Muse Spark found on the image (names, emails, API
+   * keys, tokens, passwords, payment or revenue details…) with regions that are blurred wherever the
+   * screenshot appears in a video. Absent = not checked yet.
+   */
+  privacy: PrivacyFinding.extend({ scannedBy: z.string().max(80).optional(), scannedAt: IsoDateTime.optional() }).optional(),
   /** Thumbnail/poster for video and documents. */
   posterAssetId: Id.optional(),
   /** Render outputs: which composition version produced this asset. */
@@ -426,19 +432,25 @@ export const RecordingSegment = BaseEntity.extend({
   featureIds: z.array(Id).max(10).default([]),
   /** 0–1: how useful the shot is for marketing (loading screens, lock screen, fumbling score low). */
   quality: Percent01.default(0.5),
-  /** Personal information visible (notifications, names, emails, numbers): blur or skip. */
+  /** Personal or secret information visible (notifications, names, emails, API keys, payment details): blur or skip. */
   privacy: z
     .object({
       flagged: z.boolean().default(false),
       notes: z.string().max(300).optional(),
-      /** Normalized regions (0–1) to blur when the segment is used. */
-      regions: z.array(z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 })).max(8).default([]),
+      /**
+       * Normalized regions (0–1) to blur when the segment is used. `path` (when SAM 3.1 tracked the
+       * region through the segment) moves the blur with the content as it scrolls; `t` is seconds into
+       * the recording.
+       */
+      regions: z.array(z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01, path: RegionPath.optional() })).max(8).default([]),
     })
     .default({ flagged: false, regions: [] }),
   /** Founder narration spoken during this segment (Muse Voice Transcribe, turn-level). */
   narration: z.string().max(2000).optional(),
   /** A representative still (for thumbnails and Spark/SAM work). */
   keyframeAssetId: Id.optional(),
+  /** Seconds into the recording where `keyframeAssetId` was taken (focus boxes drawn on it are anchored there). */
+  keyframeAtSec: z.number().nonnegative().optional(),
   /** Model that labelled the segment, e.g. muse-spark-1.3. */
   labelledBy: z.string().max(80).optional(),
 });

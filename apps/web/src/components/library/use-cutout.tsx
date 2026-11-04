@@ -99,7 +99,7 @@ export function UseCutoutDialog({ open, onOpenChange, workspaceId, appId, asset,
       {list.isLoading ? (
         <Skeleton className="h-20" rounded="lg" />
       ) : !videos.length ? (
-        <EmptyState size="sm" icon={<Clapperboard aria-hidden />} title="No videos yet" description="Produce a campaign concept first; its video appears here so you can add the cutout to a scene." />
+        <EmptyState size="sm" icon={<Clapperboard aria-hidden />} title="No videos yet" description="Produce a campaign idea first; its video appears here so you can add the cutout to a scene." />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Video">{(f) => <Select id={f.id} value={compositionId} onChange={(e) => setCompositionId(e.target.value)} options={videos.map((c) => ({ value: c.id, label: `${c.title} (${c.aspectRatio})` }))} />}</Field>

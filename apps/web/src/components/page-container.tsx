@@ -6,7 +6,7 @@ export function PageContainer({ children, className, width = "default" }: { chil
   return (
     <div
       className={cn(
-        "mx-auto w-full px-4 pb-28 pt-8 sm:px-6 md:pb-16 md:pt-10 lg:px-8",
+        "mx-auto w-full px-4 pb-14 pt-8 sm:px-6 md:pb-16 md:pt-10 lg:px-8",
         width === "narrow" && "max-w-2xl",
         width === "default" && "max-w-[1120px]",
         width === "wide" && "max-w-[1320px]",

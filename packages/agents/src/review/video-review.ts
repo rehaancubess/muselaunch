@@ -193,7 +193,7 @@ Rubric (give each a verdict: ok, issue, or unclear when the frames can't show it
 - legibility: text has strong contrast with what is behind it, is large enough on a phone, and nothing is cut off, overflowing or outside the frame.
 - safe_zone: important text and UI stay clear of the platform UI zones given below.
 - device_frame: never a device frame inside another device frame (e.g. a store screenshot that already shows a phone, placed inside our phone mockup); no stretched or distorted screens.
-- broken_frame: no blank, black or flat frames, missing media, empty placeholder boxes or rendering glitches (a fade-in on the very first frame is acceptable only if the hook appears quickly).
+- broken_frame: no blank, black or flat frames, missing media, empty placeholder boxes or rendering glitches. The very first frame is also the thumbnail in the feed: it must already show the hook text and a visual (no fade-in from an empty frame).
 - repetition: the same visual (same screenshot or same-looking scene) shown 3 or more times.
 - pacing: variety between scenes; nothing on screen too briefly to take in or so long it drags.
 - cta: a clear, readable call to action near the end.
@@ -491,21 +491,29 @@ export async function videoReviewHandler(ctx: JobContext<"video.review">): Promi
     const text = reviewPromptText({ title: comp.title, version, doc, quality, facts, frames: loaded.frames, measured, verifiedClaims: app.verifiedClaims.map((c) => c.text), brand: brandNotes(app) });
     const images = await imageInputs(p, ws, ctx.workspaceId, loaded.frames, loaded.buffers);
     await ctx.progress(35, `${planned.name} is watching the video`);
-    const out = await routedJson(
-      p,
-      {
-        ctx: rec.callCtx("video.review"),
-        model: "spark",
-        instructions: VIDEO_REVIEW_INSTRUCTIONS,
-        input: [{ type: "input_text", text }, ...images],
-        schema: VideoReviewDraft,
-        schemaName: "VideoReview",
-        maxOutputTokens: 12_000, // 16 frames + medium reasoning ran out at 6000 (live run 6, 1 Nov)
-        reasoningEffort: "medium",
-        cacheKey: "agents.video_review",
-      },
-      { route: "video.review", onFallback: loaded.frames.length <= SPARK_OPEN_MAX_IMAGES ? fallbackTo(rec) : undefined },
-    );
+    // 16 frames + medium reasoning ran out at 6000 and once more at 12000 (live runs, 1-2 Nov): give it
+    // more room, and if the answer still doesn't fit, ask once more with light reasoning.
+    const watch = (reasoningEffort: "medium" | "low") =>
+      routedJson(
+        p,
+        {
+          ctx: rec.callCtx("video.review"),
+          model: "spark",
+          instructions: VIDEO_REVIEW_INSTRUCTIONS,
+          input: [{ type: "input_text", text }, ...images],
+          schema: VideoReviewDraft,
+          schemaName: "VideoReview",
+          maxOutputTokens: 24_000,
+          reasoningEffort,
+          cacheKey: "agents.video_review",
+        },
+        { route: "video.review", onFallback: loaded.frames.length <= SPARK_OPEN_MAX_IMAGES ? fallbackTo(rec) : undefined },
+      );
+    const out = await watch("medium").catch(async (err: unknown) => {
+      if (!/max_output_tokens/.test(err instanceof Error ? err.message : String(err))) throw err;
+      await rec.step({ kind: "decision", title: "The review didn't fit in Muse Spark's answer; asking again with lighter reasoning", output: {} });
+      return watch("low");
+    });
     await rec.modelStep(`Watch ${loaded.frames.length} frames and review them (${engineName(out.model)}, multimodal)`, out, { frames: loaded.frames.length, scenes: facts.length, measured: measured.length }, { score: out.data.score, findings: out.data.findings.length });
     ctx.throwIfCancelled();
 

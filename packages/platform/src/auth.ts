@@ -9,8 +9,10 @@ export interface AuthUser {
   emailVerified: boolean;
   name?: string;
   picture?: string;
-  /** Country hint from the edge (e.g. `X-Client-Country` set by a trusted proxy). */
-  provider: "firebase" | "dev";
+  /** How the caller signed in: a Firebase session (web), a dev token (local/tests) or a linked phone. */
+  provider: "firebase" | "dev" | "device";
+  /** The linked phone making the request (`provider: "device"`). */
+  deviceId?: string;
 }
 
 /**

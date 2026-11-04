@@ -114,7 +114,7 @@ export const recommendationsHandler: JobHandler<"recommendations.generate"> = as
   });
 
   ctx.throwIfCancelled();
-  await ctx.progress(55, `planning next experiment with ${roleNames(p).wonder}`);
+  await ctx.progress(55, `planning the next test with ${roleNames(p).wonder}`);
   const proposal = await generateJson(p, {
     ctx: { ...callCtx, task: "recommendations.propose" },
     model: "wonder",

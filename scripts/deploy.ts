@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
+import { ensureWebPushKeys, envValue, PRIVATE_KEY as WEB_PUSH_PRIVATE, PUBLIC_KEY as WEB_PUSH_PUBLIC, validVapidPair } from "./setup-web-push";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const envFile = join(root, ".env");
@@ -75,6 +76,19 @@ function ensureLocalSecret(name: string, gen: () => string) {
 ensureLocalSecret("TOKEN_ENCRYPTION_KEY", () => randomBytes(32).toString("base64"));
 ensureLocalSecret("WORKER_SHARED_SECRET", () => randomBytes(24).toString("base64url"));
 ensureLocalSecret("STORAGE_SIGNING_SECRET", () => randomBytes(24).toString("base64url"));
+// Browser notifications (Web Push): one key pair, kept in .env (setup-web-push.cmd makes it; made
+// here the same way if it's missing). The private key is never printed.
+if (!validVapidPair(env[WEB_PUSH_PUBLIC], env[WEB_PUSH_PRIVATE])) {
+  const made = ensureWebPushKeys(envFile, { dryRun: DRY });
+  if (made.created && DRY) console.log("Would generate the browser notification keys");
+  else if (made.created) {
+    const text = readFileSync(envFile, "utf8");
+    env[WEB_PUSH_PUBLIC] = envValue(text, WEB_PUSH_PUBLIC) ?? "";
+    env[WEB_PUSH_PRIVATE] = envValue(text, WEB_PUSH_PRIVATE) ?? "";
+    console.log("Generated the browser notification keys and saved them to .env (the private key is not shown)");
+  }
+}
+const isEmail = (s?: string) => Boolean(s && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s.trim()));
 
 const projectNumber = DRY ? "PROJECT_NUMBER" : sh(`gcloud projects describe ${PROJECT} --format="value(projectNumber)"`, { quiet: true });
 const url = (svc: string) => `https://${svc}-${projectNumber}.${REGION}.run.app`;
@@ -145,6 +159,10 @@ const SECRETS = [
   "TIKTOK_CLIENT_SECRET",
   "LINKEDIN_CLIENT_SECRET",
   "X_CLIENT_SECRET",
+  // Phone app push (optional: only with Expo's enhanced push security; pushes work without it).
+  "EXPO_ACCESS_TOKEN",
+  // Browser notifications: the private half of the Web Push key pair (its public half is plain env below).
+  "WEB_PUSH_VAPID_PRIVATE_KEY",
 ].filter((k) => env[k]);
 for (const name of SECRETS) {
   sh(`gcloud secrets create ${name} --replication-policy=automatic --project ${PROJECT}`, { allowFail: true, quiet: true });
@@ -216,8 +234,15 @@ const common = [
         ...(env.BASETEN_BASE_URL ? [`BASETEN_BASE_URL=${env.BASETEN_BASE_URL}`] : []),
       ]
     : []),
+  // Browser notifications: the public key and who push services can contact (the private key is a secret above).
+  ...(env.WEB_PUSH_VAPID_PUBLIC_KEY && env.WEB_PUSH_VAPID_PRIVATE_KEY
+    ? [
+        `WEB_PUSH_VAPID_PUBLIC_KEY=${env.WEB_PUSH_VAPID_PUBLIC_KEY}`,
+        `WEB_PUSH_SUBJECT=${env.WEB_PUSH_SUBJECT?.trim() || (isEmail(env.NEXT_PUBLIC_CONTACT_EMAIL) ? `mailto:${env.NEXT_PUBLIC_CONTACT_EMAIL!.trim()}` : isEmail(env.OPERATOR_EMAIL) ? `mailto:${env.OPERATOR_EMAIL!.trim()}` : WEB_URL)}`,
+      ]
+    : []),
   // Social OAuth client ids (public) for the platforms configured in .env; their secrets are above.
-  ...["YOUTUBE_CLIENT_ID", "INSTAGRAM_APP_ID", "FACEBOOK_APP_ID", "TIKTOK_CLIENT_KEY", "TIKTOK_AUDITED", "LINKEDIN_CLIENT_ID", "LINKEDIN_API_VERSION", "X_CLIENT_ID"].filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
+  ...["YOUTUBE_CLIENT_ID", "INSTAGRAM_APP_ID", "FACEBOOK_APP_ID", "INSTAGRAM_LOGIN_CONFIG_ID", "FACEBOOK_LOGIN_CONFIG_ID", "META_GRAPH_API_VERSION", "TIKTOK_CLIENT_KEY", "TIKTOK_AUDITED", "LINKEDIN_CLIENT_ID", "LINKEDIN_API_VERSION", "X_CLIENT_ID"].filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
   `TASKS_LOCATION=${REGION}`,
   `TASKS_INVOKER_SA=${TASKS_SA}`,
   "JOB_DISPATCH=cloudtasks",
@@ -250,10 +275,12 @@ for (const svc of [SVC.worker, SVC.render]) {
   sh(`gcloud run services add-iam-policy-binding ${svc} --region=${REGION} --member=serviceAccount:${TASKS_SA} --role=roles/run.invoker --project=${PROJECT} --quiet`, { quiet: true });
 }
 // Crons: publish approved posts whose scheduled time has arrived (every minute); wake Growth
-// Autopilot loops whose measurement window ended and repair missed job-completion resumes (every 5 min).
+// Autopilot loops whose measurement window ended and repair missed job-completion resumes (every 5 min);
+// Always on (hourly; its research sweep and email are weekly per app, whatever the tick rate).
 for (const [name, schedule] of [
   ["publish-due", "* * * * *"],
   ["autopilot-wake", "*/5 * * * *"],
+  ["always-on", "17 * * * *"],
 ] as const) {
   const cronUri = `${url(SVC.worker)}/tasks/cron/${name}`;
   const cronFlags = `--schedule="${schedule}" --uri=${cronUri} --http-method=POST --oidc-service-account-email=${TASKS_SA} --oidc-token-audience=${url(SVC.worker)} --location=${REGION} --project=${PROJECT}`;

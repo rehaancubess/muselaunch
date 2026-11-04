@@ -19,6 +19,26 @@ export const HexColor = z.string().regex(/^#(?:[0-9a-fA-F]{3}){1,2}(?:[0-9a-fA-F
 
 export const Percent01 = z.number().min(0).max(1);
 
+/**
+ * One sample of a SAM 3.1-tracked region: `t` = seconds into the SOURCE media (a recording), box as
+ * 0..1 fractions of that media's frame (or, once placed on a layer, of the layer's screen/box).
+ * Samples come from SAM's per-frame masks; frames where the object was lost hold its last position.
+ */
+export const RegionPathPoint = z.object({ t: z.number().min(0).max(36_000), x: Percent01, y: Percent01, w: Percent01, h: Percent01 });
+export type RegionPathPoint = z.infer<typeof RegionPathPoint>;
+/** A tracked region over time (ascending `t`). */
+export const RegionPath = z.array(RegionPathPoint).min(2).max(300);
+export type RegionPath = z.infer<typeof RegionPath>;
+
+/** Personal or secret information found on real product media (Muse Spark), with regions to blur. */
+export const PrivacyFinding = z.object({
+  flagged: z.boolean().default(false),
+  notes: z.string().max(300).optional(),
+  /** Normalized regions (0–1 of the image / frame) to blur wherever the media is shown. */
+  regions: z.array(z.object({ x: Percent01, y: Percent01, w: Percent01, h: Percent01 })).max(8).default([]),
+});
+export type PrivacyFinding = z.infer<typeof PrivacyFinding>;
+
 /** Actor string: a user uid, `agent:<runId>`, or `system`. */
 export const Actor = z.string().min(1).max(160);
 export type Actor = z.infer<typeof Actor>;
@@ -39,7 +59,11 @@ export const SYSTEM_FIELDS = ["id", "workspaceId", "createdAt", "updatedAt", "cr
 export const ReviewState = z.enum(["verified", "needs_review", "rejected"]);
 export type ReviewState = z.infer<typeof ReviewState>;
 
-export const Platform = z.enum(["ios", "android", "web", "macos", "windows", "linux", "other"]);
+/**
+ * Where an app runs. `tv` = a TV app (Amazon Fire TV, Apple TV, Android TV / Google TV, smart TVs,
+ * games played on the TV); its landscape footage is shown on a TV in videos.
+ */
+export const Platform = z.enum(["ios", "android", "web", "macos", "windows", "linux", "tv", "other"]);
 export type Platform = z.infer<typeof Platform>;
 
 /** Distribution channels / social networks. */
@@ -62,7 +86,12 @@ export const Channel = z.enum([
 ]);
 export type Channel = z.infer<typeof Channel>;
 
-export const AspectRatio = z.enum(["9:16", "1:1", "16:9", "4:5"]);
+/**
+ * Frame shapes. "9:19.5" is the App Store's 6.9-inch iPhone screenshot (1290×2796 portrait, one of
+ * the sizes App Store Connect accepts for the required 6.9-inch set); it is only used for store
+ * screenshot sets, never for videos.
+ */
+export const AspectRatio = z.enum(["9:16", "1:1", "16:9", "4:5", "9:19.5"]);
 export type AspectRatio = z.infer<typeof AspectRatio>;
 
 export const ASPECT_DIMENSIONS: Record<AspectRatio, { width: number; height: number }> = {
@@ -70,7 +99,11 @@ export const ASPECT_DIMENSIONS: Record<AspectRatio, { width: number; height: num
   "1:1": { width: 1080, height: 1080 },
   "16:9": { width: 1920, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
+  "9:19.5": { width: 1290, height: 2796 },
 };
+
+/** Aspect ratios a video can be made in (the store-screenshot shape is for stills only). */
+export const VIDEO_ASPECTS = ["9:16", "1:1", "16:9", "4:5"] as const satisfies readonly AspectRatio[];
 
 /**
  * Provenance for any fact. Research findings and claims must carry at least one.

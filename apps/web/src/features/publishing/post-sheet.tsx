@@ -1,16 +1,46 @@
 "use client";
+import { isPostChangeRunning } from "@muselaunch/contracts";
 import { Badge, Button, Checkbox, Field, Input, JobProgress, Notice, ProvenanceBadge, Sheet, Skeleton, StatusPill, statusKindOf, useToast } from "@muselaunch/ui";
 import { CheckCircle2, Copy, Download, ExternalLink, Package, Send, Undo2, X } from "lucide-react";
 import { useState } from "react";
 import { QueryState } from "@/components/states";
+import { PostTellMuse } from "@/features/change/post-change";
 import { BrandGuardianBadge, GuardedApprovalButton } from "@/features/guardian";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { useJob } from "@/lib/jobs";
 import { CHANNEL_LABEL } from "@/lib/labels";
 import { useApiQuery, useInvalidate } from "@/lib/query";
 import { useMemberName, useWorkspace } from "@/lib/workspace";
+import { SlideGallery } from "@/components/creator/slide-gallery";
+import { TextPostCard } from "@/components/creator/text-post-card";
 import { ApprovalCard } from "./approval-card";
-import type { JobOut, ManualPackage, PostView } from "./types";
+import { FactCheckFix } from "./fact-check";
+import type { ChannelMediaRules, JobOut, ManualPackage, PostMedia, PostView } from "./types";
+
+/** What the post carries, in posting order: the slides of a carousel (swipeable), one image, or the words of a text post. */
+function PostMediaPreview({ media, caption, channel, title }: { media: PostMedia; caption: string; channel: PostView["post"]["channel"]; title: string }) {
+  if (media.shape === "text") return <TextPostCard text={caption} channel={channel} className="bg-canvas shadow-[0_0_0_1px_var(--ml-line)]" />;
+  const images = media.items.filter((i) => i.kind === "image");
+  if (media.shape === "carousel" || media.shape === "image")
+    return <SlideGallery assetIds={images.map((i) => i.assetId)} width={images[0]?.width} height={images[0]?.height} title={title} layout="strip" className="max-w-sm" />;
+  return null;
+}
+
+/** The channel's limits that matter for this post, in one or two plain lines. */
+export function rulesLines(rules: ChannelMediaRules, media: Pick<PostMedia, "shape" | "count">, mode: "api" | "manual"): string[] {
+  const out: string[] = [];
+  const name = CHANNEL_LABEL[rules.channel] ?? rules.channel;
+  if (media.shape === "carousel") {
+    const c = rules.api?.carousel;
+    if (mode === "api" && c) out.push(`Through the API, ${name} takes ${c.min}–${c.max} images in one post${rules.api?.imageFormats.length ? ` (${rules.api.imageFormats.join(" or ")})` : ""}.`);
+    else if (rules.manualMaxImages) out.push(`One post holds up to ${rules.manualMaxImages} images here.`);
+    if (mode === "manual" && rules.api?.manualReason.carousel) out.push(rules.api.manualReason.carousel);
+  }
+  if (media.shape === "text" && mode === "manual" && rules.api?.manualReason.text) out.push(rules.api.manualReason.text);
+  if (media.shape === "image" && mode === "manual" && rules.api?.manualReason.image) out.push(rules.api.manualReason.image);
+  if (rules.captionLimit) out.push(`${media.shape === "text" ? "Posts" : "Captions"} take up to ${rules.captionLimit.toLocaleString()} characters.`);
+  return out;
+}
 
 export const POST_STATUS_KIND = (s: string) =>
   s === "published" || s === "manually_posted" ? "success" : s === "manual_post_needed" || s === "awaiting_approval" ? "attention" : s === "publishing" ? "running" : s === "scheduled" ? "success" : statusKindOf(s);
@@ -26,7 +56,8 @@ function copyText(text: string, toast: ReturnType<typeof useToast>) {
 export function PostSheet({ postId, onOpenChange }: { postId: string | null; onOpenChange: (open: boolean) => void }) {
   const { workspaceId } = useWorkspace();
   const path = postId ? wsPath(workspaceId, `/posts/${postId}`) : null;
-  const q = useApiQuery<PostView>(path, { refetchInterval: (query) => (query.state.data?.post.status === "publishing" ? 4000 : false) });
+  // Polls while it's going out, or while Muse is changing it ("Tell Muse what to change").
+  const q = useApiQuery<PostView>(path, { refetchInterval: (query) => (query.state.data?.post.status === "publishing" ? 4000 : isPostChangeRunning(query.state.data?.post.change) ? 3000 : false) });
   return (
     <Sheet open={Boolean(postId)} onOpenChange={onOpenChange} title={q.data ? `${CHANNEL_LABEL[q.data.post.channel]} post` : "Post"} description={q.data?.statusLabel} width="max-w-xl">
       <div className="p-5">
@@ -48,7 +79,7 @@ function PostBody({ view }: { view: PostView }) {
   const { post, approval, publication, account, preflight } = view;
   const [busy, setBusy] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const refresh = () => invalidate(wsPath(workspaceId, `/posts/${post.id}`), wsPath(workspaceId, `/apps/${post.appId}/calendar`), wsPath(workspaceId, "/approvals"));
+  const refresh = () => invalidate(wsPath(workspaceId, `/posts/${post.id}`), wsPath(workspaceId, `/apps/${post.appId}/calendar`), wsPath(workspaceId, `/apps/${post.appId}/today`), wsPath(workspaceId, "/approvals"));
   const job = useJob(workspaceId, jobId, { onSettled: () => void refresh() });
 
   const act = async (name: string, fn: () => Promise<unknown>, done?: string) => {
@@ -65,6 +96,7 @@ function PostBody({ view }: { view: PostView }) {
   };
   const P = (suffix: string) => wsPath(workspaceId, `/posts/${post.id}${suffix}`);
   const terminal = ["published", "manually_posted", "cancelled"].includes(post.status);
+  const otherErrors = preflight.errors.filter((e) => e !== view.factCheck?.preflightError);
 
   return (
     <div className="space-y-6">
@@ -75,9 +107,18 @@ function PostBody({ view }: { view: PostView }) {
         <Badge tone="neutral">{post.visibility}</Badge>
       </div>
 
+      {view.media ? <PostMediaPreview media={view.media} caption={post.caption} channel={post.channel} title={post.title ?? "This post"} /> : null}
+      {view.media && !terminal && rulesLines(view.media.rules, view.media, post.mode).length ? (
+        <ul className="space-y-1 text-caption text-ink-2">
+          {rulesLines(view.media.rules, view.media, post.mode).map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      ) : null}
+
       <section className="space-y-2">
         {post.title ? <p className="text-headline font-semibold">{post.title}</p> : null}
-        <p className="whitespace-pre-wrap text-body-sm text-ink">{post.caption}</p>
+        {view.media?.shape === "text" ? null : <p className="whitespace-pre-wrap text-body-sm text-ink">{post.caption}</p>}
         {post.tags.length ? <p className="text-footnote text-ink-2">{post.tags.map((t) => `#${t.replace(/^#/, "")}`).join(" ")}</p> : null}
         <p className="text-caption text-ink-3">
           {post.scheduledAt ? `Scheduled ${new Date(post.scheduledAt).toLocaleString()} (${post.timezone})` : "No time set"}
@@ -108,10 +149,12 @@ function PostBody({ view }: { view: PostView }) {
       ) : null}
 
       {post.lastError && !terminal ? <Notice tone={post.status === "failed" ? "danger" : "warning"}>{post.lastError}</Notice> : null}
-      {preflight.errors.length && !terminal ? (
+      {/* The fact check, with its one-tap fixes (its preflight error isn't repeated below). */}
+      {!terminal ? <FactCheckFix view={view} /> : null}
+      {otherErrors.length && !terminal ? (
         <Notice tone="danger" title="Fix before approval">
           <ul className="list-disc pl-4">
-            {preflight.errors.map((e) => (
+            {otherErrors.map((e) => (
               <li key={e}>{e}</li>
             ))}
           </ul>
@@ -125,6 +168,11 @@ function PostBody({ view }: { view: PostView }) {
             ))}
           </ul>
         </Notice>
+      ) : null}
+
+      {/* Say what to change (typed or spoken): Muse changes the video or the caption, then it needs approval again. */}
+      {!terminal && post.status !== "publishing" && can("content.write") ? (
+        <PostTellMuse post={{ id: post.id, appId: post.appId, status: post.status, compositionId: post.compositionId, change: post.change, stills: view.media ? view.media.shape === "image" || view.media.shape === "carousel" : undefined }} className="rounded-xl border border-line p-4" />
       ) : null}
 
       {!terminal && ["draft", "failed", "awaiting_approval"].includes(post.status) ? <BrandGuardianBadge subject={{ entity: "scheduledPosts", id: post.id }} /> : null}
@@ -185,7 +233,7 @@ function ManualChecklist({ postId, canPost, approved, onDone }: { postId: string
     setBusy("mark");
     try {
       await api.post(wsPath(workspaceId, `/posts/${postId}/mark-posted`), { url });
-      toast.success("Marked as posted", "Insights will attribute this post’s results.");
+      toast.success("Marked as posted", "Results will attribute this post’s numbers to it.");
       await onDone();
     } catch (e) {
       toast.error("Couldn’t mark as posted", errorMessage(e));

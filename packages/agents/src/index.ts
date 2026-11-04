@@ -7,26 +7,29 @@ import { brandReviewHandler } from "./guardian";
 import { appImportHandler } from "./import/handler";
 import { memoryIngestHandler } from "./memory";
 import { researchRunHandler } from "./research/handler";
-import { videoReviewHandler } from "./review";
+import { videoAutofixHandler, videoReviewHandler } from "./review";
 import { storyboardHandler } from "./storyboard";
 import { strategyRunHandler } from "./strategy";
 
 export { retrieveMemory, rememberPreference, ingestMemory, rankPreferences, type MemoryResult } from "./memory";
-export { validateClaims, unsupportedSpecifics, initialClaimState } from "./claims";
+export { validateClaims, unsupportedSpecifics, unsupportedFigures, initialClaimState, sentenceWith, termsStillIn, type ClaimIssue } from "./claims";
 export { decideStrategy, planSnapshot } from "./strategy";
 export { conceptDurations, distinctnessProblems, founderDuration, planMaxVideoSec, seededDuration } from "./concepts";
 export { installCampaignHooks, syncCampaignProduction } from "./campaign-status";
 export { autoCampaignName, truncateWords } from "./util";
 export { checkStoryboard, fitDurations, minSceneSec, polishStoryboard, sceneRange } from "./storyboard";
+export { checkSlides, cutBody, cutHeadline, polishSlides, realScreens, slideCount, SlidePlanOutput, SLIDE_TEMPLATES, templatesFor, wordLimits, type PlanSlide, type SlideCheckContext } from "./slides";
 export { checkEdit } from "./edit";
-export { CHANNEL_RULES, copyLimitProblems } from "./copy";
+export { CHANNEL_RULES, copyLimitProblems, postLength, readPackIssue, recheckCopyPack, reviseCopyPack, rewriteCopyForPost, textPostRules, textPostText, toPackIssue } from "./copy";
 export { installFetcher, fetcherFor, fetchResult, type Fetcher } from "./fetcher";
 export { RunRecorder } from "./runs";
 export { runToolLoop, defineTool, type LoopTool, type LoopOutcome } from "./loop";
 export { searchTool, SourceRegistry, type ResearchOutputs } from "./research/tools";
+export { creativeDirectionLines, directionFollowed, directorLabel, type DirectionFollowed } from "./direction";
 export { loadAppContext, dnaSummary, productAssets, requireDna, type AppContextData } from "./context";
 export { productMediaOptions } from "./media-options";
-export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite } from "./import/parsers";
+export { parseAppStoreUrl, parsePlayUrl, listingFromItunes, listingFromPlayHtml, extractWebsite, websiteStructure, sectionFact } from "./import/parsers";
+export { listingEvidence } from "./import/handler";
 export { paletteFromImages, dominantColors } from "./dna/palette";
 export * from "./guardian";
 export * from "./review";
@@ -44,4 +47,5 @@ export const handlers: HandlerRegistry = {
   "memory.ingest": memoryIngestHandler,
   "brand.review": brandReviewHandler,
   "video.review": videoReviewHandler,
+  "video.autofix": videoAutofixHandler,
 };

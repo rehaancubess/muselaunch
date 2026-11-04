@@ -109,7 +109,7 @@ describe("Growth Autopilot: Spark watches the final renders (watch.ts)", () => {
     expect(seen).toEqual(["render:approve", "render:rerender:approve"]);
     expect(ap).toMatchObject({ status: "sleeping", stage: "measure" });
     expect(h.rendered).toHaveLength(4);
-    expect(ap.log.some((e) => e.kind === "checkpoint" && e.summary.startsWith("Re-render after Spark's fix needs your OK"))).toBe(true);
+    expect(ap.log.some((e) => e.kind === "checkpoint" && e.summary.startsWith("Re-making after Muse Spark’s fixes needs your OK"))).toBe(true);
   });
 
   it("a review that can't run (Spark unavailable) is logged honestly, never a pass, and the loop goes on to the drafts", async () => {

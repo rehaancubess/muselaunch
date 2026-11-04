@@ -1,9 +1,12 @@
 import { brandGate, reviewBrief } from "@muselaunch/agents";
-import { can, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
+import { Channel, can, ConfirmPostFactRequest, GuardedApprovalRequest, Id } from "@muselaunch/contracts";
 import {
   calendar,
   CalendarQuery,
   cancelPost,
+  channelMediaRules,
+  ConnectionReturn,
+  confirmPostFacts,
   copyForManual,
   createPost,
   CreatePostRequest,
@@ -27,6 +30,7 @@ import {
   purgeExpiredPendingConnections,
   ReminderRequest,
   requestDraftApproval,
+  requestFactRemoval,
   requestPackage,
   requestPostApproval,
   resetDraftSend,
@@ -42,6 +46,7 @@ import {
   UpdatePostRequest,
 } from "@muselaunch/growth";
 import { AppError } from "@muselaunch/platform";
+import { MANUAL_ONLY_CHANNELS, publishingAdapterForChannel } from "@muselaunch/providers";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, body, query, requireCap, type AppEnv, type Ctx } from "../context";
@@ -75,9 +80,10 @@ publishingRoutes.get("/connections", async (c) => {
 });
 
 publishingRoutes.post("/connections/:provider/start", requireCap("accounts.manage"), async (c) => {
-  const input = await body(c, z.object({ appId: Id.optional() }).default({}));
+  // `back`: which fixed page the browser returns to after consent (quick setup / Settings), never a URL.
+  const input = await body(c, z.object({ appId: Id.optional(), back: ConnectionReturn.optional() }).default({}));
   if (input.appId) await wsOf(c).collection("apps").getOrThrow(input.appId);
-  const out = await startConnection(p(c), wid(c), actorOf(c), c.req.param("provider"), { appId: input.appId });
+  const out = await startConnection(p(c), wid(c), actorOf(c), c.req.param("provider"), { appId: input.appId, back: input.back });
   await audit(p(c), wid(c), actorOf(c), "connection.started", { provider: out.provider });
   return c.json(out);
 });
@@ -160,7 +166,19 @@ publishingRoutes.get("/apps/:appId/posts", async (c) => {
   const page = status
     ? await ws.collection("scheduledPosts").list({ where: [["appId", "==", a.id], ["status", "==", status]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 })
     : await ws.collection("scheduledPosts").list({ where: [["appId", "==", a.id]], orderBy: { field: "createdAt", dir: "desc" }, limit: 200 });
-  return c.json({ items: page.items.filter((x) => !campaignId || x.campaignId === campaignId), nextCursor: null });
+  // Text posts have no media (assetIds []): mediaCount 0, textOnly true.
+  const items = page.items.filter((x) => !campaignId || x.campaignId === campaignId).map((x) => ({ ...x, mediaCount: x.assetIds.length, textOnly: x.assetIds.length === 0 }));
+  return c.json({ items, nextCursor: null });
+});
+
+/**
+ * What each channel takes, for the new-post screen: whether it needs media, its caption limit, how
+ * many images one post holds by hand, and what its API adapter takes (carousel min/max, formats,
+ * cover image) with the plain-words reason when a shape is posted by hand.
+ */
+publishingRoutes.get("/publishing/channel-rules", async (c) => {
+  const items = Channel.options.map((ch) => channelMediaRules(ch, MANUAL_ONLY_CHANNELS.includes(ch) ? null : (publishingAdapterForChannel(ch)?.accepts ?? null)));
+  return c.json({ items });
 });
 
 publishingRoutes.post("/apps/:appId/posts", requireCap("content.write"), async (c) => {
@@ -213,6 +231,27 @@ async function guardianGate(c: Ctx, subject: { entity: "scheduledPosts" | "outre
 publishingRoutes.post("/posts/:id/request-approval", requireCap("content.write"), async (c) => {
   const brandReview = await guardianGate(c, { entity: "scheduledPosts", id: c.req.param("id") });
   return c.json({ ...(await requestPostApproval(p(c), wid(c), c.req.param("id"), actorOf(c))), brandReview });
+});
+
+/**
+ * One-tap fixes when the fact check holds a post back (202 + the `post.fix_facts` job):
+ * - remove: Muse Spark rewrites the copy without the flagged words, then it is checked again
+ *   (content.write: it changes the post);
+ * - confirm: the person confirms the statement as a fact sourced to them (apps.write: it changes the
+ *   app's facts; confirmed straight away only with content.approve, otherwise it goes to review and
+ *   no re-check starts), then the copy is checked again.
+ * Autopilot's drafts then ask for publish approval as Autopilot would (they appear in Needs you).
+ */
+publishingRoutes.post("/posts/:id/facts/remove", requireCap("content.write"), async (c) => {
+  const out = await requestFactRemoval(p(c), wid(c), c.req.param("id"), actorOf(c));
+  return c.json(out, 202);
+});
+
+publishingRoutes.post("/posts/:id/facts/confirm", requireCap("content.write"), requireCap("apps.write"), async (c) => {
+  const input = await body(c, ConfirmPostFactRequest);
+  const out = await confirmPostFacts(p(c), wid(c), c.req.param("id"), input, c.get("member"), actorOf(c));
+  await audit(p(c), wid(c), actorOf(c), "post.fact_confirmed", { postId: out.post.id, claimIds: out.claims.map((x) => x.id), confirmed: out.confirmed });
+  return c.json(out, out.job ? 202 : 201);
 });
 
 publishingRoutes.post("/posts/:id/publish", requireCap("publish"), async (c) => {

@@ -1,8 +1,10 @@
-import type { AgentRun, Approval, Autopilot, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
+import type { AgentRun, Approval, Autopilot, AutopilotProgress, AutopilotRunCost, AutopilotStage, BrandReview, Composition, Experiment, Job, ResearchFinding, ScheduledPost } from "@muselaunch/contracts";
 import { routes } from "@/lib/routes";
 
 /** GET /autopilots/:id (module B, routes/autopilot.ts). */
 export interface AutopilotDetail {
+  /** The run in plain steps with real results, its finished MP4s and the models that ran. */
+  progress: AutopilotProgress;
   autopilot: Autopilot;
   waitingFor: string;
   runs: Pick<AgentRun, "id" | "kind" | "status" | "goal" | "model" | "usage" | "createdAt">[];
@@ -13,6 +15,8 @@ export interface AutopilotDetail {
   compositions: Pick<Composition, "id" | "title" | "currentVersion" | "variantId">[];
   posts: Pick<ScheduledPost, "id" | "status" | "channel" | "scheduledAt" | "compositionId">[];
   experiment: Pick<Experiment, "id" | "title" | "status" | "launchWindow" | "variants" | "primaryMetric"> | null;
+  /** Model cost of everything the run did, from usage records; null = it couldn't be read. Absent on older APIs. */
+  cost?: AutopilotRunCost | null;
 }
 
 export type LogEntry = Autopilot["log"][number];
@@ -33,12 +37,12 @@ export type LoopStage = Exclude<AutopilotStage, "done">;
 export const RAIL: { stage: LoopStage; label: string; blurb: string }[] = [
   { stage: "research", label: "Research", blurb: "Audience, trends and competitors — every finding cited." },
   { stage: "select_audience", label: "Audience", blurb: "Muse Wonder picks who to reach, citing the research." },
-  { stage: "hypothesis", label: "Hypothesis", blurb: "One testable bet and an experiment to measure it." },
-  { stage: "plan_creative", label: "Concepts", blurb: "Distinct creative angles, one per variant." },
-  { stage: "produce", label: "Videos", blurb: "Storyboards built into editable compositions." },
-  { stage: "verify", label: "Verify", blurb: "Lint, claim checks and the Brand Guardian." },
-  { stage: "render", label: "Render", blurb: "Final HyperFrames renders, within your budget." },
-  { stage: "schedule", label: "Posts", blurb: "Drafted with suggested times — each awaits your approval." },
+  { stage: "hypothesis", label: "Test", blurb: "What we’re testing, and how it’s measured." },
+  { stage: "plan_creative", label: "Ideas", blurb: "Distinct video ideas, one per video to compare." },
+  { stage: "produce", label: "Videos", blurb: "Plans (Muse Spark) built into editable videos." },
+  { stage: "verify", label: "Check", blurb: "Layout checks, fact checks and the brand check." },
+  { stage: "render", label: "Render", blurb: "Final HyperFrames renders, within your budget; Muse Spark watches each one." },
+  { stage: "schedule", label: "Posts", blurb: "Drafted with suggested times — each waits for your OK." },
   { stage: "measure", label: "Measure", blurb: "Waits for real results. Nothing is estimated." },
   { stage: "learn", label: "Learn", blurb: "Analysis, recommendations and lessons for next time." },
 ];
@@ -81,14 +85,14 @@ export function statusKind(s: Autopilot["status"]): "running" | "attention" | "s
 }
 
 /**
- * The log is one list across iterations; the learn stage's "Next iteration: …" decision closes an
+ * The log is one list across iterations; the learn stage's "Next round: …" decision (older runs: "Next iteration: …") closes an
  * iteration. Returns the entries of each iteration (index 0 = iteration 1).
  */
 export function splitIterations(log: LogEntry[]): LogEntry[][] {
   const out: LogEntry[][] = [[]];
   for (const e of log) {
     out[out.length - 1]!.push(e);
-    if (e.stage === "learn" && e.kind === "decision" && e.summary.startsWith("Next iteration")) out.push([]);
+    if (e.stage === "learn" && e.kind === "decision" && (e.summary.startsWith("Next round") || e.summary.startsWith("Next iteration"))) out.push([]);
   }
   return out;
 }
@@ -118,24 +122,24 @@ export function entityHref(workspaceId: string, appId: string, ap: Pick<Autopilo
     case "campaigns":
       return { href: app.campaign(ref.id), label: "Campaign" };
     case "campaignVariants":
-      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Concepts" } : null;
+      return ap.campaignId ? { href: app.campaign(ap.campaignId), label: "Ideas" } : null;
     case "agentRuns":
-      return { href: app.run(ref.id), label: "Agent run" };
+      return { href: app.run(ref.id), label: "AI run" };
     case "researchRuns":
-      return { href: app.discover, label: "Research" };
+      return { href: app.discoverAll, label: "Research" };
     case "experiments":
     case "recommendations":
-      return { href: app.insights, label: ref.entity === "experiments" ? "Experiment" : "Recommendations" };
+      return { href: app.insightsDetails(ref.entity === "experiments" ? "experiments" : "next"), label: ref.entity === "experiments" ? "Test" : "Recommendations" };
     case "scheduledPosts":
-      return { href: app.calendar, label: "Calendar" };
+      return { href: app.scheduled, label: "Scheduled" };
     case "brandProfiles":
-      return { href: app.brand, label: "Brand" };
+      return { href: app.about, label: "About your app" };
     case "brandReviews": {
       const r = reviews.find((x) => x.id === ref.id);
       return r?.subject.entity === "compositions" ? { href: app.studio(r.subject.id), label: "Review in Studio" } : null;
     }
     case "mediaAssets":
-      return { href: app.library, label: "Library" };
+      return { href: app.videos, label: "Videos" };
     default:
       return null;
   }

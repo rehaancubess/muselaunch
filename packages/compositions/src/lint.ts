@@ -1,4 +1,7 @@
 import type { Claim, CompositionDoc, Layer, MediaAsset, Segmentation, TracksFile } from "@muselaunch/contracts";
+import { BUNDLED_FONTS, bundledFont, fontWidthFactor } from "./fonts";
+
+const BUNDLED_NAMES = BUNDLED_FONTS.map((f) => f.name).join(", ");
 import { trackUsable } from "./objects";
 import { totalDuration } from "./validate";
 
@@ -19,8 +22,12 @@ export interface LintContext {
   tracks?: Record<string, TracksFile>;
 }
 
-const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card"]);
-const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt"]);
+const PROOF_TEMPLATES = new Set(["quote-proof", "stat-card", "slide-proof"]);
+/** Still slides that must show the real app (a store screenshot without the app is rejected by the stores' guidelines). */
+const SCREEN_REQUIRED_STILLS = new Set(["store-screenshot"]);
+/** Instagram's API takes at most 10 items in a carousel. */
+const INSTAGRAM_MAX_SLIDES = 10;
+const PRODUCT_TEMPLATES = new Set(["device-demo", "feature-callout", "before-after", "focus-zoom", "tap-demo", "phone-tilt", "fullscreen-recording", "ui-popout", "hook-footage"]);
 /** Comfortable on-screen reading pace (words per second) before we warn. */
 const MAX_WORDS_PER_SEC = 3.5;
 const READY = new Set(["ready", "uploaded"]);
@@ -29,8 +36,8 @@ const READY = new Set(["ready", "uploaded"]);
 const GLYPH_W = 0.54;
 
 /** Rough line-wrap estimate for a text layer: returns needed height in px. */
-export function estimateTextHeight(text: string, sizePx: number, lineHeight: number, boxWidthPx: number, uppercase = false): { lines: number; heightPx: number } {
-  const glyph = sizePx * (uppercase ? GLYPH_W * 1.12 : GLYPH_W);
+export function estimateTextHeight(text: string, sizePx: number, lineHeight: number, boxWidthPx: number, uppercase = false, widthFactor = 1): { lines: number; heightPx: number } {
+  const glyph = sizePx * (uppercase ? GLYPH_W * 1.12 : GLYPH_W) * widthFactor;
   const maxChars = Math.max(1, Math.floor(boxWidthPx / glyph));
   let lines = 0;
   for (const para of text.split(/\n/)) {
@@ -60,6 +67,9 @@ export function estimateTextHeight(text: string, sizePx: number, lineHeight: num
  */
 export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
   const out: LintIssue[] = [];
+  for (const [what, name] of [["heading", doc.theme.headingFont], ["body", doc.theme.bodyFont]] as const) {
+    if (name && !bundledFont(name)) out.push({ level: "warning", message: `The ${what} font "${name}" isn't bundled for rendering, so the video uses Inter. Bundled faces: ${BUNDLED_NAMES}.` });
+  }
   const { width: W, height: H, safeZone: sz } = doc;
   const total = totalDuration(doc);
 
@@ -75,29 +85,45 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
     return a;
   };
 
-  if (doc.kind === "video" && total < 3) out.push({ level: "warning", message: `Video is only ${total}s long` });
-  if (doc.kind === "video" && total > 90) out.push({ level: "warning", message: `Video is ${total}s; short-form platforms favour ≤ 60s` });
+  const still = doc.kind !== "video";
+  if (!still && total < 3) out.push({ level: "warning", message: `Video is only ${total}s long` });
+  if (!still && total > 90) out.push({ level: "warning", message: `Video is ${total}s; short-form platforms favour ≤ 60s` });
+  if (doc.kind === "carousel" && doc.scenes.length > INSTAGRAM_MAX_SLIDES && doc.aspectRatio !== "9:19.5")
+    out.push({ level: "warning", message: `${doc.scenes.length} slides: Instagram takes at most ${INSTAGRAM_MAX_SLIDES} in a carousel` });
 
   doc.scenes.forEach((scene, si) => {
     const sid = scene.id;
     if (scene.background.assetId) checkAsset(scene.background.assetId, scene.background.kind === "video" ? ["video"] : ["image", "video"], { sceneId: sid }, "Background");
-    if (si > 0 && scene.transitionIn.durationSec > doc.scenes[si - 1]!.durationSec) out.push({ level: "warning", sceneId: sid, message: "Transition is longer than the previous scene" });
+    if (!still && si > 0 && scene.transitionIn.durationSec > doc.scenes[si - 1]!.durationSec) out.push({ level: "warning", sceneId: sid, message: "Transition is longer than the previous scene" });
     if (PROOF_TEMPLATES.has(scene.template)) {
-      const hasClaim = scene.layers.some((l) => l.type === "text" && l.claimIds.length > 0);
-      if (!hasClaim) out.push({ level: "warning", sceneId: sid, message: `"${scene.template}" scenes must show real, sourced evidence; link the text to a verified claim` });
+      const hasClaim = scene.layers.some((l) => l.type === "text" && !l.hidden && l.claimIds.length > 0);
+      // A proof slide is a still that only exists to show one claim: without a verified one it can't be published.
+      if (!hasClaim)
+        out.push(
+          scene.template === "slide-proof"
+            ? { level: "error", sceneId: sid, message: "A proof slide needs a verified claim: link its text to a confirmed fact, or change the slide" }
+            : { level: "warning", sceneId: sid, message: `"${scene.template}" scenes must show real, sourced evidence; link the text to a verified claim` },
+        );
+    }
+    if (SCREEN_REQUIRED_STILLS.has(scene.template)) {
+      const realScreen = scene.layers.some((l) => !l.hidden && ((l.type === "device" && !!ctx.assets[l.screenAssetId]?.isProductTruth) || (l.type === "image" && !!ctx.assets[l.assetId]?.isProductTruth)));
+      if (!realScreen) out.push({ level: "error", sceneId: sid, message: "A store screenshot must show a real screen of the app: add a screenshot or recording" });
     }
     let words = 0;
     const visible = scene.layers.filter((l) => !l.hidden);
     for (const layer of visible) {
       const where = { sceneId: sid, layerId: layer.id };
-      lintTiming(layer, scene.durationSec, where, out);
+      // Stills are captured as they stand: timing and motion don't apply.
+      if (!still) lintTiming(layer, scene.durationSec, where, out);
       switch (layer.type) {
         case "text": {
           words += layer.text.split(/\s+/).filter(Boolean).length;
           const b = layer.box;
           const bg = layer.style.background ? layer.style.background.paddingPx * 2 : 0;
-          const est = estimateTextHeight(layer.text, layer.style.sizePx, layer.style.lineHeight, Math.max(1, b.w * W - bg), layer.style.uppercase);
+          const wf = fontWidthFactor(layer.style.font === "heading" ? doc.theme.headingFont : layer.style.font === "body" ? doc.theme.bodyFont : undefined);
+          const est = estimateTextHeight(layer.text, layer.style.sizePx, layer.style.lineHeight, Math.max(1, b.w * W - bg), layer.style.uppercase, wf);
           if (est.heightPx > b.h * H * 1.08 + 4) out.push({ level: "warning", ...where, message: `Text likely overflows its box (${est.lines} lines need ${Math.round(est.heightPx)}px, box is ${Math.round(b.h * H)}px)` });
+          if (still && (b.x < -0.001 || b.y < -0.001 || b.x + b.w > 1.001 || b.y + b.h > 1.001)) out.push({ level: "warning", ...where, message: "Text runs off the edge of the slide" });
           if (layer.style.sizePx < 28 && layer.role !== "label") out.push({ level: "warning", ...where, message: `Text at ${layer.style.sizePx}px may be unreadable on a phone` });
           const outside = b.x < sz.left - 0.005 || b.x + b.w > 1 - sz.right + 0.005 || b.y < sz.top - 0.005 || b.y + b.h > 1 - sz.bottom + 0.005;
           if (outside && !layer.animation.keyframes?.length) out.push({ level: "warning", ...where, message: "Text extends outside the platform safe zone" });
@@ -106,8 +132,8 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
               const c = ctx.claims[cid];
               if (!c) out.push({ level: "error", ...where, message: `Claim ${cid} not found` });
               else if (c.state !== "verified") out.push({ level: "error", ...where, message: `Uses claim "${c.text.slice(0, 60)}" which is ${c.state.replace("_", " ")}` });
-              else if (!c.permittedContexts.some((x) => x === "all" || x === "video" || x === "ads" || x === "social"))
-                out.push({ level: "warning", ...where, message: `Claim "${c.text.slice(0, 60)}" is not approved for video` });
+              else if (!c.permittedContexts.some((x) => x === "all" || (still ? x === "social" || x === "ads" || (doc.aspectRatio === "9:19.5" || scene.template === "store-screenshot" ? x === "store" : false) : x === "video" || x === "ads" || x === "social")))
+                out.push({ level: "warning", ...where, message: `Claim "${c.text.slice(0, 60)}" is not approved for ${still ? "this kind of post" : "video"}` });
             }
           }
           break;
@@ -122,7 +148,9 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
         }
         case "video": {
           const a = checkAsset(layer.assetId, ["video"], where, "Video layer");
-          if (a?.durationSec !== undefined) {
+          if (a && (scene.template === "fullscreen-recording" || scene.template === "hook-footage") && (!a.isProductTruth || a.origin === "generated"))
+            out.push({ level: "error", ...where, message: "A full-screen recording may only show real footage of the product" });
+          if (!still && a?.durationSec !== undefined) {
             const avail = ((layer.trimOutSec ?? a.durationSec) - layer.trimInSec) / layer.playbackRate;
             const need = (layer.timing.end ?? scene.durationSec) - layer.timing.start;
             if (avail + 0.05 < need) out.push({ level: "warning", ...where, message: `Clip has ${avail.toFixed(1)}s of footage for a ${need.toFixed(1)}s slot (last frame will hold)` });
@@ -176,9 +204,11 @@ export function lintDoc(doc: CompositionDoc, ctx: LintContext): LintIssue[] {
       }
     }
     const wps = words / Math.max(0.5, scene.durationSec);
-    if (doc.kind === "video" && wps > MAX_WORDS_PER_SEC) out.push({ level: "warning", sceneId: sid, message: `${words} words in ${scene.durationSec}s is hard to read (aim for about 3 words a second); shorten the text or lengthen the scene` });
+    if (!still && wps > MAX_WORDS_PER_SEC) out.push({ level: "warning", sceneId: sid, message: `${words} words in ${scene.durationSec}s is hard to read (aim for about 3 words a second); shorten the text or lengthen the scene` });
   });
 
+  // Stills carry no sound or captions (validateDoc already refuses audio on them).
+  if (still) return out;
   for (const tr of doc.audio) {
     checkAsset(tr.assetId, ["audio", "video"], {}, `Audio track ${tr.id}`);
     if (tr.startSec >= total) out.push({ level: "warning", message: `Audio track ${tr.id} starts after the video ends` });

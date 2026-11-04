@@ -12,7 +12,7 @@ const ENTER = ["none", "fade", "slide-up", "slide-down", "slide-left", "slide-ri
 const EXIT = ["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "scale-out", "blur-out"];
 const LOOP = ["none", "float", "pulse", "ken-burns", "slow-zoom", "tilt"];
 const EASING = ["smooth", "snappy", "spring", "linear"];
-const TRANSITIONS = ["cut", "fade", "slide-left", "slide-up", "zoom", "blur", "flash", "wipe"];
+const TRANSITIONS = ["cut", "fade", "slide-left", "slide-up", "zoom", "blur", "flash", "wipe", "whip", "zoom-through", "match"];
 const COLOR_TOKENS = ["theme.text", "theme.textMuted", "theme.accent", "theme.accent2", "theme.background", "theme.surface"];
 const opts = (xs: string[]) => xs.map((x) => ({ value: x, label: x.replace(/^theme\./, "").replace(/-/g, " ") }));
 const HEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/;
@@ -240,7 +240,7 @@ function SceneInspector({ doc, scene, lint, onPatch, onSelectLayer, disabled }: 
         </ul>
       </Group>
       {scene.notes ? (
-        <Group title="Storyboard note">
+        <Group title="Plan note">
           <p className="text-footnote text-ink-2">{scene.notes}</p>
         </Group>
       ) : null}
@@ -278,7 +278,7 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
       {layer.type === "text" ? (
         <Group title="Text">
           <CommitInput multiline aria-label="Text" value={layer.text} onCommit={(v) => set({ text: v.slice(0, 400) }, "Edit text")} disabled={disabled} maxLength={400} />
-          {layer.claimIds.length ? <p className="text-caption text-ink-3">Linked to {layer.claimIds.length} claim{layer.claimIds.length === 1 ? "" : "s"} from your claim library.</p> : null}
+          {layer.claimIds.length ? <p className="text-caption text-ink-3">Linked to {layer.claimIds.length} fact{layer.claimIds.length === 1 ? "" : "s"} from About your app.</p> : null}
           <div className="grid grid-cols-2 gap-2">
             <NumberInput label="Size" suffix="px" min={8} max={400} value={layer.style.sizePx} onCommit={(v) => set({ style: { sizePx: v } }, "Text size")} disabled={disabled} />
             <Select selectSize="sm" aria-label="Weight" value={String(layer.style.weight)} disabled={disabled} options={[400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: `Weight ${w}` }))} onChange={(e) => set({ style: { weight: Number(e.target.value) } }, "Text weight")} />
@@ -317,7 +317,7 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
         <>
           <Group title="Device">
             <div className="grid grid-cols-2 gap-2">
-              <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={opts(["iphone", "android", "ipad", "browser", "macbook"])} onChange={(e) => set({ device: e.target.value }, "Change device")} />
+              <Select selectSize="sm" aria-label="Device" value={layer.device} disabled={disabled} options={[...opts(["iphone", "android", "ipad", "browser", "macbook"]), { value: "tv", label: "TV" }]} onChange={(e) => set({ device: e.target.value }, "Change device")} />
               <Select selectSize="sm" aria-label="Frame colour" value={layer.frameColor} disabled={disabled} options={opts(["black", "silver", "natural", "white"])} onChange={(e) => set({ frameColor: e.target.value }, "Frame colour")} />
             </div>
             <div className="flex items-center justify-between">
@@ -330,7 +330,13 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
                 <NumberInput label="Rate" step={0.05} min={0.25} max={4} value={layer.playbackRate ?? 1} onCommit={(v) => set({ playbackRate: v }, "Screen recording speed")} disabled={disabled} />
               </div>
             ) : null}
-            {layer.blurRegions?.length ? <p className="text-caption text-ink-3">{layer.blurRegions.length} area{layer.blurRegions.length === 1 ? "" : "s"} blurred for privacy (personal information in the recording).</p> : null}
+            {layer.blurRegions?.length ? (
+              <p className="text-caption text-ink-3">
+                {layer.blurRegions.length} area{layer.blurRegions.length === 1 ? "" : "s"} blurred for privacy (personal or secret details on the screen)
+                {layer.blurRegions.some((r) => r.path) ? ", following the content as it scrolls (SAM 3.1)." : "."}
+              </p>
+            ) : null}
+            {layer.lift ? <p className="text-caption text-ink-3">An element of this screen lifts off it at {layer.lift.atSec.toFixed(1)} s (UI pop-out).</p> : null}
             <p className="text-caption text-ink-3">Swap the screen from the media drawer. Only real screenshots and recordings can appear inside a device.</p>
           </Group>
           <DeviceMotionGroup layer={layer} set={set} disabled={disabled} />
@@ -355,6 +361,20 @@ function LayerInspector({ doc, scene, layer, lint, onPatch, onSelectLayer, objec
               </div>
               <CutoutControl layer={layer} disabled={disabled} onSet={set} />
             </>
+          ) : null}
+          {layer.type === "image" && layer.lift ? (
+            <>
+              <p className="text-caption text-ink-3">A real element of the screen behind: it lifts off toward the viewer with a shadow and 3D tilt.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <NumberInput label="At" suffix="s" step={0.1} min={0} max={60} value={layer.lift.atSec} onCommit={(v) => set({ lift: { ...layer.lift!, atSec: v } }, "Lift timing")} disabled={disabled} />
+                <NumberInput label="Tilt" suffix="°" step={1} min={-30} max={30} value={layer.lift.tilt.y} onCommit={(v) => set({ lift: { ...layer.lift!, tilt: { ...layer.lift!.tilt, y: v } } }, "Lift tilt")} disabled={disabled} />
+              </div>
+            </>
+          ) : null}
+          {(layer.type === "image" || layer.type === "video") && layer.blurRegions?.length ? (
+            <p className="text-caption text-ink-3">
+              {layer.blurRegions.length} private detail{layer.blurRegions.length === 1 ? "" : "s"} blurred{layer.blurRegions.some((r) => r.path) ? ", following the content (SAM 3.1)" : ""}.
+            </p>
           ) : null}
         </Group>
       ) : null}
@@ -437,6 +457,8 @@ function DeviceMotionGroup({ layer, set, disabled }: { layer: DeviceL; set: (s: 
     const next: Record<string, unknown> = { ...f, ...patch, w: Math.min(patch.w ?? f.w, 1 - (patch.x ?? f.x)), h: Math.min(patch.h ?? f.h, 1 - (patch.y ?? f.y)) };
     // null clears the zoom (the patch merges one level deep).
     if ("zoom" in patch && patch.zoom === undefined) next.zoom = null;
+    // A region moved by hand no longer matches SAM's track of the old one: stop following.
+    if (f.path && ["x", "y", "w", "h"].some((k) => k in patch)) next.path = null;
     set({ focus: next }, summary);
   };
   return (
@@ -467,6 +489,7 @@ function DeviceMotionGroup({ layer, set, disabled }: { layer: DeviceL; set: (s: 
               <NumberInput label="At" step={0.1} min={0} max={60} suffix="s" value={f.atSec} onCommit={(v) => setFocus({ atSec: v }, "Focus zoom timing")} disabled={disabled} />
             </div>
             <p className="text-caption text-ink-3">Zoom 0 = fitted automatically.</p>
+            {f.path ? <p className="text-caption text-ink-3">Follows the element as the recording moves (tracked by SAM 3.1). Moving the region by hand stops following.</p> : null}
             <div className="flex items-center justify-between">
               <span className="text-footnote text-ink-2">Highlight ring</span>
               <Switch checked={f.ring} onCheckedChange={(v) => setFocus({ ring: v }, v ? "Show highlight ring" : "Hide highlight ring")} disabled={disabled} label="Highlight ring" />

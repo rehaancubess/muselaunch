@@ -1,21 +1,23 @@
 "use client";
-import { Badge, Button, Card, Notice, ProgressBar, SegmentedControl, Spinner, StatusPill, Textarea, cn, humanizeStatus, useToast } from "@muselaunch/ui";
-import { ArrowUpRight, Check, Hand, Pause, Play, Square, X } from "lucide-react";
+/**
+ * One Autopilot run. Outcome first (RunProgress: plain steps with real results, the finished
+ * video, what needs you, what it's testing); the full story — stage rail, the decision log with
+ * citations, budget, Brand check results and the Muse Wonder decisions — sits behind "Show details".
+ */
+import { Button, Card, Notice, ProgressBar, SegmentedControl, Spinner, StatusPill, cn, humanizeStatus, useToast } from "@muselaunch/ui";
+import { ArrowUpRight, Pause, Play, Square } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatUsd } from "@/features/agents/types";
 import { api, errorMessage, wsPath } from "@/lib/api";
 import { CHANNEL_LABEL, relativeTime } from "@/lib/labels";
 import { useInvalidate, useMutation } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { useWorkspace } from "@/lib/workspace";
+import { useNeedsYou } from "./needs-you";
+import { RunProgress } from "./progress";
 import { IterationTimeline, railStates, StageRail } from "./timeline";
-import { checkpointCap, isActive, isWorking, splitIterations, STAGE_LABEL, STATUS_COPY, statusKind, type AutopilotDetail } from "./types";
-
-const CAP_COPY: Record<string, string> = {
-  "billing.manage": "Only members who manage billing can approve spending.",
-  "content.approve": "Only owners and admins can decide this checkpoint.",
-  publish: "Only members allowed to publish can decide this.",
-};
+import { isActive, isWorking, splitIterations, STAGE_LABEL, STATUS_COPY, statusKind, type AutopilotDetail } from "./types";
 
 function useLoopActions(detail: AutopilotDetail) {
   const { workspaceId } = useWorkspace();
@@ -30,8 +32,8 @@ function useLoopActions(detail: AutopilotDetail) {
         pause: ["Autopilot paused", "Running jobs finish; nothing new starts until you resume."],
         resume: ["Autopilot resumed"],
         cancel: ["Autopilot cancelled", "Work it already produced is kept."],
-        "checkpoint/approve": ["Approved", "The loop continues from where it stopped."],
-        "checkpoint/reject": ["Declined", "The loop is paused. Resume it whenever you’re ready."],
+        "checkpoint/approve": ["Approved", "Autopilot carries on from where it stopped."],
+        "checkpoint/reject": ["Declined", "The run is paused. Resume it whenever you’re ready."],
       };
       const [t, d] = copy[action]!;
       toast.success(t, d);
@@ -39,48 +41,6 @@ function useLoopActions(detail: AutopilotDetail) {
     },
     onError: (err) => toast.error("That didn’t work", errorMessage(err)),
   });
-}
-
-function CheckpointCard({ detail }: { detail: AutopilotDetail }) {
-  const { can } = useWorkspace();
-  const act = useLoopActions(detail);
-  const [note, setNote] = useState("");
-  const cp = detail.checkpoint;
-  if (!cp) return null;
-  const cap = checkpointCap(cp.action);
-  const allowed = can(cap);
-  const title = cp.action === "spend" ? "Approve spending?" : cp.action === "agent_continue" ? "Continue the loop?" : "Your decision";
-  return (
-    <Card padding="lg" className="space-y-4 ring-1 ring-warning/30">
-      <div className="flex items-start gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning-soft text-warning [&_svg]:size-4">
-          <Hand aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-headline font-semibold">{title}</h2>
-            {cp.estimate?.credits ? <Badge tone="warning">≈{cp.estimate.credits} credits</Badge> : null}
-          </div>
-          <p className="text-body-sm text-ink-2 text-pretty">{cp.summary}</p>
-        </div>
-      </div>
-      {allowed ? (
-        <div className="space-y-3 sm:pl-12">
-          <Textarea rows={1} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note for the log (optional)" aria-label="Note" />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="ghost" icon={<X aria-hidden />} loading={act.isPending && act.variables?.action === "checkpoint/reject"} disabled={act.isPending} onClick={() => act.mutate({ action: "checkpoint/reject", note: note.trim() || undefined })}>
-              Decline and pause
-            </Button>
-            <Button icon={<Check aria-hidden />} loading={act.isPending && act.variables?.action === "checkpoint/approve"} disabled={act.isPending} onClick={() => act.mutate({ action: "checkpoint/approve", note: note.trim() || undefined })}>
-              Approve
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <p className="text-footnote text-ink-2 sm:pl-12">{CAP_COPY[cap]} The loop waits here until someone who can decides.</p>
-      )}
-    </Card>
-  );
 }
 
 function BudgetCard({ detail }: { detail: AutopilotDetail }) {
@@ -92,7 +52,7 @@ function BudgetCard({ detail }: { detail: AutopilotDetail }) {
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-footnote font-medium text-ink-2">Budget</p>
         <p className="text-caption text-ink-3">
-          Iteration {ap.iteration} of {ap.budget.maxIterations}
+          Round {ap.iteration} of {ap.budget.maxIterations}
         </p>
       </div>
       <p className="tabular">
@@ -108,15 +68,54 @@ function BudgetCard({ detail }: { detail: AutopilotDetail }) {
           </div>
         ) : null}
         <div className="flex justify-between gap-2">
-          <dt className="text-ink-2">Model calls (metered)</dt>
-          <dd className="tabular text-ink">${ap.spent.usd.toFixed(ap.spent.usd < 1 ? 3 : 2)}</dd>
-        </div>
-        <div className="flex justify-between gap-2">
           <dt className="text-ink-2">Renders run without asking</dt>
           <dd className="tabular text-ink">{ap.budget.autoApproveCredits ? `≤ ${ap.budget.autoApproveCredits} cr` : "Never"}</dd>
         </div>
       </dl>
+      <RunCost cost={detail.cost} />
     </Card>
+  );
+}
+
+/**
+ * What the run's AI calls cost, from usage records of everything it did (its Muse Wonder decisions
+ * and every job it started). It's MuseLaunch's provider cost, not what you pay (credits, above).
+ * When the records couldn't be read, it says so instead of showing a number.
+ */
+function RunCost({ cost }: { cost: AutopilotDetail["cost"] }) {
+  const calls = (n: number) => `${n} AI call${n === 1 ? "" : "s"}`;
+  let value: string;
+  let note: string;
+  if (!cost) {
+    value = "Not measured";
+    note = "The usage records couldn’t be read right now.";
+  } else if (!cost.calls) {
+    value = "$0";
+    note = "No AI calls recorded for this run yet.";
+  } else {
+    value = `${cost.complete ? "" : "At least "}${formatUsd(cost.usd)}`;
+    note = `Estimated provider cost of ${calls(cost.calls)} this run made${cost.failed ? ` (${cost.failed} failed)` : ""}, from usage records. You pay in credits, not this.${cost.complete ? "" : " Some calls weren’t counted."}`;
+  }
+  return (
+    <div className="space-y-1 border-t border-line pt-3 text-footnote">
+      <div className="flex justify-between gap-2">
+        <p className="text-ink-2">AI model cost</p>
+        <p className="tabular text-ink">{value}</p>
+      </div>
+      <p className="text-caption text-ink-3 text-pretty">{note}</p>
+      {cost?.byModel.length ? (
+        <ul className="space-y-0.5 pt-1 text-caption text-ink-2" aria-label="AI model cost by model">
+          {cost.byModel.slice(0, 6).map((m) => (
+            <li key={m.name} className="flex justify-between gap-2">
+              <span className="min-w-0 truncate">
+                {m.name} <span className="text-ink-3">· {m.calls}</span>
+              </span>
+              <span className="tabular">{formatUsd(m.usd)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -146,8 +145,8 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
       {exp ? (
         <section className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
-            <p className="text-footnote font-medium text-ink-2">Experiment</p>
-            <SideLink href={app.insights}>Insights</SideLink>
+            <p className="text-footnote font-medium text-ink-2">Test</p>
+            <SideLink href={app.results}>Results</SideLink>
           </div>
           {ap.hypothesis ? <p className="text-body-sm text-ink text-pretty">{ap.hypothesis.statement}</p> : null}
           <ul className="space-y-0.5">
@@ -159,7 +158,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
             ))}
           </ul>
           <p className="text-caption text-ink-3">
-            Primary metric: {humanizeStatus(exp.primaryMetric)}
+            Measured by {humanizeStatus(exp.primaryMetric).toLowerCase()}
             {exp.launchWindow?.end ? ` · measured until ${new Date(exp.launchWindow.end).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
           </p>
         </section>
@@ -189,7 +188,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
         <section className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-footnote font-medium text-ink-2">Posts</p>
-            <SideLink href={app.calendar}>Calendar</SideLink>
+            <SideLink href={app.scheduled}>Scheduled</SideLink>
           </div>
           <ul className="space-y-1">
             {detail.posts.map((x) => (
@@ -202,7 +201,7 @@ function OutputsCard({ detail, workspaceId }: { detail: AutopilotDetail; workspa
               </li>
             ))}
           </ul>
-          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post in the Calendar. The loop never publishes on its own.</p> : null}
+          {detail.posts.some((x) => x.status === "awaiting_approval") ? <p className="text-caption text-ink-3">Approve each post on Home or in Scheduled. Autopilot never posts on its own.</p> : null}
         </section>
       ) : null}
     </Card>
@@ -219,12 +218,12 @@ function Controls({ detail }: { detail: AutopilotDetail }) {
   if (confirmCancel)
     return (
       <div className="flex items-center gap-2">
-        <span className="text-footnote text-ink-2">Stop this loop for good?</span>
+        <span className="text-footnote text-ink-2">Stop this run for good?</span>
         <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(false)}>
           Keep
         </Button>
         <Button size="sm" variant="danger" loading={busy("cancel")} onClick={() => act.mutate({ action: "cancel" }, { onSettled: () => setConfirmCancel(false) })}>
-          Cancel loop
+          Cancel run
         </Button>
       </div>
     );
@@ -246,8 +245,9 @@ function Controls({ detail }: { detail: AutopilotDetail }) {
   );
 }
 
-/** One autopilot: where it is, what it decided and why, what it needs from you, and what it produced. */
-export function LoopView({ detail }: { detail: AutopilotDetail }) {
+
+/** Everything behind "Show details": stage rail and controls, the decision log, budget, outputs and model calls. */
+function LoopDetails({ detail }: { detail: AutopilotDetail }) {
   const { workspaceId } = useWorkspace();
   const ap = detail.autopilot;
   const iterations = useMemo(() => splitIterations(ap.log), [ap.log]);
@@ -266,10 +266,10 @@ export function LoopView({ detail }: { detail: AutopilotDetail }) {
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={statusKind(ap.status)}>{STATUS_COPY[ap.status]}</StatusPill>
               <span className="text-caption text-ink-3">
-                Started {relativeTime(ap.createdAt)} · {ap.budget.variants} variant{ap.budget.variants > 1 ? "s" : ""}
+                Started {relativeTime(ap.createdAt)} · {ap.budget.variants} video{ap.budget.variants > 1 ? "s" : ""}
               </span>
             </div>
-            <h2 className="text-title-3 font-semibold text-balance">{ap.goal}</h2>
+            <h2 className="text-title-3 font-semibold text-balance">Goal: {ap.goal}</h2>
             {now ? (
               <p className="flex items-center gap-2 text-body-sm text-ink-2">
                 {isWorking(ap.status) ? <Spinner className="size-3.5" /> : null}
@@ -283,28 +283,21 @@ export function LoopView({ detail }: { detail: AutopilotDetail }) {
       </Card>
 
       {ap.status === "failed" && ap.error ? (
-        <Notice tone="danger" title="The loop stopped">
+        <Notice tone="danger" title="The run stopped">
           {ap.error.userMessage ?? ap.error.message} Everything it made so far is kept. “Try again” resumes from this stage.
         </Notice>
       ) : null}
-      {ap.status === "paused" ? (
-        <Notice tone="neutral" title="Paused">
-          Nothing new starts while the loop is paused. Jobs that were already running finish normally.
-        </Notice>
-      ) : null}
-
-      <CheckpointCard detail={detail} />
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="min-w-0 space-y-4" aria-label="What the loop did">
+        <section className="min-w-0 space-y-4" aria-label="Every step and decision">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-headline font-semibold">{live ? "This iteration" : `Iteration ${shown + 1}`}</h2>
-              <p className="text-footnote text-ink-2">Decisions cite the research behind them. Tap a stage for details.</p>
+              <h2 className="text-headline font-semibold">{live ? (iterations.length > 1 ? "This round" : "Every step") : `Round ${shown + 1}`}</h2>
+              <p className="text-footnote text-ink-2">Decisions cite the research behind them. Tap a stage to see each step.</p>
             </div>
             {iterations.length > 1 && iterations.some((x) => x.length) ? (
               <SegmentedControl
-                label="Iteration"
+                label="Round"
                 size="sm"
                 items={iterations.map((_, i) => ({ value: String(i), label: `${i + 1}` }))}
                 value={String(shown)}
@@ -338,4 +331,15 @@ export function LoopView({ detail }: { detail: AutopilotDetail }) {
       </div>
     </div>
   );
+}
+
+/**
+ * One autopilot run: outcome first (the plain steps, the finished video, what needs you, what it's
+ * testing), with the decision log, stage rail and model calls behind "Show details".
+ * `first` = the app's first run (the "paste a link, get videos" screen after onboarding).
+ */
+export function LoopView({ detail, first = false, openDetails = false }: { detail: AutopilotDetail; first?: boolean; openDetails?: boolean }) {
+  const { workspaceId } = useWorkspace();
+  const needs = useNeedsYou(workspaceId, detail.autopilot.appId);
+  return <RunProgress detail={detail} needs={needs.data?.items ?? []} first={first} details={<LoopDetails detail={detail} />} detailsOpen={openDetails} />;
 }
