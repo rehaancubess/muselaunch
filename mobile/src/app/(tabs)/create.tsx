@@ -1,6 +1,7 @@
 /**
  * Create: "What would you like to make?" Promote my app / Show a feature / Use a suggested idea →
- * the prompt (a suggestion, always editable; typed or said) → Format and Length → "Generate video"
+ * the prompt (a suggestion, always editable; typed or said) → what to make (a video, a post, a
+ * carousel, a thumbnail, store screenshots or a text post) and its options → "Generate …"
  * with the real credit estimate → the same campaign request as the web's Create page
  * (POST /apps/:appId/campaigns, origin "create"). MuseLaunch carries it to the finished video; this
  * screen shows where it stands. Nothing is posted from here.
@@ -19,9 +20,11 @@ import {
   CREATE_KINDS,
   FORMATS,
   KIND_LABEL,
+  MAKES,
   MIN_PROMPT,
   campaignRequest,
   clampLength,
+  clampSlideCount,
   defaultFormat,
   estimateSteps,
   featurePrompt,
@@ -29,14 +32,20 @@ import {
   hasRealFootage,
   ideaPrompt,
   lengthOptions,
+  makeById,
   primarySource,
   promotePrompt,
   siteName,
+  stillCampaignRequest,
+  stillEstimateSteps,
   sumCredits,
   topIdeas,
   type CreateKind,
   type FormatId,
+  type MakeId,
 } from "../../lib/plan";
+import { channelLabel } from "../../lib/home-lines";
+import type { Channel } from "../../api/types";
 import { fullNumber } from "../../lib/results-lines";
 import { useSession } from "../../session";
 import { Button, Chip, Field, Notice, T } from "../../ui/components";
@@ -45,7 +54,7 @@ import { useToast } from "../../ui/toast";
 import { useAccent } from "../../ui/accent";
 
 const KIND_ICON = { promote: Megaphone, feature: SquarePlay, idea: Sparkle } as const;
-const PLACEHOLDER: Record<CreateKind, string> = { promote: "Describe the video you want…", feature: "Pick a feature above, or describe one…", idea: "Pick an idea below, or describe your own…" };
+const PLACEHOLDER: Record<CreateKind, string> = { promote: "Describe what you want to make…", feature: "Pick a feature above, or describe one…", idea: "Pick an idea below, or describe your own…" };
 
 export default function CreateScreen() {
   const ac = useAccent();
@@ -70,6 +79,13 @@ export default function CreateScreen() {
     if (!formatPicked) setFormatId(defaultFormat(app?.postTo?.channels).id);
   }, [app?.id, app?.postTo?.channels, formatPicked]);
   const [length, setLength] = useState(20);
+  const [makeId, setMakeId] = useState<MakeId>("video");
+  const make = makeById(makeId);
+  const isVideo = make.id === "video";
+  const [where, setWhere] = useState<Channel | null>(null);
+  const channel: Channel = where && make.channels.includes(where) ? where : (make.channels[0] ?? "instagram");
+  const [slideCount, setSlideCount] = useState<number | null>(null);
+  const slides = clampSlideCount(make, slideCount);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
@@ -101,7 +117,7 @@ export default function CreateScreen() {
 
   // The real estimate: the operations the run's jobs reserve (POST /estimate each), like the web.
   const aiVoice = workspace?.settings.sound?.aiVoiceover !== false;
-  const steps = estimateSteps(lengthSec, { aiVoice });
+  const steps = isVideo ? estimateSteps(lengthSec, { aiVoice }) : stillEstimateSteps(make, slides);
   const estimates = useQueries({
     queries: steps.map((s) => ({ queryKey: ["estimate", workspaceId, s.operation, s.params], queryFn: () => api.post<EstimateResponse>(api.ws("/estimate"), { operation: s.operation, params: s.params }), enabled, staleTime: 60_000, retry: false })),
   });
@@ -113,7 +129,11 @@ export default function CreateScreen() {
   const footageKnown = !shots.isLoading && !recs.isLoading;
   const footage = hasRealFootage([...(shots.data?.items ?? []), ...(recs.data?.items ?? [])]);
   const dnaMissing = !dna.isLoading && !profile;
-  const blocked = !canWrite || dnaMissing || (footageKnown && !footage);
+  // A text post needs no screens; everything else shows the real app.
+  const needsFootage = make.id !== "text_post";
+  const blocked = !canWrite || dnaMissing || (needsFootage && footageKnown && !footage);
+  const realScreens = (shots.data?.items ?? []).filter((a) => a.isProductTruth && a.status === "ready").length;
+  const fewScreens = (make.id === "app_store" || make.id === "google_play") && footageKnown && realScreens > 0 && realScreens < slides;
 
   const pickKind = (k: CreateKind) => {
     setKind(k);
@@ -125,20 +145,21 @@ export default function CreateScreen() {
   const generate = async () => {
     const text = prompt.trim();
     if (text.length < MIN_PROMPT) {
-      setPromptError(kind === "feature" && !feature ? "Pick a feature, or describe the video in a sentence." : kind === "idea" && !idea ? "Pick an idea, or describe the video in a sentence." : "Describe the video in a sentence.");
+      setPromptError(kind === "feature" && !feature ? `Pick a feature, or describe the ${make.noun} in a sentence.` : kind === "idea" && !idea ? `Pick an idea, or describe the ${make.noun} in a sentence.` : `Describe the ${make.noun} in a sentence.`);
       return;
     }
     if (blocked || short || starting) return;
     setStarting(true);
     try {
-      await api.post(api.ws(`/apps/${appId}/campaigns`), campaignRequest({ kind, prompt: text, format, lengthSec, ideaId: kind === "idea" ? ideaId : null }), { idempotencyKey: idem.current });
+      const body = isVideo ? campaignRequest({ kind, prompt: text, format, lengthSec, ideaId: kind === "idea" ? ideaId : null }) : stillCampaignRequest({ kind, prompt: text, make, channel, slides, ideaId: kind === "idea" ? ideaId : null });
+      await api.post(api.ws(`/apps/${appId}/campaigns`), body, { idempotencyKey: idem.current });
       idem.current = newKey("create");
-      toast({ title: "Muse is making your video", body: "You can close the app: it carries on, and nothing is posted without your OK." });
+      toast({ title: make.id === "text_post" ? "Muse is writing your post" : make.noun === "screenshots" ? "Muse is making your screenshots" : `Muse is making your ${make.noun}`, body: "You can close the app: it carries on, and nothing is posted without your OK." });
       await Promise.all([qc.invalidateQueries({ queryKey: ["create-runs"] }), qc.invalidateQueries({ queryKey: ["campaigns"] }), qc.invalidateQueries({ queryKey: ["jobs"] }), qc.invalidateQueries({ queryKey: ["estimate"] }), qc.invalidateQueries({ queryKey: ["credits"] })]);
       setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 400);
     } catch (e) {
       idem.current = newKey("create");
-      toast({ title: "Couldn’t start the video", body: errorMessage(e), tone: "error" });
+      toast({ title: `Couldn’t start the ${make.noun}`, body: errorMessage(e), tone: "error" });
     } finally {
       setStarting(false);
     }
@@ -241,9 +262,9 @@ export default function CreateScreen() {
             maxLength={4000}
             invalid={Boolean(promptError)}
             editable={!voiceBusy}
-            accessibilityLabel="Describe the video"
+            accessibilityLabel={`Describe the ${make.noun}`}
           />
-          {promptError ? <T v="footnote" style={{ color: color.danger }}>{promptError}</T> : spoken ? <T v="caption">From what you said. Check it, then tap Generate video.</T> : null}
+          {promptError ? <T v="footnote" style={{ color: color.danger }}>{promptError}</T> : spoken ? <T v="caption">{`From what you said. Check it, then tap Generate ${make.noun}.`}</T> : null}
           <HoldToTalk
             onBusyChange={setVoiceBusy}
             onText={(t) => {
@@ -257,45 +278,101 @@ export default function CreateScreen() {
 
         <View style={{ gap: 10 }}>
           <T v="footnote" style={{ fontWeight: "600", color: color.ink }}>
-            Format
+            Make a…
           </T>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {FORMATS.map((f) => (
-              <Chip
-                key={f.id}
-                label={`${f.label} · ${f.aspectRatio}`}
-                selected={f.id === formatId}
-                onPress={() => {
-                  setFormatId(f.id);
-                  setFormatPicked(true);
-                }}
-              />
+            {MAKES.map((m) => (
+              <Chip key={m.id} label={m.label} selected={m.id === makeId} onPress={() => setMakeId(m.id)} />
             ))}
           </ScrollView>
-          <T v="footnote" style={{ fontWeight: "600", color: color.ink, marginTop: 4 }}>
-            Length
-          </T>
-          <View style={styles.wrap}>
-            {lengths.map((s) => (
-              <Chip key={s} label={`${s} seconds`} selected={s === lengthSec} onPress={() => setLength(s)} />
-            ))}
-          </View>
         </View>
 
+        {!isVideo ? (
+          <View style={{ gap: 10 }}>
+            {make.channels.length > 1 ? (
+              <>
+                <T v="footnote" style={{ fontWeight: "600", color: color.ink }}>
+                  Where
+                </T>
+                <View style={styles.wrap}>
+                  {make.channels.map((c) => (
+                    <Chip key={c} label={channelLabel(c)} selected={c === channel} onPress={() => setWhere(c)} />
+                  ))}
+                </View>
+              </>
+            ) : null}
+            {make.slides ? (
+              <>
+                <T v="footnote" style={{ fontWeight: "600", color: color.ink, marginTop: make.channels.length > 1 ? 4 : 0 }}>
+                  Slides
+                </T>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {Array.from({ length: make.slides.max - make.slides.min + 1 }, (_, i) => make.slides!.min + i).map((n) => (
+                    <Chip key={n} label={String(n)} selected={n === slides} onPress={() => setSlideCount(n)} />
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+            <T v="caption">
+              {make.id === "post"
+                ? "One image, 4:5, with your real app screen."
+                : make.id === "carousel"
+                  ? `${slides} slides, 4:5: a cover, one idea per slide, and an ending.${channel === "instagram" ? " Instagram takes up to 10." : ""}`
+                  : make.id === "thumbnail"
+                    ? "A YouTube thumbnail, 1920×1080, a few bold words."
+                    : make.id === "app_store"
+                      ? `${slides} App Store screenshots, 1290×2796, each a real screen of your app.`
+                      : make.id === "google_play"
+                        ? `${slides} Google Play screenshots, 1080×1920, each a real screen of your app.`
+                        : `Written for ${channelLabel(channel)}${channel === "x" ? ", 280 characters at most" : ""}, and checked against your app’s facts.`}
+            </T>
+            {fewScreens ? <Notice tone="accent">{`${appName} has ${realScreens} real screenshot${realScreens === 1 ? "" : "s"}. Muse only uses real screens, so the set may have fewer slides. Add more on the web.`}</Notice> : null}
+          </View>
+        ) : null}
+
+        {isVideo ? (
+          <View style={{ gap: 10 }}>
+            <T v="footnote" style={{ fontWeight: "600", color: color.ink }}>
+              Format
+            </T>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {FORMATS.map((f) => (
+                <Chip
+                  key={f.id}
+                  label={`${f.label} · ${f.aspectRatio}`}
+                  selected={f.id === formatId}
+                  onPress={() => {
+                    setFormatId(f.id);
+                    setFormatPicked(true);
+                  }}
+                />
+              ))}
+            </ScrollView>
+            <T v="footnote" style={{ fontWeight: "600", color: color.ink, marginTop: 4 }}>
+              Length
+            </T>
+            <View style={styles.wrap}>
+              {lengths.map((s) => (
+                <Chip key={s} label={`${s} seconds`} selected={s === lengthSec} onPress={() => setLength(s)} />
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         {!canWrite ? (
-          <Notice>You have view access in this workspace. Ask an owner or admin for editor access to make videos.</Notice>
+          <Notice>You have view access in this workspace. Ask an owner or admin for editor access to make content.</Notice>
         ) : dnaMissing ? (
-          <Notice tone="accent">{`Tell Muse about ${appName} first (About your app, on the web): videos only say things that are true about it.`}</Notice>
-        ) : footageKnown && !footage ? (
-          <Notice tone="accent">{`Muse needs to see your real app first. Add a screen recording or a few screenshots of ${appName} on the web, then make the video here.`}</Notice>
+          <Notice tone="accent">{`Tell Muse about ${appName} first (About your app, on the web): Muse only says things that are true about it.`}</Notice>
+        ) : needsFootage && footageKnown && !footage ? (
+          <Notice tone="accent">{`Muse needs to see your real app first. Add a screen recording or a few screenshots of ${appName} on the web, then make the ${make.noun} here.`}</Notice>
         ) : null}
 
         <View style={{ gap: 8 }}>
           <Button
-            title={starting ? "Starting…" : "Generate video"}
+            title={starting ? "Starting…" : `Generate ${make.noun}`}
             onPress={() => void generate()}
             loading={starting}
-            disabled={blocked || short || voiceBusy || (!footageKnown && !footage)}
+            disabled={blocked || short || voiceBusy || (needsFootage && !footageKnown && !footage)}
             trailing={
               total !== null ? (
                 <View style={styles.credits}>
@@ -309,11 +386,11 @@ export default function CreateScreen() {
               ? estimates.some((e) => e.isLoading)
                 ? "Checking the cost…"
                 : "The cost shows here before anything runs."
-              : `About ${fullNumber(total)} credits${available !== null ? ` · ${fullNumber(Math.max(0, available))} available` : ""}${aiVoice ? " · AI voice only if the video has narration" : ""}`}
+              : `About ${fullNumber(total)} credits${available !== null ? ` · ${fullNumber(Math.max(0, available))} available` : ""}${aiVoice && isVideo ? " · AI voice only if the video has narration" : ""}`}
           </T>
-          {short ? <Notice tone="warning">Not enough credits for this length. Pick a shorter one, or add credits on the web.</Notice> : null}
+          {short ? <Notice tone="warning">{isVideo ? "Not enough credits for this length. Pick a shorter one, or add credits on the web." : make.slides ? "Not enough credits for this many slides. Pick fewer, or add credits on the web." : "Not enough credits for this. Add credits on the web."}</Notice> : null}
           <T v="caption" style={{ textAlign: "center" }}>
-            Muse Spark plans it · HyperFrames renders it · nothing is posted without you
+            {make.id === "text_post" ? "Muse Spark writes it · checked against your facts · nothing is posted without you" : "Muse Spark plans it · HyperFrames renders it · nothing is posted without you"}
           </T>
         </View>
 

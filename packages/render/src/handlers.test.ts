@@ -40,6 +40,40 @@ describe("render module handlers (no rendering)", () => {
     expect((await p.db.ws(wid).collection("campaignVariants").getOrThrow(seed.variantId)).compositionIds).toEqual(["cmp_sbd_sample"]);
   });
 
+  it("composition.build makes a still storyboard a still doc in its frame, with no sound, idempotently", async () => {
+    const { sampleStillStoryboard } = await import("./sample");
+    const ws = p.db.ws(wid);
+    await seedSample(p, wid);
+    for (const [format, id, kind, ar, w, h] of [
+      ["store_screenshots", "sbd_store", "carousel", "9:19.5", 1290, 2796],
+      ["thumbnail", "sbd_thumb", "static", "16:9", 1920, 1080],
+    ] as const) {
+      const sb = sampleStillStoryboard(wid, format, { id });
+      const { id: sbId, workspaceId: _w, createdAt: _c, updatedAt: _u, createdBy: _b, ...rest } = sb;
+      await ws.collection("storyboards").createIfAbsent({ id: sbId, ...rest }, { actor: "fixture" });
+      const job = await p.jobs.create(wid, "composition.build", { appId: "app_focusly", storyboardId: sbId, compositionId: `cmp_${id}` }, { actor: "u1", idempotencyKey: `build:${id}` });
+      await p.inline!.drain();
+      const done = await p.jobs.get(wid, job.id);
+      expect(done?.status, JSON.stringify(done?.error)).toBe("succeeded");
+      expect(done?.output?.data?.sound).toBeUndefined();
+      const comp = await ws.collection("compositions").getOrThrow(`cmp_${id}`);
+      expect(comp).toMatchObject({ kind, aspectRatio: ar, currentVersion: 1 });
+      const v1 = await ws.collection("compositionVersions").getOrThrow(`cmp_${id}_v1`);
+      expect(v1.doc).toMatchObject({ kind, aspectRatio: ar, width: w, height: h, audio: [], captions: { enabled: false } });
+      expect(v1.doc.scenes.every((s) => s.transitionIn.kind === "cut")).toBe(true);
+      const lint = done!.output!.data!.lint as { level: string; message: string }[];
+      expect(lint.filter((i) => i.level === "error")).toEqual([]);
+      // Rerun: same composition, no second version.
+      await p.jobs.create(wid, "composition.build", { appId: "app_focusly", storyboardId: sbId, compositionId: `cmp_${id}` }, { actor: "u1", idempotencyKey: `build:${id}:2` });
+      await p.inline!.drain();
+      expect((await ws.collection("compositions").getOrThrow(`cmp_${id}`)).latestVersion).toBe(1);
+    }
+    const store = await ws.collection("compositionVersions").getOrThrow("cmp_sbd_store_v1");
+    expect(store.doc.scenes.map((s) => s.template)).toEqual(["store-screenshot", "store-screenshot", "store-screenshot"]);
+    const thumb = await ws.collection("compositionVersions").getOrThrow("cmp_sbd_thumb_v1");
+    expect(thumb.doc.scenes.map((s) => s.template)).toEqual(["thumbnail-bold"]);
+  });
+
   it("composition.variants re-lays out to other aspect ratios, carrying edits by id", async () => {
     const { applyPatch } = await import("@muselaunch/compositions");
     const { commitVersion, getVersion } = await import("@muselaunch/compositions/store");

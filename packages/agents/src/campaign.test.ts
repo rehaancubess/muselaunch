@@ -330,3 +330,46 @@ describe("Glimmer memory", () => {
     expect(fallback.items.length).toBeGreaterThan(0);
   });
 });
+
+describe("copy.generate for a text-only post (Create → a text post)", () => {
+  it("writes one X post within 280 characters (links count 23), repairs an overlong one, and keeps only the post's own items", async () => {
+    const { textPostCopyRoute } = await import("./testing");
+    const long = `Your phone wins again? ${"Start one calm Pomodoro session and let distracting apps wait until it ends. ".repeat(4)}[APP_LINK]`;
+    let calls = 0;
+    const route = textPostCopyRoute((c) => (c === "x" && calls++ === 0 ? long : undefined));
+    const s = await setup([route]);
+    const campaign = await s.ws.collection("campaigns").create({ appId: s.seed.appId, name: "Text post", goal: "awareness", request: "A post for X", channels: ["x"], deliverables: [{ kind: "text_post", channel: "x", aspectRatio: "1:1", count: 1 }] }, { actor: "u1" });
+    const job = await s.p.jobs.create(s.wid, "copy.generate", { appId: s.seed.appId, campaignId: campaign.id, channels: ["x"] }, { actor: "u1", credits: { operation: "copy.generate" } });
+    await s.p.inline!.drain();
+    const done = await s.p.jobs.get(s.wid, job.id);
+    expect(done?.status).toBe("succeeded");
+    expect(done?.output?.data).toMatchObject({ textPost: true });
+    const reqs = s.meta.requests.filter((r) => schemaName(r) === "CopyPacks");
+    expect(reqs).toHaveLength(2); // overlong → one repair
+    expect(requestText(reqs[0]!)).toMatch(/- x: a TEXT-ONLY post .*caption ≤ 280 characters \(a link or \[APP_LINK\] counts as 23\)/);
+    expect(requestText(reqs[1]!)).toMatch(/x caption is \d+ chars; limit 280/);
+    const pack = (await s.ws.collection("copyPacks").list({ where: [["campaignId", "==", campaign.id]], orderBy: { field: "createdAt", dir: "desc" } })).items[0]!;
+    expect(pack.channel).toBe("x");
+    expect(pack.items.map((i) => i.kind)).toEqual(["caption"]);
+    const { postLength } = await import("./copy");
+    expect(postLength("x", pack.items[0]!.text)).toBeLessThanOrEqual(280);
+    expect(pack.validation?.ok).toBe(true);
+  });
+
+  it("counts X links as 23 characters and limits each text channel; other channels keep their usual copy", async () => {
+    const { copyLimitProblems, postLength, textPostRules } = await import("./copy");
+    expect(postLength("x", "Try it [APP_LINK]")).toBe(7 + 23);
+    expect(postLength("x", "See https://example.com/a/very/long/path/that/goes/on")).toBe(4 + 23);
+    expect(postLength("threads", "Try it [APP_LINK]")).toBe(17);
+    // X weights CJK and emoji as 2, like the publishing preflight: a post that fits here fits there.
+    expect(postLength("x", "日本語")).toBe(6);
+    expect(copyLimitProblems([{ channel: "x", items: [{ kind: "caption", text: "集".repeat(141), claimIds: [] }] }], { textPost: true })).toEqual(["x caption is 282 chars; limit 280."]);
+    expect(textPostRules("x")).toEqual({ kinds: ["caption"], limits: { caption: 280 } });
+    expect(textPostRules("threads")?.limits.caption).toBe(500);
+    expect(textPostRules("linkedin")?.limits.caption).toBe(3000);
+    expect(textPostRules("reddit")?.kinds).toEqual(["title", "description"]);
+    expect(textPostRules("instagram")).toBeNull();
+    expect(copyLimitProblems([{ channel: "x", items: [{ kind: "caption", text: "a".repeat(281), claimIds: [] }] }], { textPost: true })).toEqual(["x caption is 281 chars; limit 280."]);
+    expect(copyLimitProblems([{ channel: "reddit", items: [{ kind: "title", text: "Hi", claimIds: [] }] }], { textPost: true })).toEqual(["reddit text post needs a description."]);
+  });
+});

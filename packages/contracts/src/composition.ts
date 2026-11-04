@@ -43,8 +43,20 @@ export const TEMPLATE_IDS = [
   "fullscreen-recording", // real LANDSCAPE footage (TV, desktop, web apps/games) filling the frame, cover-cropped around the action (never stretched)
   "ui-popout", // one real UI element (card, chart, button) lifts off the device screen toward the viewer: shadow, 3D tilt, parallax
   "hook-footage", // opening on the most striking REAL footage, full-bleed, with the hook in big type (also the thumbnail)
+  // Still templates (posts, carousels, thumbnails, store screenshot sets; one scene = one slide):
+  "slide-cover", // carousel / post cover: the hook headline, big; the founder's SAM cut-out or a real screen beside it
+  "slide-feature", // one feature: headline + supporting line + the REAL screen in a device frame
+  "slide-proof", // one VERIFIED claim, large, with where it comes from (never invented numbers or quotes)
+  "slide-cta", // last slide: app icon, name, call to action and plain-text store pills
+  "thumbnail-bold", // YouTube thumbnail: ≤ 5 huge words, high contrast, a real screen or the founder's cut-out
+  "store-screenshot", // App Store / Google Play screenshot: short benefit headline on top, the REAL screen large below
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
+
+/** Templates made for stills (one scene = one slide). "carousel-slide" stays a generic still too. */
+export const STILL_TEMPLATE_IDS = ["slide-cover", "slide-feature", "slide-proof", "slide-cta", "thumbnail-bold", "store-screenshot", "carousel-slide"] as const satisfies readonly TemplateId[];
+export type StillTemplateId = (typeof STILL_TEMPLATE_IDS)[number];
+export const isStillTemplate = (id: string): id is StillTemplateId => (STILL_TEMPLATE_IDS as readonly string[]).includes(id);
 
 /** Hex colour or a theme token. */
 export const ColorValue = z.union([

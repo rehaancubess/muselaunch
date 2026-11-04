@@ -3,6 +3,7 @@ import { AspectRatio, BaseEntity, EntityRef, ErrorInfo, Id, IsoDateTime } from "
 import { YouTubeChannelRelation } from "./analytics";
 import { ResearchKind } from "./research";
 import { MusicMood } from "./sound";
+import { OutputFormat, StoreTarget } from "./stills";
 
 /**
  * Every asynchronous unit of work. Payload schemas below are the contract between
@@ -16,7 +17,20 @@ export const JobPayloads = {
   "strategy.run": z.object({ appId: Id, agentRunId: Id, goal: z.string().max(4000), campaignId: Id.optional() }),
   "campaign.generate_concepts": z.object({ appId: Id, campaignId: Id, count: z.number().int().min(3).max(6).default(3) }),
   /** targetDurationSec omitted = the concept's length (CampaignVariant.targetDurationSec), else 30–60 s. */
-  "storyboard.generate": z.object({ appId: Id, campaignId: Id, variantId: Id, aspectRatio: AspectRatio.default("9:16"), targetDurationSec: z.number().positive().max(90).optional() }),
+  /**
+   * `format` (stills.ts): a video by default; stills plan one scene per slide (`slides`, clamped by
+   * `slideLimits`) in the format's frame (`stillAspect`). `store` for store screenshot sets.
+   */
+  "storyboard.generate": z.object({
+    appId: Id,
+    campaignId: Id,
+    variantId: Id,
+    aspectRatio: AspectRatio.default("9:16"),
+    targetDurationSec: z.number().positive().max(90).optional(),
+    format: OutputFormat.optional(),
+    slides: z.number().int().min(1).max(10).optional(),
+    store: StoreTarget.optional(),
+  }),
   "composition.build": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),
   /** Lifestyle b-roll: turn the storyboard's stock/generated hints into licensed assets, then enqueue composition.build. */
   "storyboard.resolve_media": z.object({ appId: Id, storyboardId: Id, compositionId: Id }),

@@ -5,6 +5,7 @@ export * from "./permissions";
 export * from "./app";
 export * from "./research";
 export * from "./agents";
+export * from "./stills";
 export * from "./campaign";
 export * from "./create-run";
 export * from "./composition";

@@ -130,6 +130,106 @@ export function defaultFormat(postTo: readonly string[] | null | undefined): Vid
   return FORMATS[0]!;
 }
 
+// ---------------------------------------------------------------------------
+// What to make: a video, or stills / a text post (the web's Create offers the same; the server's
+// rules are packages/contracts/src/stills.ts)
+// ---------------------------------------------------------------------------
+
+export type MakeId = "video" | "post" | "carousel" | "thumbnail" | "app_store" | "google_play" | "text_post";
+
+export interface Make {
+  id: MakeId;
+  label: string;
+  /** For "Generate …" and messages. */
+  noun: string;
+  /** Where it can go (the first is the default); empty = a fixed place. */
+  channels: Channel[];
+  /** Slides: min / max / default (null = one image or no image). */
+  slides: { min: number; max: number; def: number } | null;
+}
+
+export const MAKES: Make[] = [
+  { id: "video", label: "Video", noun: "video", channels: [], slides: null },
+  { id: "post", label: "Post", noun: "post", channels: ["instagram", "facebook", "linkedin", "x", "threads"], slides: null },
+  { id: "carousel", label: "Carousel", noun: "carousel", channels: ["instagram", "linkedin", "facebook", "threads"], slides: { min: 3, max: 10, def: 6 } },
+  { id: "thumbnail", label: "Thumbnail", noun: "thumbnail", channels: ["youtube"], slides: null },
+  { id: "app_store", label: "App Store screenshots", noun: "screenshots", channels: ["app_store"], slides: { min: 3, max: 10, def: 6 } },
+  { id: "google_play", label: "Google Play screenshots", noun: "screenshots", channels: ["google_play"], slides: { min: 3, max: 8, def: 6 } },
+  { id: "text_post", label: "Text post", noun: "post", channels: ["x", "threads", "linkedin", "reddit", "facebook"], slides: null },
+];
+
+export const makeById = (id: string | null | undefined): Make => MAKES.find((m) => m.id === id) ?? MAKES[0]!;
+
+/** A slide count the choice allows (the default when nothing was picked). */
+export function clampSlideCount(make: Make, n: number | null | undefined): number {
+  if (!make.slides) return 1;
+  if (typeof n !== "number" || !Number.isFinite(n)) return make.slides.def;
+  return Math.max(make.slides.min, Math.min(make.slides.max, Math.round(n)));
+}
+
+export interface StillInput {
+  kind: CreateKind;
+  prompt: string;
+  make: Make;
+  channel: Channel;
+  slides: number;
+  ideaId?: string | null;
+}
+
+/** Body of POST /apps/:appId/campaigns for one still piece or text post (the web sends the same). */
+export function stillCampaignRequest(input: StillInput) {
+  const m = input.make;
+  const slides = clampSlideCount(m, input.slides);
+  let deliverable: Deliverable;
+  switch (m.id) {
+    case "post":
+      deliverable = { kind: "static_ad", channel: input.channel, aspectRatio: "4:5", count: 1 };
+      break;
+    case "carousel":
+      deliverable = { kind: "carousel", channel: input.channel, aspectRatio: "4:5", count: 1, slides };
+      break;
+    case "thumbnail":
+      deliverable = { kind: "thumbnail", channel: "youtube", aspectRatio: "16:9", count: 1 };
+      break;
+    case "app_store":
+      deliverable = { kind: "store_screenshots", channel: "app_store", aspectRatio: "9:19.5", count: 1, slides, store: "ios" };
+      break;
+    case "google_play":
+      deliverable = { kind: "store_screenshots", channel: "google_play", aspectRatio: "9:16", count: 1, slides, store: "android" };
+      break;
+    default:
+      deliverable = { kind: "text_post", channel: input.channel, aspectRatio: "9:16", count: 1 };
+  }
+  return {
+    request: input.prompt.trim().slice(0, MAX_PROMPT),
+    goal: GOAL[input.kind],
+    channels: [deliverable.channel ?? input.channel],
+    deliverables: [deliverable],
+    opportunityIds: input.kind === "idea" && input.ideaId ? [input.ideaId] : [],
+    conceptCount: 3,
+    origin: "create" as const,
+  };
+}
+
+/** The estimates "Generate …" adds up for stills and text posts (the server prices each step the same way). */
+export function stillEstimateSteps(make: Make, slides: number): { key: string; label: string; operation: string; params: Record<string, unknown> }[] {
+  const n = clampSlideCount(make, slides);
+  if (make.id === "text_post")
+    return [
+      { key: "idea", label: "Writing the idea (Muse Spark)", operation: "campaign.generate_concepts", params: {} },
+      { key: "post", label: "Writing the post (Muse Spark)", operation: "copy.generate", params: {} },
+    ];
+  const format = make.id === "app_store" || make.id === "google_play" ? "store_screenshots" : make.id;
+  const plan: Record<string, unknown> = format === "post" || format === "thumbnail" ? { format } : { format, slides: n, ...(format === "store_screenshots" ? { store: make.id === "google_play" ? "android" : "ios" } : {}) };
+  const one = !make.slides;
+  return [
+    { key: "idea", label: "Writing the idea (Muse Spark)", operation: "campaign.generate_concepts", params: {} },
+    { key: "plan", label: one ? "Planning the image (Muse Spark)" : "Planning the slides (Muse Spark)", operation: "storyboard.generate", params: plan },
+    { key: "make", label: "Making it, editable", operation: "composition.build", params: {} },
+    { key: "finish", label: one ? "Final image" : `Final slides (${n})`, operation: "render.final", params: { slides: one ? 1 : n } },
+  ];
+}
+
 export const LENGTHS = [15, 20, 30, 45, 60] as const;
 export const DEFAULT_LENGTH = 20;
 
@@ -366,25 +466,60 @@ export interface RunDisplay {
   pct: number;
   line: string;
   videoAssetId?: string;
+  /** What it makes, in plain words ("video", "carousel", "post", "thumbnail", "store screenshots", "text post"). */
+  noun: string;
+  /** Finished stills: slide images in order (first = cover). */
+  stillAssetIds?: string[];
+  /** Finished text post: the text and where it goes. */
+  text?: { text: string; channel: Channel; ok: boolean };
   /** What the phone can do about it (only actions the server offers; Brand-check overrides stay on the web). */
   action: { kind: "retry" | "approve_spend"; label: string; stepKey?: string } | null;
 }
 
+const OUTPUT_NOUN: Record<string, string> = { video: "video", post: "post", carousel: "carousel", thumbnail: "thumbnail", store_screenshots: "store screenshots", text_post: "text post" };
+
+/** "carousel" for a carousel run; "video" for runs started before stills (no `output`). */
+export function outputNoun(output: string | null | undefined): string {
+  return OUTPUT_NOUN[output ?? "video"] ?? "video";
+}
+
+/** Step names for what the run makes ("Planning the slides", "Writing the post"). */
+export function stepLabelFor(step: StepKey, output: string | null | undefined): string {
+  const o = output ?? "video";
+  if (o === "video") return STEP_LABEL[step];
+  if (o === "text_post") return ({ idea: "Writing the idea", plan: "Writing the post", make: "Writing the post", check: "Checking facts", finish: "Finishing" } as Record<StepKey, string>)[step];
+  return ({ idea: "Writing the idea", plan: o === "thumbnail" || o === "post" ? "Planning the image" : "Planning the slides", make: "Making it", check: "Checking facts and brand", finish: "Finishing" } as Record<StepKey, string>)[step];
+}
+
 export function displayFromServer(v: CreateRunView): RunDisplay {
-  const title = v.ideaTitle || firstSentence(v.request, 90) || v.name || "Your video";
+  const noun = outputNoun(v.format.output);
+  const title = v.ideaTitle || firstSentence(v.request, 90) || v.name || `Your ${noun}`;
   const stage = v.stage;
+  const slides = v.stills?.assetIds.length ?? 0;
   let line: string;
-  if (v.status === "done") line = "Your video is ready";
-  else if (v.status === "needs_you") line = v.decision?.message ?? "This video needs a decision.";
+  if (v.status === "done") line = slides > 1 ? `Your ${noun} is ready · ${slides} slides` : noun === "store screenshots" ? "Your store screenshots are ready" : `Your ${noun} is ready`;
+  else if (v.status === "needs_you") line = v.decision?.message ?? `This ${noun} needs a decision.`;
   else if (v.status === "failed") line = v.failure?.message ?? "A step didn’t finish.";
   else if (v.status === "waiting") line = v.wait?.reason ?? "Waiting a moment, then it carries on by itself.";
   else if (v.status === "stopped") line = "Stopped. Continue it whenever you like.";
-  else line = stage === "done" ? "Finishing up" : `${STEP_LABEL[stage]}${v.detail ? ` · ${v.detail}` : ""}`;
+  else line = stage === "done" ? "Finishing up" : `${stepLabelFor(stage, v.format.output)}${v.detail ? ` · ${v.detail}` : ""}`;
   let action: RunDisplay["action"] = null;
   if (v.decision?.kind === "spend" && v.actions.includes("approve_spend")) action = { kind: "approve_spend", label: `Finish it · ${v.decision.credits ?? "?"} credits`, stepKey: v.decision.stepKey };
   else if (v.decision?.kind === "brand") action = null;
   else if ((v.status === "failed" || v.status === "needs_you" || v.status === "stopped") && v.actions.includes("retry")) action = { kind: "retry", label: v.status === "stopped" || v.decision?.kind === "resume" ? "Continue" : "Try again" };
-  return { campaignId: v.campaignId, title, stage, status: v.status, pct: v.pct, line, videoAssetId: v.video?.assetId, action };
+  return {
+    campaignId: v.campaignId,
+    title,
+    stage,
+    status: v.status,
+    pct: v.pct,
+    line,
+    videoAssetId: v.video?.assetId,
+    noun,
+    stillAssetIds: v.stills?.assetIds.length ? v.stills.assetIds : undefined,
+    text: v.text ? { text: v.text.text, channel: v.text.channel, ok: v.text.ok } : undefined,
+    action,
+  };
 }
 
 export function displayFromRecords(campaign: Pick<Campaign, "id" | "request" | "name">, view: RunView): RunDisplay {
@@ -397,6 +532,7 @@ export function displayFromRecords(campaign: Pick<Campaign, "id" | "request" | "
     pct: view.pct,
     line: runLine(view),
     videoAssetId: view.finalAssetId,
+    noun: "video",
     action: null,
   };
 }

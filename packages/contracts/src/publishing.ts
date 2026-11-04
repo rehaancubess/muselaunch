@@ -124,7 +124,12 @@ export const ScheduledPost = BaseEntity.extend({
   variantId: Id.optional(),
   compositionId: Id.optional(),
   compositionVersion: z.number().int().optional(),
-  assetIds: z.array(Id).min(1),
+  /**
+   * The media, in posting order: one video, one image, or a carousel's slides (Instagram takes at
+   * most 10, X 4; the adapter says what it takes). Empty for a text-only post (X, Threads, LinkedIn,
+   * Reddit, Facebook): preflight refuses an empty post on a channel that needs media.
+   */
+  assetIds: z.array(Id).max(20),
   channel: Channel,
   accountId: Id.optional(),
   mode: z.enum(["api", "manual"]),

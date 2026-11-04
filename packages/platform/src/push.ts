@@ -467,16 +467,21 @@ export function notifyRunNeedsYou(
   });
 }
 
-/** A Create video is finished: "Your video is ready" with its title (→ the Create page). Once per run. */
-export function notifyVideoReady(p: Platform, wid: string, run: RunRef, video: { title?: string }): Promise<PushResult | null> {
+/**
+ * A Create run is finished: "Your video is ready" with its title (→ the Create page). Once per run.
+ * `noun` names what the run made when it isn't a video ("Your carousel is ready", "Your screenshots are ready").
+ */
+export function notifyVideoReady(p: Platform, wid: string, run: RunRef, video: { title?: string; noun?: { one: string; plural: boolean } }): Promise<PushResult | null> {
   return quietly(p, "video_ready", async () => {
     const people = await runRecipients(p, wid, run.startedBy, ["publish"]);
     if (!people.length || !(await hasReceivers(p, people)) || !(await claimMoment(p, wid, run.id, "done"))) return null;
     const title = video.title?.trim();
+    const noun = video.noun ?? { one: "video", plural: false };
+    const ready = noun.one === "video" ? "ready to watch and post" : "ready to post";
     return sendPushToUsers(p, people, {
       kind: "video_ready",
-      title: "Your video is ready",
-      body: title ? `“${title.slice(0, 90)}” is ready to watch and post.` : `${shortAppName(await appName(p, wid, run.appId))}: ready to watch and post.`,
+      title: `Your ${noun.one} ${noun.plural ? "are" : "is"} ready`,
+      body: title ? `“${title.slice(0, 90)}” is ${ready}.` : `${shortAppName(await appName(p, wid, run.appId))}: ${ready}.`,
       url: appPath("", wid, run.appId),
       webUrl: createPage(wid, run.appId, run.id),
       tag: runNotificationTag(run.id),

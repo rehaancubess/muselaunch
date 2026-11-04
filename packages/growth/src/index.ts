@@ -26,6 +26,20 @@ export { ruleCheck, validateDraft } from "./outreach/claims";
 export * from "./outreach/service";
 export { PitchOut } from "./outreach/draft";
 export * from "./publishing/manual";
+export {
+  CAPTION_LIMIT,
+  captionLength,
+  channelMediaRules,
+  compositionHasAiVoice,
+  disclosedCaption,
+  MANUAL_MAX_IMAGES,
+  MAX_POST_MEDIA,
+  needsMedia,
+  renderMediaFor,
+  slideSet,
+  withAiVoiceLineFor,
+  type RenderMedia,
+} from "./publishing/media";
 export * from "./publishing/posts";
 export * from "./publishing/facts";
 export * from "./publishing/schedule";

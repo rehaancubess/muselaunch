@@ -254,7 +254,7 @@ function FinishedVideo({ video: v, detail, needs, canPost, workspaceId }: { vide
   // The run drafts this video's post itself (schedule stage): until then "Post it" would only make a duplicate.
   const upcoming = !post && isActive(ap.status) && ["produce", "verify", "render", "schedule"].includes(ap.stage);
   const writing = upcoming;
-  const ratio = v.aspectRatio === "16:9" ? "aspect-video" : v.aspectRatio === "1:1" ? "aspect-square" : v.aspectRatio === "4:5" ? "aspect-[4/5]" : "aspect-[9/16]";
+  const ratio = v.aspectRatio === "16:9" ? "aspect-video" : v.aspectRatio === "1:1" ? "aspect-square" : v.aspectRatio === "4:5" ? "aspect-[4/5]" : v.aspectRatio === "9:19.5" ? "aspect-[1290/2796]" : "aspect-[9/16]";
   let postNote: ReactNode = null;
   if (posted) postNote = post.status === "published" || post.status === "manually_posted" ? "Posted." : post.status === "manual_post_needed" ? "Approved: ready for you to post." : `Approved${post.scheduledAt ? `: goes out ${new Date(post.scheduledAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}.`;
   else if (writing) postNote = ap.stage === "schedule" ? "Writing the post…" : "Autopilot drafts the post once the videos are checked. You approve it before it goes out.";

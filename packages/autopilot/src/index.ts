@@ -22,7 +22,7 @@ export {
   resolveCreateRun,
   sweepCreateRuns,
 } from "./create-runner";
-export { deriveRun, pickVariant, problemFromError, runSettings, stepKeyOf } from "./create-run";
+export { deriveRun, finalSlides, isStillOutput, pickVariant, problemFromError, runNoun, runSettings, stageLabel, stepKeyOf, type RunOutput, type RunSettings } from "./create-run";
 export { advancePostChange, advancePostChangesForJob, CHANGEABLE_POST, estimatePostChange, postReviseCopyHandler, repairPostChanges, requestPostChange, sceneWords, videoChangeLine } from "./post-change";
 export { today } from "./today";
 export { alwaysOnState, alwaysOnStatus, decidePace, decideSuggestion, ensureAlwaysOnLoop, runAlwaysOn, summaryEmail, updateAlwaysOn, weeklySummary, type AlwaysOnStart, type AlwaysOnTick } from "./always-on";

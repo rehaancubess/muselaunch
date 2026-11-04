@@ -1,5 +1,5 @@
 import type { Campaign, CreateRunView, Job } from "../api/types";
-import { campaignRequest, clampLength, defaultFormat, displayFromServer, estimateSteps, featurePrompt, formatById, ideaPrompt, lengthOptions, promotePrompt, runLine, runView, stepState, stepStateOf, topIdeas } from "./plan";
+import { campaignRequest, clampLength, clampSlideCount, makeById, stillCampaignRequest, stillEstimateSteps, defaultFormat, displayFromServer, estimateSteps, featurePrompt, formatById, ideaPrompt, lengthOptions, promotePrompt, runLine, runView, stepState, stepStateOf, topIdeas } from "./plan";
 
 const now = Date.parse("2026-11-03T12:00:00Z");
 const campaign = (over: Partial<Campaign> = {}): Campaign => ({
@@ -144,7 +144,52 @@ describe("a run the server carries (GET /apps/:appId/create-runs)", () => {
 
   it("done: the finished video to watch", () => {
     const d = displayFromServer(view({ stage: "done", status: "done", pct: 100, ideaTitle: "Focus in 20 seconds", video: { assetId: "ast_final" } }));
-    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final" });
+    expect(d).toMatchObject({ title: "Focus in 20 seconds", line: "Your video is ready", videoAssetId: "ast_final", noun: "video" });
     expect(stepStateOf(d, "finish")).toBe("done");
+  });
+
+  it("stills and text posts: their own words, the slides in order, the text", () => {
+    const making = displayFromServer(view({ stage: "plan", format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 6 } }));
+    expect(making).toMatchObject({ noun: "carousel", line: "Planning the slides · rendering preview" });
+    const carousel = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "4:5", channel: "instagram", output: "carousel", slides: 3 }, stills: { assetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] } }),
+    );
+    expect(carousel).toMatchObject({ noun: "carousel", line: "Your carousel is ready · 3 slides", stillAssetIds: ["ast_r_k", "ast_r_k_2", "ast_r_k_3"] });
+    expect(carousel.videoAssetId).toBeUndefined();
+    const text = displayFromServer(
+      view({ stage: "done", status: "done", pct: 100, format: { aspectRatio: "9:16", channel: "x", output: "text_post" }, text: { copyPackId: "cp_1", channel: "x", text: "Focus mode, finally.", ok: true } }),
+    );
+    expect(text).toMatchObject({ noun: "text post", line: "Your text post is ready", text: { text: "Focus mode, finally.", channel: "x", ok: true } });
+    // Runs started before stills have no output: a video.
+    expect(displayFromServer(view()).noun).toBe("video");
+  });
+});
+
+describe("making stills and text posts from the phone (same requests as the web)", () => {
+  it("asks for the right deliverable for each choice", () => {
+    const carousel = stillCampaignRequest({ kind: "promote", prompt: "Introduce Tidy Timer.", make: makeById("carousel"), channel: "linkedin", slides: 14 });
+    expect(carousel.deliverables).toEqual([{ kind: "carousel", channel: "linkedin", aspectRatio: "4:5", count: 1, slides: 10 }]);
+    expect(carousel.channels).toEqual(["linkedin"]);
+    expect(carousel.origin).toBe("create");
+    const play = stillCampaignRequest({ kind: "feature", prompt: "Show Focus Mode.", make: makeById("google_play"), channel: "instagram", slides: 10 });
+    expect(play.deliverables[0]).toMatchObject({ kind: "store_screenshots", store: "android", aspectRatio: "9:16", slides: 8, channel: "google_play" });
+    expect(play.goal).toBe("feature_announcement");
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("app_store"), channel: "x", slides: 4 }).deliverables[0]).toMatchObject({ store: "ios", aspectRatio: "9:19.5", slides: 4 });
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("text_post"), channel: "x", slides: 0 }).deliverables[0]).toMatchObject({ kind: "text_post", channel: "x" });
+    expect(stillCampaignRequest({ kind: "promote", prompt: "Hello there.", make: makeById("thumbnail"), channel: "x", slides: 0 }).deliverables[0]).toMatchObject({ kind: "thumbnail", channel: "youtube", aspectRatio: "16:9" });
+  });
+
+  it("prices each step the way the server does", () => {
+    expect(stillEstimateSteps(makeById("carousel"), 6).map((s) => [s.operation, s.params])).toEqual([
+      ["campaign.generate_concepts", {}],
+      ["storyboard.generate", { format: "carousel", slides: 6 }],
+      ["composition.build", {}],
+      ["render.final", { slides: 6 }],
+    ]);
+    expect(stillEstimateSteps(makeById("post"), 1)[1]!.params).toEqual({ format: "post" });
+    expect(stillEstimateSteps(makeById("google_play"), 9)[1]!.params).toEqual({ format: "store_screenshots", slides: 8, store: "android" });
+    expect(stillEstimateSteps(makeById("text_post"), 0).map((s) => s.operation)).toEqual(["campaign.generate_concepts", "copy.generate"]);
+    expect(clampSlideCount(makeById("carousel"), null)).toBe(6);
+    expect(clampSlideCount(makeById("post"), 7)).toBe(1);
   });
 });

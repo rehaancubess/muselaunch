@@ -6,7 +6,7 @@ import { GlimmerClient, installGlimmerClient } from "@muselaunch/providers";
 import { describe, expect, it } from "vitest";
 import { rememberPreference } from "../memory";
 import { installFakeGlimmer, seedApp } from "../testing";
-import { brandReviewHandler, fingerprintTag, loadBrandContext, mergeFindings, requestBrandReview, runRules } from "./index";
+import { brandReviewHandler, fingerprintTag, GUARDIAN_SYSTEM, loadBrandContext, mergeFindings, requestBrandReview, runRules } from "./index";
 import { loadSubject } from "./subject";
 
 /**
@@ -232,5 +232,76 @@ describe("Brand Guardian with Muse Glimmer (fake local server, fixture answers)"
     expect(d2.status).toBe("passed");
     const job = await down.p.jobs.get(WS, r2.job!.id);
     expect(job?.status).toBe("succeeded");
+  });
+});
+
+describe("Brand Guardian on stills (posts, carousels, thumbnails, store screenshots)", () => {
+  /** A still built from the same kit: one scene per slide (`n` slides), no motion or sound. */
+  function stillDoc(theme: CompositionDoc["theme"], shotId: string, o: { kind: "static" | "carousel"; aspectRatio: CompositionDoc["aspectRatio"]; n: number; template?: string; words?: string }): CompositionDoc {
+    const dims: Record<string, [number, number]> = { "4:5": [1080, 1350], "1:1": [1080, 1080], "16:9": [1920, 1080], "9:16": [1080, 1920], "9:19.5": [1290, 2796] };
+    const [width, height] = dims[o.aspectRatio]!;
+    const v = validateDoc({
+      schemaVersion: 1,
+      title: "Calm focus",
+      kind: o.kind,
+      aspectRatio: o.aspectRatio,
+      width,
+      height,
+      fps: 30,
+      theme,
+      scenes: Array.from({ length: o.n }, (_, i) => ({
+        id: `sc_s${i + 1}`,
+        name: `Slide ${i + 1}`,
+        template: o.template ?? (i === 0 ? "slide-cover" : i === o.n - 1 && o.kind === "carousel" ? "slide-cta" : "slide-feature"),
+        purpose: i === 0 ? "hook" : "feature",
+        // A still's scene length is only a render slot: lots of words in 1 s is fine.
+        durationSec: 1,
+        layers: [
+          { id: `ly_s${i + 1}_head`, type: "text", role: "headline", text: o.words ?? `Slide ${i + 1}: one calm session at a time, every single day`, box: { x: 0.08, y: 0.08, w: 0.84, h: 0.14 }, style: { sizePx: 72 } },
+          { id: `ly_s${i + 1}_device`, type: "device", screenAssetId: shotId, box: { x: 0.22, y: 0.3, w: 0.56, h: 0.6 } },
+        ],
+      })),
+    });
+    if (!v.ok) throw new Error(v.errors.join("\n"));
+    return v.doc;
+  }
+
+  async function still(o: Parameters<typeof stillDoc>[2], deliverable: Record<string, unknown>, channels: string[] = ["instagram"]) {
+    const { ws, seeded } = await setup();
+    const brandOf = async (x: Awaited<ReturnType<typeof loadSubject>>) => (await loadBrandContext(ws, x)).brand;
+    const theme = themeFromBrand(await ws.collection("brandProfiles").getOrThrow(seeded.appId));
+    const campaign = await ws.collection("campaigns").create({ appId: seeded.appId, name: "Stills", goal: "awareness", channels: channels as never, deliverables: [{ aspectRatio: o.aspectRatio, count: 1, ...deliverable } as never] }, { actor: "alice" });
+    const { composition } = await createComposition(ws, { appId: seeded.appId, campaignId: campaign.id, title: "Calm focus", doc: stillDoc(theme, seeded.screenshotIds[0]!, o) }, "alice");
+    const s = await loadSubject(ws, { entity: "compositions", id: composition.id });
+    return { s, f: runRules(s, await brandOf(s)), brand: await brandOf(s) };
+  }
+
+  it("no duration, pacing or sound findings on stills; a carousel over 10 slides for Instagram is a warning", async () => {
+    const { s, f, brand } = await still({ kind: "carousel", aspectRatio: "4:5", n: 12 }, { kind: "carousel", channel: "instagram", slides: 10 });
+    expect(s.channels).toEqual(["instagram"]);
+    expect(f.filter((x) => /duration|reading_time|platform\.aspect$/.test(x.rule ?? ""))).toEqual([]);
+    expect(f.find((x) => x.rule === "platform.slide_count")).toMatchObject({ severity: "warn", category: "platform_fit", message: expect.stringMatching(/12 slides is more than Instagram takes in one post \(10\)/) });
+    expect(f.some((x) => x.rule === "platform.still_aspect")).toBe(false);
+    // Glimmer is told it is reviewing slides.
+    const { buildPacket } = await import("./glimmer");
+    const packet = buildPacket(s, brand, [], []);
+    expect(packet).toMatch(/You are reviewing slides: a carousel of 12 still slides/);
+    expect(packet).toMatch(/Carousel "Calm focus" version 1 \(12 still slides, 4:5; each scene below is one slide/);
+  });
+
+  it("the aspect check uses the post's channel (a 16:9 post isn't native on Instagram; a 16:9 thumbnail is on YouTube)", async () => {
+    const wide = await still({ kind: "static", aspectRatio: "16:9", n: 1 }, { kind: "static_ad", channel: "instagram" }, ["instagram", "tiktok"]);
+    expect(wide.s.channels).toEqual(["instagram"]);
+    expect(wide.f.find((x) => x.rule === "platform.still_aspect")).toMatchObject({ severity: "warn", quote: "16:9" });
+    const thumb = await still({ kind: "static", aspectRatio: "16:9", n: 1, template: "thumbnail-bold", words: "Focus in one tap" }, { kind: "thumbnail", channel: "youtube" }, ["youtube"]);
+    expect(thumb.f.filter((x) => x.category === "platform_fit")).toEqual([]);
+    expect(GUARDIAN_SYSTEM).toMatch(/reviewed slide by slide: each scene is one slide/);
+  });
+
+  it("store screenshot sets are checked against their store (Google Play takes 8)", async () => {
+    const { s, f } = await still({ kind: "carousel", aspectRatio: "9:16", n: 9, template: "store-screenshot", words: "Silence distracting apps" }, { kind: "store_screenshots", store: "android", slides: 8 }, ["instagram"]);
+    expect(s.channels).toEqual(["google_play"]);
+    expect(f.find((x) => x.rule === "platform.slide_count")).toMatchObject({ message: expect.stringMatching(/9 slides is more than Google Play takes in one post \(8\)/) });
+    expect(f.some((x) => x.rule === "cta.missing_slide")).toBe(false); // store sets end on a screen, not a CTA slide
   });
 });

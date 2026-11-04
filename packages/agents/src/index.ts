@@ -18,8 +18,9 @@ export { conceptDurations, distinctnessProblems, founderDuration, planMaxVideoSe
 export { installCampaignHooks, syncCampaignProduction } from "./campaign-status";
 export { autoCampaignName, truncateWords } from "./util";
 export { checkStoryboard, fitDurations, minSceneSec, polishStoryboard, sceneRange } from "./storyboard";
+export { checkSlides, cutBody, cutHeadline, polishSlides, realScreens, slideCount, SlidePlanOutput, SLIDE_TEMPLATES, templatesFor, wordLimits, type PlanSlide, type SlideCheckContext } from "./slides";
 export { checkEdit } from "./edit";
-export { CHANNEL_RULES, copyLimitProblems, readPackIssue, recheckCopyPack, reviseCopyPack, rewriteCopyForPost, toPackIssue } from "./copy";
+export { CHANNEL_RULES, copyLimitProblems, postLength, readPackIssue, recheckCopyPack, reviseCopyPack, rewriteCopyForPost, textPostRules, textPostText, toPackIssue } from "./copy";
 export { installFetcher, fetcherFor, fetchResult, type Fetcher } from "./fetcher";
 export { RunRecorder } from "./runs";
 export { runToolLoop, defineTool, type LoopTool, type LoopOutcome } from "./loop";

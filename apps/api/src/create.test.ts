@@ -124,11 +124,16 @@ describe("Create → Generate video: one finished, editable video through the ex
     expect((await ws().collection("scheduledPosts").list({ where: [["appId", "==", appId]], limit: 10 })).items).toHaveLength(0);
   });
 
-  it("asks for exactly one video and keeps hand-planned campaigns as they were", async () => {
+  it("asks for exactly one piece it can make and keeps hand-planned campaigns as they were", async () => {
     for (const deliverables of [
       [],
       [{ kind: "short_video", aspectRatio: "9:16", durationSec: 20, count: 2 }],
-      [{ kind: "static_ad", aspectRatio: "1:1", count: 1 }],
+      [{ kind: "caption_pack", aspectRatio: "1:1", count: 1 }],
+      [{ kind: "short_video", aspectRatio: "9:19.5", count: 1 }],
+      [{ kind: "store_screenshots", aspectRatio: "9:19.5", count: 1 }],
+      [{ kind: "store_screenshots", aspectRatio: "9:16", store: "android", slides: 10, count: 1 }],
+      [{ kind: "carousel", aspectRatio: "4:5", slides: 2, count: 1 }],
+      [{ kind: "text_post", aspectRatio: "1:1", channel: "tiktok", count: 1 }],
       [
         { kind: "short_video", aspectRatio: "9:16", count: 1 },
         { kind: "short_video", aspectRatio: "1:1", count: 1 },

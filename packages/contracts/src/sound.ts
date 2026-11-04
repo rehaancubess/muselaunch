@@ -154,3 +154,22 @@ export type SoundVoiceoverRequest = z.infer<typeof SoundVoiceoverRequest>;
 
 /** `DELETE /compositions/:id/sound/voiceover?baseVersion=` body-less; query parsed with this. */
 export const SoundRemoveVoiceoverQuery = z.object({ baseVersion: z.coerce.number().int().min(1) });
+
+/**
+ * Viewers of a posted video never see the Studio, so when its narration is an external TTS voice
+ * (`external_tts`) the post's caption carries this line (OpenAI's guidance: tell listeners the speech
+ * is AI-generated). Added once, at the end, by post creation and by the export package's copy files.
+ */
+export const AI_VOICE_CAPTION_LINE = "Voiceover: AI-generated voice.";
+
+/** The caption with the AI-voice line added once (kept within `maxChars` when the channel has a limit: the line wins over the caption's tail). */
+export function withAiVoiceLine(caption: string, maxChars?: number): string {
+  const text = caption.trimEnd();
+  if (text.toLowerCase().includes(AI_VOICE_CAPTION_LINE.toLowerCase())) return caption;
+  const joiner = text ? "\n\n" : "";
+  const full = `${text}${joiner}${AI_VOICE_CAPTION_LINE}`;
+  if (!maxChars || full.length <= maxChars) return full;
+  const room = maxChars - AI_VOICE_CAPTION_LINE.length - joiner.length - 1;
+  if (room <= 0) return AI_VOICE_CAPTION_LINE.slice(0, maxChars);
+  return `${text.slice(0, room).trimEnd()}…${joiner}${AI_VOICE_CAPTION_LINE}`;
+}

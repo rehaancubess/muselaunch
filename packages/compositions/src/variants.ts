@@ -12,6 +12,7 @@ const SAFE: Record<AspectRatio, CompositionDoc["safeZone"]> = {
   "4:5": { top: 0.05, bottom: 0.08, left: 0.05, right: 0.05 },
   "1:1": { top: 0.05, bottom: 0.06, left: 0.05, right: 0.05 },
   "16:9": { top: 0.06, bottom: 0.08, left: 0.05, right: 0.05 },
+  "9:19.5": { top: 0.05, bottom: 0.04, left: 0.06, right: 0.06 },
 };
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000;

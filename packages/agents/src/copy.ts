@@ -1,4 +1,4 @@
-import { Channel, CopyItemKind, type CopyPack, type CopyValidationIssue } from "@muselaunch/contracts";
+import { Channel, CopyItemKind, isTextDeliverable, TEXT_POST_CHANNELS, TEXT_POST_LIMITS, xWeightedLength, type CopyPack, type CopyValidationIssue } from "@muselaunch/contracts";
 import { AppError, toAppError, type JobContext, type JobResult } from "@muselaunch/platform";
 import { untrusted } from "@muselaunch/providers";
 import { z } from "zod";
@@ -47,14 +47,43 @@ const CopyOutput = z.object({
 });
 type CopyOutput = z.infer<typeof CopyOutput>;
 
-export function copyLimitProblems(packs: CopyOutput["packs"]): string[] {
+type TextChannel = (typeof TEXT_POST_CHANNELS)[number];
+const isTextChannel = (c: ChannelT): c is TextChannel => (TEXT_POST_CHANNELS as readonly string[]).includes(c);
+
+/**
+ * A text-only post (deliverable `text_post`): the items it is made of, and the longest each may be
+ * (the channel's copy limit, never above its text-post limit: X 280, Threads 500, LinkedIn 3000…).
+ * Reddit posts are a title and a body; every other channel posts one caption.
+ */
+export function textPostRules(channel: ChannelT): { kinds: Kind[]; limits: Partial<Record<Kind, number>> } | null {
+  if (!isTextChannel(channel)) return null;
+  const rules = CHANNEL_RULES[channel];
+  const cap = TEXT_POST_LIMITS[channel];
+  if (channel === "reddit") return { kinds: ["title", "description"], limits: { title: Math.min(rules?.limits.title ?? 300, cap), description: Math.min(rules?.limits.description ?? cap, cap) } };
+  return { kinds: ["caption"], limits: { caption: Math.min(rules?.limits.caption ?? cap, cap) } };
+}
+
+/**
+ * Characters a text counts for on a channel. X: its weighted count, as the publishing preflight
+ * measures it (links 23 characters, [APP_LINK] included; CJK and emoji 2).
+ */
+export function postLength(channel: ChannelT, text: string): number {
+  if (channel !== "x") return text.length;
+  return xWeightedLength(text.replace(/\[APP_LINK\]/g, "https://t.co/link"));
+}
+
+const limitOf = (channel: ChannelT, kind: Kind, textPost: boolean) => (textPost ? textPostRules(channel)?.limits[kind] : undefined) ?? CHANNEL_RULES[channel]?.limits[kind];
+
+export function copyLimitProblems(packs: CopyOutput["packs"], opts: { textPost?: boolean } = {}): string[] {
   const out: string[] = [];
   for (const p of packs) {
-    const rules = CHANNEL_RULES[p.channel];
     for (const it of p.items) {
-      const max = rules?.limits[it.kind];
-      if (max && it.text.length > max) out.push(`${p.channel} ${it.kind} is ${it.text.length} chars; limit ${max}.`);
+      const max = limitOf(p.channel, it.kind, !!opts.textPost);
+      const len = opts.textPost ? postLength(p.channel, it.text) : it.text.length;
+      if (max && len > max) out.push(`${p.channel} ${it.kind} is ${len} chars; limit ${max}.`);
     }
+    const tp = opts.textPost ? textPostRules(p.channel) : null;
+    if (tp) for (const k of tp.kinds) if (!p.items.some((it) => it.kind === k)) out.push(`${p.channel} text post needs a ${k}.`);
   }
   return out;
 }
@@ -78,12 +107,28 @@ export function readPackIssue(i: CopyValidationIssue): CopyValidationIssue & { k
   return { ...i, kind, quote, terms: terms.slice(0, 8) };
 }
 
-function limitIssuesOf(channel: ChannelT, items: { id: string; kind: Kind; text: string }[]): CopyValidationIssue[] {
+function limitIssuesOf(channel: ChannelT, items: { id: string; kind: Kind; text: string }[], textPost = false): CopyValidationIssue[] {
   return items.flatMap((it) => {
-    const max = CHANNEL_RULES[channel]?.limits[it.kind];
-    return max && it.text.length > max ? [{ itemId: it.id, kind: "limit" as const, issue: `Exceeds the ${channel} ${it.kind} limit (${it.text.length}/${max} characters)` }] : [];
+    const max = limitOf(channel, it.kind, textPost);
+    const len = textPost ? postLength(channel, it.text) : it.text.length;
+    return max && len > max ? [{ itemId: it.id, kind: "limit" as const, issue: `Exceeds the ${channel} ${it.kind} limit (${len}/${max} characters)` }] : [];
   });
 }
+
+/** The words of a text-only post as one text: the caption, or (Reddit) the title over the body. */
+export function textPostText(pack: Pick<CopyPack, "items">): string {
+  const caption = pack.items.find((it) => it.kind === "caption")?.text;
+  if (caption) return caption;
+  const title = pack.items.find((it) => it.kind === "title")?.text;
+  const body = pack.items.find((it) => it.kind === "description")?.text;
+  return [title, body].filter(Boolean).join("\n\n") || (pack.items[0]?.text ?? "");
+}
+
+const TEXT_POST_RULE = (channel: ChannelT) => {
+  const r = textPostRules(channel)!;
+  const words = channel === "x" ? " (a link or [APP_LINK] counts as 23)" : "";
+  return `- ${channel}: a TEXT-ONLY post (no image or video goes with it: the words stand on their own, never mention a video, "watch" or "swipe"). Items: ${r.kinds.join(" + ")} only. Limits: ${Object.entries(r.limits).map(([k, v]) => `${k} ≤ ${v} characters${k === "caption" ? words : ""}`).join(", ")}. ${channel === "x" ? "One post, not a thread; hook in the first words." : CHANNEL_RULES[channel]?.guide ?? ""}`;
+};
 
 const INSTRUCTIONS = `You are Muse Spark acting as MuseLaunch's copywriter. Write channel-native publishing copy for an indie app's campaign.
 
@@ -110,7 +155,9 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
   const variant = variantId ? await ws.collection("campaignVariants").getOrThrow(variantId) : null;
   if (variant && variant.campaignId !== campaignId) throw new AppError("BAD_REQUEST", "Variant does not belong to this campaign");
   const brief = campaign.briefId ? await ws.collection("campaignBriefs").get(campaign.briefId) : null;
-  const storyboard = variant?.storyboardId ? await ws.collection("storyboards").get(variant.storyboardId) : null;
+  // Create's text post (deliverable `text_post`): one post per channel that stands on its own.
+  const textPost = isTextDeliverable(campaign.deliverables[0]?.kind) && chans.every((c) => textPostRules(c));
+  const storyboard = !textPost && variant?.storyboardId ? await ws.collection("storyboards").get(variant.storyboardId) : null;
   const planned = plannedEngine(p, "copy.generate");
   const rec = await RunRecorder.start(ctx, { id: hashId("run", ctx.job.id), kind: "copywriting", model: planned.model, goal: `Copy for ${chans.join(", ")} — ${campaign.name}`, appId });
   try {
@@ -119,10 +166,11 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
       `Campaign: ${campaign.name} (goal: ${campaign.goal})${campaign.request ? `\nFounder's request: ${clip(campaign.request, 2000)}` : ""}`,
       brief ? `Brief: angle ${brief.angle} · USP ${brief.usp} · CTA "${brief.cta}"` : "",
       variant ? `Concept: ${variant.title} (${variant.angleType}) · Hook: ${variant.hook} · Key message: ${variant.keyMessage}` : "",
-      storyboard ? `Video scenes (text on screen): ${storyboard.scenes.map((s) => s.onScreenText).filter(Boolean).join(" / ")}` : "",
+      storyboard ? `${storyboard.format && storyboard.format !== "video" ? "Slides" : "Video scenes"} (text on screen): ${storyboard.scenes.map((s) => s.onScreenText).filter(Boolean).join(" / ")}` : "",
       memory.items.length ? `Team memory:\n${memory.summary}` : "",
       "Channels and rules:",
       ...chans.map((c) => {
+        if (textPost) return TEXT_POST_RULE(c);
         const r = CHANNEL_RULES[c];
         return `- ${c}: items ${(r?.kinds ?? ["caption"]).join(", ")}. Limits: ${Object.entries(r?.limits ?? { caption: 2200 }).map(([k, v]) => `${k} ≤ ${v}`).join(", ")}. ${r?.guide ?? ""}`;
       }),
@@ -134,15 +182,17 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
     await ctx.progress(20, `${planned.name} is writing copy`);
     let out = await sparkJson(p, rec, "copy.generate", { ctx: rec.callCtx("copy.generate"), instructions: INSTRUCTIONS, input, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
     await rec.modelStep(`Write channel copy (${engineName(out.model)})`, out, chans);
-    let packs = out.data.packs.filter((x) => chans.includes(x.channel));
-    let limits = copyLimitProblems(packs);
+    // A text post is only its own items (a stray hashtag or thread item would never be posted).
+    const keep = (xs: CopyOutput["packs"]) => xs.filter((x) => chans.includes(x.channel)).map((x) => (textPost ? { ...x, items: x.items.filter((it) => textPostRules(x.channel)!.kinds.includes(it.kind)) } : x));
+    let packs = keep(out.data.packs);
+    let limits = copyLimitProblems(packs, { textPost });
     const missing = chans.filter((c) => !packs.some((x) => x.channel === c));
     if (limits.length || missing.length) {
       const issues = [...limits, ...missing.map((m) => `Missing pack for ${m}.`)];
       out = await sparkJson(p, rec, "copy.generate", { ctx: rec.callCtx("copy.repair"), instructions: INSTRUCTIONS, input: `${input}\n\nFix these problems and return all packs again:\n${issues.map((x) => `- ${x}`).join("\n")}\n\nPrevious output:\n${JSON.stringify(out.data).slice(0, 15_000)}`, schema: CopyOutput, schemaName: "CopyPacks", maxOutputTokens: 8000, reasoningEffort: "low", cacheKey: "agents.copy" });
       await rec.modelStep(`Repair copy limits (${engineName(out.model)})`, out, issues);
-      packs = out.data.packs.filter((x) => chans.includes(x.channel));
-      limits = copyLimitProblems(packs);
+      packs = keep(out.data.packs);
+      limits = copyLimitProblems(packs, { textPost });
     }
     ctx.throwIfCancelled();
     await ctx.progress(70, "checking the facts");
@@ -153,7 +203,7 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
       if (!pack) continue;
       const items = pack.items.map((it, i) => ({ id: `${c}_${i + 1}`, kind: it.kind, text: it.text, claimIds: it.claimIds.filter((x) => verified.has(x)) }));
       const check = await validateClaims(p, { workspaceId: ctx.workspaceId, appId, jobId: ctx.job.id, agentRunId: rec.id, texts: items.map((it) => ({ id: it.id, text: it.text })), onFallback: fallbackTo(rec) });
-      const issues = [...check.issues.map(toPackIssue), ...limitIssuesOf(c, items)];
+      const issues = [...check.issues.map(toPackIssue), ...limitIssuesOf(c, items, textPost)];
       const { entity } = await ws.collection("copyPacks").createIfAbsent(
         {
           id: hashId("cpy", ctx.job.id, c),
@@ -173,7 +223,7 @@ export async function copyGenerateHandler(ctx: JobContext<"copy.generate">): Pro
     if (!created.length) throw new AppError("PROVIDER_ERROR", "No copy was produced for the requested channels", { retryable: true });
     await rec.step({ kind: "decision", title: `Claim validation: ${created.filter((x) => x.validation?.ok).length}/${created.length} packs clean`, output: created.map((x) => ({ channel: x.channel, issues: x.validation?.issues.length })) });
     await rec.finish("succeeded", { outputRefs: created.map((x) => ({ entity: "copyPacks", id: x.id })), memoryRefs: memory.items.map((m) => m.id) });
-    return { refs: [...created.map((x) => ({ entity: "copyPacks", id: x.id })), { entity: "agentRuns", id: rec.id }], data: { channels: created.map((x) => x.channel), issues: created.reduce((n, x) => n + (x.validation?.issues.length ?? 0), 0) } };
+    return { refs: [...created.map((x) => ({ entity: "copyPacks", id: x.id })), { entity: "agentRuns", id: rec.id }], data: { channels: created.map((x) => x.channel), issues: created.reduce((n, x) => n + (x.validation?.issues.length ?? 0), 0), ...(textPost ? { textPost: true } : {}) } };
   } catch (raw) {
     const err = toAppError(raw);
     await rec.finish(err.code === "CANCELLED" ? "cancelled" : "failed", { error: err.toInfo() }).catch(() => {});

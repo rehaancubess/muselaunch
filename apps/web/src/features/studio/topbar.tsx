@@ -31,6 +31,7 @@ import { useJob } from "@/lib/jobs";
 import { useApiQuery } from "@/lib/query";
 import { routes } from "@/lib/routes";
 import { HooksDialog } from "./hooks-dialog";
+import { stillNoun } from "./stills";
 import { useVersions } from "./use-studio";
 import type { Composition, CompositionResponse, LintIssue, RenderResponse } from "./types";
 
@@ -67,6 +68,7 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
   const [block, setBlock] = useState<ReviewBrief | null>(null);
   const errors = data.lint.filter((i) => i.level === "error");
   const isVideo = data.version.doc.kind === "video";
+  const slides = data.version.doc.scenes.length;
   const last = data.lastRender;
   const start = async (overrideReason?: string) => {
     setSubmitting(true);
@@ -100,8 +102,8 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
           </Button>
         )
       }
-      title="Render video"
-      description={`Version ${data.composition.currentVersion} · ${data.version.doc.aspectRatio} · ${Math.round(data.durationSec * 10) / 10}s`}
+      title={isVideo ? "Render video" : slides > 1 ? "Finish the slides" : "Finish the image"}
+      description={isVideo ? `Version ${data.composition.currentVersion} · ${data.version.doc.aspectRatio} · ${Math.round(data.durationSec * 10) / 10}s` : `Version ${data.composition.currentVersion} · ${data.version.doc.aspectRatio} · ${slides} ${slides === 1 ? "image" : "slides"} at ${data.version.doc.width}×${data.version.doc.height}`}
       footer={
         job || block ? (
           <Button variant="secondary" onClick={() => setOpen(false)}>
@@ -113,7 +115,7 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
               Cancel
             </Button>
             <Button onClick={() => void start()} loading={submitting} disabled={quality === "final" && errors.length > 0}>
-              {quality === "final" ? "Render final" : "Render preview"}
+              {quality === "final" ? (isVideo ? "Render final" : slides > 1 ? `Make ${slides} images` : "Make the image") : "Render preview"}
             </Button>
           </>
         )
@@ -135,9 +137,16 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
               ]}
             />
             <p className="text-footnote text-ink-2">
-              {quality === "preview" ? "Half-resolution MP4 for checking motion and timing." : isVideo ? "Full-quality H.264 MP4 rendered with HyperFrames, ready to publish." : "One PNG per slide at full resolution."}
+              {quality === "preview" ? (isVideo ? "Half-resolution MP4 for checking motion and timing." : "Half-resolution images for a quick look.") : isVideo ? "Full-quality H.264 MP4 rendered with HyperFrames, ready to publish." : `One PNG per slide at ${data.version.doc.width}×${data.version.doc.height}, rendered with HyperFrames.`}
             </p>
-            {quality === "final" ? (
+            {quality === "final" && !isVideo ? (
+              <CostEstimate
+                operation="render.final"
+                params={{ slides }}
+                fetchEstimate={(req) => api.post<EstimateResponse>(wsPath(workspaceId, "/estimate"), req)}
+                note="Charged per started 4 slides. Unused credits return if the render fails or is cancelled; making an unchanged version again is free."
+              />
+            ) : quality === "final" ? (
               <CostEstimate
                 operation="render.final"
                 params={{ durationSec: data.durationSec }}
@@ -161,10 +170,10 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
           <JobBlock
             workspaceId={workspaceId}
             job={job}
-            title={quality === "final" ? "Rendering final video" : "Rendering preview"}
+            title={quality === "final" ? (isVideo ? "Rendering final video" : `Making the ${stillNoun(data.version.doc)}`) : "Rendering preview"}
             onDone={(j) => {
               onRendered();
-              if (j.status === "succeeded") toast.success(quality === "final" ? "Final render ready" : "Preview render ready");
+              if (j.status === "succeeded") toast.success(quality === "final" ? (isVideo ? "Final render ready" : "Your images are ready") : "Preview render ready");
             }}
           />
         )}
@@ -176,7 +185,7 @@ export function RenderDialog({ workspaceId, base, data, onRendered, trigger }: {
               </p>
               <p className="text-caption text-ink-2">
                 {last.asset.width && last.asset.height ? `${last.asset.width}×${last.asset.height} · ` : ""}
-                {last.asset.durationSec ? `${Math.round(last.asset.durationSec * 10) / 10}s · ` : ""}
+                {isVideo && last.asset.durationSec ? `${Math.round(last.asset.durationSec * 10) / 10}s · ` : ""}
                 {rel(last.at)}
               </p>
             </div>
@@ -522,8 +531,16 @@ export function StudioTopbar({
         {saving ? <Spinner size={14} label="Saving" /> : null}
       </div>
       <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5">
-        <AspectSwitch workspaceId={workspaceId} appId={appId} base={base} composition={c} />
-        <span className="mx-1 hidden h-5 w-px bg-line sm:block" aria-hidden />
+        {data.version.doc.kind === "video" ? (
+          <>
+            <AspectSwitch workspaceId={workspaceId} appId={appId} base={base} composition={c} />
+            <span className="mx-1 hidden h-5 w-px bg-line sm:block" aria-hidden />
+          </>
+        ) : (
+          <Badge tone="neutral">
+            {data.version.doc.scenes.length} {data.version.doc.scenes.length === 1 ? "image" : "slides"} · {data.version.doc.aspectRatio}
+          </Badge>
+        )}
         <Tooltip content="Undo (⌘Z)">
           <IconButton label="Undo" onClick={onUndo} disabled={data.version.parentVersion === null || saving}>
             <Undo2 className="size-[18px]" aria-hidden />
@@ -537,7 +554,7 @@ export function StudioTopbar({
         <VersionsPopover base={base} current={c.currentVersion} onRestore={onRestore} />
         <IssuesPopover lint={data.lint} onSelect={onSelectIssue} />
         {data.version.doc.kind === "video" ? <HooksDialog workspaceId={workspaceId} appId={appId} base={base} composition={c} /> : null}
-        <AudienceDialog workspaceId={workspaceId} appId={appId} base={base} />
+        {data.version.doc.kind === "video" ? <AudienceDialog workspaceId={workspaceId} appId={appId} base={base} /> : null}
         {c.campaignId ? <ExportDialog workspaceId={workspaceId} campaignId={c.campaignId} /> : null}
         <RenderDialog workspaceId={workspaceId} base={base} data={data} onRendered={onRendered} />
       </div>

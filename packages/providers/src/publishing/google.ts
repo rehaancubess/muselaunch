@@ -71,6 +71,9 @@ function googleOAuth(scopes: string[], identity: OAuthSpec["identity"]): OAuthSp
 // ---------------------------------------------------------------------------
 
 export const YOUTUBE_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos";
+/** thumbnails.set (media upload, image/jpeg or image/png): https://developers.google.com/youtube/v3/docs/thumbnails/set */
+export const YOUTUBE_THUMBNAIL_URL = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+const YT_THUMBNAIL_TYPES = ["image/jpeg", "image/png"];
 export const YOUTUBE_CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
 /** youtube.readonly also lets Insights read the stats of the channel's videos; yt-analytics.readonly adds watch time, shares and subscribers (YouTube Analytics API). */
 const YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/yt-analytics.readonly"];
@@ -121,7 +124,52 @@ function youtubeResult(video: Record<string, any>, req: PublishRequest): Publish
   };
 }
 
+/**
+ * Custom thumbnail after the upload. The video is already on YouTube at this point, so a refused
+ * thumbnail never fails the publish: it's recorded on the receipt with what to do (e.g. YouTube only
+ * lets verified channels set custom thumbnails). Set once per post (resume state).
+ */
+async function withThumbnail(result: PublishResult, req: PublishRequest, ctx: PublishContext): Promise<PublishResult> {
+  const thumb = req.thumbnail;
+  if (!thumb) return result;
+  if (ctx.state.youtubeThumbnailSet) return { ...result, receipt: { ...result.receipt, thumbnail: "set" } };
+  const notes = [...(result.notes ?? [])];
+  if (!YT_THUMBNAIL_TYPES.includes(thumb.mimeType.toLowerCase())) {
+    notes.push("The cover image wasn't set: YouTube takes JPEG or PNG thumbnails. Set it in YouTube Studio.");
+    return { ...result, notes, receipt: { ...result.receipt, thumbnail: "skipped" } };
+  }
+  try {
+    const bytes = await thumb.read();
+    const res = await ctx.http.request(YOUTUBE_THUMBNAIL_URL, {
+      op: "thumbnails.set",
+      method: "POST",
+      query: { videoId: result.remoteId, uploadType: "media" },
+      bearer: ctx.tokens.accessToken,
+      headers: { "content-type": thumb.mimeType },
+      body: bytes,
+      signal: ctx.signal,
+    });
+    await ctx.saveState({ youtubeThumbnailSet: true });
+    const items = res.json<{ items?: Record<string, { url?: string }>[] }>().items;
+    return { ...result, receipt: { ...result.receipt, thumbnail: "set", thumbnailUrl: items?.[0]?.maxres?.url ?? items?.[0]?.high?.url ?? items?.[0]?.default?.url } };
+  } catch (raw) {
+    const err = raw as AppError;
+    const status = (err.opts?.details as { status?: number } | undefined)?.status;
+    notes.push(
+      status === 403
+        ? "The video is up, but YouTube didn't accept the cover image: custom thumbnails need a verified channel (youtube.com/verify). Set it in YouTube Studio."
+        : `The video is up, but the cover image wasn't set (${err.message.slice(0, 200)}). Set it in YouTube Studio.`,
+    );
+    return { ...result, notes, receipt: { ...result.receipt, thumbnail: "failed" } };
+  }
+}
+
 async function youtubePublish(req: PublishRequest, ctx: PublishContext): Promise<PublishResult> {
+  return withThumbnail(await youtubeUpload(req, ctx), req, ctx);
+}
+
+async function youtubeUpload(req: PublishRequest, ctx: PublishContext): Promise<PublishResult> {
+  if (req.items?.length) throw new AppError("VALIDATION_FAILED", "YouTube's API only uploads videos", { userMessage: "YouTube's API only uploads videos, so image posts on YouTube are made by hand." });
   if (!req.media || req.media.kind !== "video") throw new AppError("VALIDATION_FAILED", "YouTube publishing needs a rendered video");
   const media = req.media;
   const { http, tokens } = ctx;
@@ -185,7 +233,20 @@ export const youtubeAdapter: ProviderAdapter = {
       "Google OAuth client with YouTube Data API v3 and YouTube Analytics API enabled. While the consent screen is in Testing, only listed test users (max 100) can connect and refresh tokens expire after 7 days; the YouTube scopes (upload, readonly, yt-analytics.readonly) need Google OAuth verification for public use. videos.insert has a default limit of 100 calls/day per project.",
     docsUrl: "https://developers.google.com/youtube/v3/docs/videos/insert",
   },
-  accepts: { video: true, image: false, textOnly: false },
+  accepts: {
+    video: true,
+    image: false,
+    textOnly: false,
+    carousel: null,
+    imageMimeTypes: [],
+    thumbnail: true,
+    manualReason: {
+      text: "YouTube posts through the API are videos.",
+      image: "YouTube's API only uploads videos. To use this image as a video's cover, add it as the thumbnail of a YouTube video post.",
+      carousel: "YouTube's API only uploads videos, so image posts on YouTube are made by hand.",
+      mixed: "YouTube's API only uploads videos, so image posts on YouTube are made by hand.",
+    },
+  },
   oauth: googleOAuth(YT_SCOPES, async (tokens, http) => {
     const res = await http.request(YOUTUBE_CHANNELS_URL, { op: "channels.list", bearer: tokens.accessToken, query: { part: "snippet", mine: "true" } });
     const ch = res.json<{ items?: { id: string; snippet?: { title?: string; customUrl?: string } }[] }>().items?.[0];
@@ -233,7 +294,7 @@ export const gmailAdapter: ProviderAdapter = {
       "Uses the same Google OAuth client as YouTube with the Gmail API enabled. gmail.send is a restricted scope: Testing mode works for listed test users; public use needs Google verification (and may need a security assessment).",
     docsUrl: "https://developers.google.com/gmail/api/reference/rest/v1/users.messages/send",
   },
-  accepts: { video: false, image: false, textOnly: true },
+  accepts: { video: false, image: false, textOnly: true, carousel: null, imageMimeTypes: [], thumbnail: false },
   oauth: googleOAuth(["openid", "email", "https://www.googleapis.com/auth/gmail.send"], async (tokens, http) => {
     const res = await http.request(GOOGLE_USERINFO_URL, { op: "userinfo", bearer: tokens.accessToken });
     const u = res.json<{ sub: string; email?: string; email_verified?: boolean }>();

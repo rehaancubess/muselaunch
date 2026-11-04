@@ -12,7 +12,8 @@ import { createTrackedLink, destinationsFor } from "@/components/creator/tracked
 import type { ConnectionsResponse, PostView, SuggestedTimes } from "./types";
 
 const CHANNELS: Channel[] = ["youtube", "instagram", "tiktok", "linkedin", "x", "facebook", "threads", "reddit", "producthunt", "hackernews", "newsletter", "website", "other"];
-const PROVIDER_FOR: Partial<Record<Channel, string>> = { youtube: "youtube", instagram: "instagram", tiktok: "tiktok", linkedin: "linkedin", x: "x", facebook: "facebook" };
+/** The connection provider that posts to a channel through its API (the rest are posted by hand). */
+export const PROVIDER_FOR: Partial<Record<Channel, string>> = { youtube: "youtube", instagram: "instagram", tiktok: "tiktok", linkedin: "linkedin", x: "x", facebook: "facebook" };
 
 const toLocalInput = (iso: string) => {
   const d = new Date(iso);
@@ -25,7 +26,9 @@ const toLocalInput = (iso: string) => {
 function finalLabel(a: MediaAsset): string {
   const v = a.render?.version;
   if (!a.title) return `${a.render?.compositionId ?? a.id}${v ? ` v${v}` : ""}`;
-  return v && !new RegExp(`\\bv${v}\\b`).test(a.title) ? `${a.title} v${v}` : a.title;
+  // A still render's slide 1 stands for the whole set.
+  const title = a.kind === "image" ? a.title.replace(/\s+—\s+slide\s+1$/, " (images)") : a.title;
+  return v && !new RegExp(`\\bv${v}\\b`).test(title) ? `${title} v${v}` : title;
 }
 
 export function NewPostDialog({
@@ -84,7 +87,8 @@ export function NewPostDialog({
 
   const media = useMemo(() => {
     const items = (assets.data?.items ?? []).filter((a) => ["ready", "uploaded"].includes(a.status) && (a.kind === "video" || a.kind === "image") && a.role !== "preview" && a.role !== "mask");
-    const finals = items.filter((a) => a.role === "render" && a.render?.quality === "final" && (!campaignId || a.campaignId === campaignId || !a.campaignId));
+    // A still render's slides go together: list its first slide only ("Final render · Calm focus (6 slides)").
+    const finals = items.filter((a) => a.role === "render" && a.render?.quality === "final" && !(a.kind === "image" && a.labels.some((l) => /^slide:([2-9]|\d{2,})$/.test(l))) && (!campaignId || a.campaignId === campaignId || !a.campaignId));
     const others = items.filter((a) => a.role !== "render");
     return { finals, others };
   }, [assets.data, campaignId]);
@@ -115,12 +119,12 @@ export function NewPostDialog({
         const campaignName = campaigns.data?.items.find((c) => c.id === campaignId)?.name;
         trackingLinkId = (await createTrackedLink(workspaceId, campaignId, { destination: linkDests[0].value, channel, campaignName })).link.id;
       }
+      // A final render: the composition (the server takes every slide of a still render, in order); other media as is.
+      const fromRender = Boolean(chosen?.render?.compositionId && chosen.role === "render");
       const r = await api.post<PostView>(wsPath(workspaceId, `/apps/${appId}/posts`), {
         campaignId,
         trackingLinkId,
-        assetIds: [assetId],
-        compositionId: chosen?.render?.compositionId,
-        compositionVersion: chosen?.render?.version,
+        ...(fromRender ? { compositionId: chosen!.render!.compositionId, compositionVersion: chosen!.render!.version } : { assetIds: [assetId] }),
         copyPackId: copyPackId || undefined,
         channel,
         accountId: accountId || undefined,

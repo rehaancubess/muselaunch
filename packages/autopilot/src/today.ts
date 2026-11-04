@@ -69,6 +69,8 @@ export async function today(p: Platform, wid: string, member: Member, appId: str
   for (const post of shown) {
     const media = post.assetIds.map((id) => assetById.get(id)).filter((a): a is MediaAsset => Boolean(a));
     const main = media.find((a) => a.kind === "video") ?? media.find((a) => a.kind === "image");
+    // A carousel / store set: every slide, in posting order (no video among them).
+    const images = main?.kind === "image" ? media.filter((a) => a.kind === "image") : [];
     const comp = post.compositionId ? compById.get(post.compositionId) : undefined;
     const link = post.trackingLinkId ? linkById.get(post.trackingLinkId) : undefined;
     const url = link ? trackedLinkUrl(p.cfg, link.slug) : undefined;
@@ -93,6 +95,7 @@ export async function today(p: Platform, wid: string, member: Member, appId: str
       account: account ? { name: clip(account.displayName, 200), status: account.status } : null,
       manualReason: why ? clip(why, 500) : undefined,
       video: main ? { assetId: main.id, posterAssetId: main.posterAssetId, kind: main.kind === "video" ? "video" : "image", durationSec: main.durationSec, width: main.width, height: main.height } : null,
+      ...(images.length > 1 ? { images: images.slice(0, 20).map((a) => ({ assetId: a.id, width: a.width, height: a.height })) } : {}),
       compositionId: post.compositionId,
       compositionTitle: comp ? clip(comp.title, 200) : undefined,
       compositionVersion: post.compositionVersion,
